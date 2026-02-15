@@ -1,0 +1,64 @@
+/* Tailwind v4 import */
+@import "tailwindcss";
+
+/* Enable class-based dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ===============================
+   THEME VARIABLES
+   =============================== */
+@theme {
+  --color-primary: #4f46e5;       /* Indigo-600 */
+  --color-primary-hover: #4338ca; /* Indigo-700 */
+  --color-bg-light: #f9fafb;      /* gray-50 */
+  --color-bg-dark: #111827;       /* gray-900 */
+  --color-card-dark: #1f2937;     /* gray-800 */
+}
+
+/* ===============================
+   GLOBAL BASE STYLES
+   =============================== */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Smooth theme transition */
+* {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ===============================
+   SCROLLBAR (Optional polish)
+   =============================== */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 6px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+/* ===============================
+   ANIMATION (Dropdowns)
+   =============================== */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
