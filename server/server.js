@@ -14,8 +14,21 @@ const dns = require("dns");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const { Server } = require("socket.io");
-const locationRoutes = require("./routes/locationRoutes");
-const connectDB = require("./config/db");
+
+// absolute path helper
+const root = __dirname;
+
+// ROUTES (absolute paths fix Render issues)
+const authRoutes = require(path.join(root, "routes/authRoutes"));
+const driverRoutes = require(path.join(root, "routes/driverRoutes"));
+const adminRoutes = require(path.join(root, "routes/adminRoutes"));
+const rideRoutes = require(path.join(root, "routes/rideRoutes"));
+const supportRoutes = require(path.join(root, "routes/supportRoutes"));
+const paymentRoutes = require(path.join(root, "routes/paymentRoutes"));
+const locationRoutes = require(path.join(root, "routes/locationRoutes"));
+const webhookRoutes = require(path.join(root, "routes/webhookRoutes"));
+
+const connectDB = require(path.join(root, "config/db"));
 
 // ======================================================
 // VERIFY ENV VARIABLES
@@ -36,7 +49,6 @@ requiredEnv.forEach(key => {
 });
 
 console.log("✅ ENV Loaded");
-console.log("📧 Email:", process.env.EMAIL);
 
 // ======================================================
 // FIX MONGODB DNS (Atlas fix)
@@ -47,7 +59,7 @@ dns.setDefaultResultOrder("ipv4first");
 // CONNECT DATABASE
 // ======================================================
 connectDB()
-  .then(() => console.log("✅ MongoDB Connected Successfully"))
+  .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => {
     console.error("❌ MongoDB connection failed:", err.message);
     process.exit(1);
@@ -61,12 +73,16 @@ const app = express();
 // ======================================================
 // SECURITY + MIDDLEWARE
 // ======================================================
+app.use(helmet());
+
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: [
+    "http://localhost:5173",
+    process.env.FRONTEND_URL
+  ],
   credentials: true
 }));
 
-app.use(helmet());
 app.use(morgan("dev"));
 
 // ======================================================
@@ -75,7 +91,7 @@ app.use(morgan("dev"));
 app.use(
   "/api/webhook",
   express.raw({ type: "application/json" }),
-  require("./routes/webhookRoutes")
+  webhookRoutes
 );
 
 // ======================================================
@@ -86,17 +102,7 @@ app.use(express.json());
 // ======================================================
 // STATIC FILES
 // ======================================================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-// ======================================================
-// ROUTES IMPORT
-// ======================================================
-const authRoutes = require("./routes/authRoutes");
-const driverRoutes = require("./routes/driverRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const rideRoutes = require("./routes/rideRoutes");
-const supportRoutes = require("./routes/supportRoutes");
-const paymentRoutes = require("./routes/paymentRoutes");
+app.use("/uploads", express.static(path.join(root, "uploads")));
 
 // ======================================================
 // REQUEST LOGGER
@@ -112,10 +118,13 @@ app.use((req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/ride", rideRoutes);   // ✅ RIDE ROUTES ACTIVE
+app.use("/api/ride", rideRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/location", locationRoutes);
+
+// DEBUG ROUTE CHECK
+console.log("✅ All routes mounted successfully");
 
 // ======================================================
 // HEALTH CHECK
@@ -156,7 +165,10 @@ const server = http.createServer(app);
 // ======================================================
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",
+      process.env.FRONTEND_URL
+    ],
     methods: ["GET", "POST"]
   }
 });
