@@ -3,7 +3,6 @@
 // ======================================================
 require("dotenv").config();
 
-
 // ======================================================
 // IMPORTS
 // ======================================================
@@ -15,9 +14,8 @@ const dns = require("dns");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const { Server } = require("socket.io");
-
+const locationRoutes = require("./routes/locationRoutes");
 const connectDB = require("./config/db");
-
 
 // ======================================================
 // VERIFY ENV VARIABLES
@@ -40,12 +38,10 @@ requiredEnv.forEach(key => {
 console.log("✅ ENV Loaded");
 console.log("📧 Email:", process.env.EMAIL);
 
-
 // ======================================================
 // FIX MONGODB DNS (Atlas fix)
 // ======================================================
 dns.setDefaultResultOrder("ipv4first");
-
 
 // ======================================================
 // CONNECT DATABASE
@@ -57,23 +53,24 @@ connectDB()
     process.exit(1);
   });
 
-
 // ======================================================
 // INIT APP
 // ======================================================
 const app = express();
 
+// ======================================================
+// SECURITY + MIDDLEWARE
+// ======================================================
+app.use(cors({
+  origin: "http://localhost:5173",
+  credentials: true
+}));
 
-// ======================================================
-// SECURITY + BASIC MIDDLEWARE
-// ======================================================
-app.use(cors());
 app.use(helmet());
 app.use(morgan("dev"));
 
-
 // ======================================================
-// ⚠️ STRIPE WEBHOOK ROUTE (MUST BE BEFORE JSON)
+// STRIPE WEBHOOK (RAW BODY REQUIRED)
 // ======================================================
 app.use(
   "/api/webhook",
@@ -81,18 +78,15 @@ app.use(
   require("./routes/webhookRoutes")
 );
 
-
 // ======================================================
-// JSON PARSER FOR NORMAL ROUTES
+// JSON PARSER
 // ======================================================
 app.use(express.json());
-
 
 // ======================================================
 // STATIC FILES
 // ======================================================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
 
 // ======================================================
 // ROUTES IMPORT
@@ -104,6 +98,13 @@ const rideRoutes = require("./routes/rideRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 
+// ======================================================
+// REQUEST LOGGER
+// ======================================================
+app.use((req, res, next) => {
+  console.log(`➡️ ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 // ======================================================
 // API ROUTES
@@ -111,18 +112,17 @@ const paymentRoutes = require("./routes/paymentRoutes");
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/ride", rideRoutes);
+app.use("/api/ride", rideRoutes);   // ✅ RIDE ROUTES ACTIVE
 app.use("/api/support", supportRoutes);
 app.use("/api/payment", paymentRoutes);
-
+app.use("/api/location", locationRoutes);
 
 // ======================================================
-// ROOT ROUTE
+// HEALTH CHECK
 // ======================================================
 app.get("/", (req, res) => {
   res.send("🚀 TransportX API running...");
 });
-
 
 // ======================================================
 // 404 HANDLER
@@ -130,10 +130,9 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: "Route not found"
+    message: `Route not found: ${req.originalUrl}`
   });
 });
-
 
 // ======================================================
 // GLOBAL ERROR HANDLER
@@ -147,15 +146,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-
 // ======================================================
 // CREATE HTTP SERVER
 // ======================================================
 const server = http.createServer(app);
 
-
 // ======================================================
-// SOCKET.IO SETUP
+// SOCKET.IO
 // ======================================================
 const io = new Server(server, {
   cors: {
@@ -164,10 +161,6 @@ const io = new Server(server, {
   }
 });
 
-
-// ======================================================
-// SOCKET EVENTS
-// ======================================================
 io.on("connection", (socket) => {
   console.log("🟢 Socket connected:", socket.id);
 
@@ -180,7 +173,6 @@ io.on("connection", (socket) => {
   });
 });
 
-
 // ======================================================
 // CRASH HANDLERS
 // ======================================================
@@ -191,7 +183,6 @@ process.on("uncaughtException", err => {
 process.on("unhandledRejection", err => {
   console.error("💥 UNHANDLED PROMISE:", err);
 });
-
 
 // ======================================================
 // START SERVER

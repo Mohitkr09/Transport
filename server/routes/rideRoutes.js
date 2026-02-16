@@ -9,19 +9,13 @@ const {
 
 const { protect } = require("../middleware/authMiddleware");
 
-// =======================
-// User requests ride (JWT protected)
-// =======================
+// CREATE RIDE
 router.post("/create", protect, createRide);
 
-// =======================
-// Driver accepts ride
-// =======================
+// ACCEPT RIDE
 router.put("/accept/:id", protect, acceptRide);
 
-// =======================
-// Complete ride
-// =======================
+// COMPLETE RIDE
 router.put("/complete/:id", protect, completeRide);
 
 module.exports = router;

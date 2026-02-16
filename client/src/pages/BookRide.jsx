@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   MapContainer,
@@ -7,10 +7,20 @@ import {
   Polyline,
   useMap
 } from "react-leaflet";
-import io from "socket.io-client";
+import { useNavigate } from "react-router-dom";
+import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 
-// 🚗 Vehicle images
+// ================= CONFIG =================
+const API =
+  import.meta.env.VITE_API_URL ||
+  "https://transport-mpb5.onrender.com/api";
+
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL ||
+  "https://transport-mpb5.onrender.com";
+
+// ================= VEHICLES =================
 import bikeImg from "../assets/services/bike.png";
 import autoImg from "../assets/services/auto.png";
 import autoShareImg from "../assets/services/auto-share.png";
@@ -18,25 +28,6 @@ import parcelImg from "../assets/services/parcel.png";
 import cabEcoImg from "../assets/services/cab-economy.png";
 import cabPremiumImg from "../assets/services/cab-premium.png";
 
-// 🔌 Socket
-const socket = io("http://localhost:5000", {
-  transports: ["websocket"]
-});
-
-// ===============================
-// Auto-fit map to route
-// ===============================
-const FitBounds = ({ route }) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (route.length > 0) map.fitBounds(route);
-  }, [route, map]);
-
-  return null;
-};
-
-// 🚘 Services list
 const vehicles = [
   { id: "bike", label: "Bike", img: bikeImg },
   { id: "auto", label: "Auto", img: autoImg },
@@ -46,84 +37,159 @@ const vehicles = [
   { id: "cab-premium", label: "Cab Premium", img: cabPremiumImg }
 ];
 
+// ================= MAP FIT =================
+const FitBounds = ({ route }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (route.length) map.fitBounds(route, { padding: [50, 50] });
+  }, [route]);
+  return null;
+};
+
 const BookRide = () => {
+  const navigate = useNavigate();
+  const token = localStorage.getItem("token");
+  const socketRef = useRef(null);
+
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
   const [vehicleType, setVehicleType] = useState("auto");
-  const [message, setMessage] = useState("");
 
   const [pickupCoords, setPickupCoords] = useState(null);
   const [dropCoords, setDropCoords] = useState(null);
+
   const [route, setRoute] = useState([]);
-
-  const [pickupSuggestions, setPickupSuggestions] = useState([]);
-  const [dropSuggestions, setDropSuggestions] = useState([]);
-
   const [distance, setDistance] = useState(null);
   const [duration, setDuration] = useState(null);
   const [fare, setFare] = useState(null);
 
+  const [pickupSuggestions, setPickupSuggestions] = useState([]);
+  const [dropSuggestions, setDropSuggestions] = useState([]);
+
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
   const [driverPosition, setDriverPosition] = useState(null);
 
-  // ===============================
-  // SOCKET LISTENER
-  // ===============================
+  const debounceRef = useRef(null);
+  const cancelToken = useRef(null);
+
+  // ================= SOCKET =================
   useEffect(() => {
-    socket.on("receiveLocation", (data) => {
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5
+    });
+
+    socketRef.current.on("receiveLocation", (data) => {
       setDriverPosition([data.lat, data.lng]);
     });
 
-    return () => socket.off("receiveLocation");
+    return () => socketRef.current.disconnect();
   }, []);
 
-  // ===============================
-  // PLACE SEARCH
-  // ===============================
-  const fetchSuggestions = async (query, setter) => {
+  // ================= SEARCH API (BACKEND PROXY) =================
+  const fetchSuggestions = (query, setter) => {
     if (!query || query.length < 3) return setter([]);
 
-    const res = await axios.get(
-      "https://nominatim.openstreetmap.org/search",
-      { params: { q: query, format: "json", limit: 5 } }
-    );
+    clearTimeout(debounceRef.current);
 
-    setter(res.data);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        if (cancelToken.current) cancelToken.current.cancel();
+
+        cancelToken.current = axios.CancelToken.source();
+
+        const res = await axios.get(
+          `${API}/location/search?q=${query}`,
+          { cancelToken: cancelToken.current.token }
+        );
+
+        setter(res.data);
+      } catch {
+        setter([]);
+      }
+    }, 400);
   };
 
-  // ===============================
-  // ROUTE
-  // ===============================
+  // ================= ROUTE =================
   const drawRoute = async (start, end) => {
-    const res = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}`,
-      { params: { overview: "full", geometries: "geojson" } }
-    );
+    try {
+      const res = await axios.get(
+        `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}`,
+        { params: { overview: "full", geometries: "geojson" } }
+      );
 
-    const data = res.data.routes[0];
-    if (!data) return;
+      const data = res.data.routes[0];
+      if (!data) return null;
 
-    const coords = data.geometry.coordinates.map(
-      ([lng, lat]) => [lat, lng]
-    );
+      const coords = data.geometry.coordinates.map(
+        ([lng, lat]) => [lat, lng]
+      );
 
-    setRoute(coords);
-    setDistance((data.distance / 1000).toFixed(2));
-    setDuration((data.duration / 60).toFixed(1));
-    setFare(Math.round((data.distance / 1000) * 12));
-  };
+      setRoute(coords);
 
-  const handleBookRide = async () => {
-    if (!pickupCoords || !dropCoords) {
-      setMessage("❌ Select pickup & drop from suggestions");
-      return;
+      const dist = (data.distance / 1000).toFixed(2);
+      const dur = (data.duration / 60).toFixed(1);
+      const price = Math.round((data.distance / 1000) * 12);
+
+      setDistance(dist);
+      setDuration(dur);
+      setFare(price);
+
+      return true;
+    } catch {
+      return false;
     }
-
-    await drawRoute(pickupCoords, dropCoords);
-    setMessage("✅ Route calculated & waiting for driver 🚕");
   };
 
+  // ================= BOOK =================
+  const handleBookRide = async () => {
+    if (loading) return;
+
+    if (!pickupCoords || !dropCoords)
+      return setMessage("❌ Select locations from suggestions");
+
+    try {
+      setLoading(true);
+      setMessage("Calculating route...");
+
+      const ok = await drawRoute(pickupCoords, dropCoords);
+      if (!ok) throw new Error("Route failed");
+
+      setMessage("Finding driver...");
+
+      const res = await axios.post(
+        `${API}/ride/create`,
+        {
+          pickupLocation: { address: pickup, ...pickupCoords },
+          dropLocation: { address: drop, ...dropCoords },
+          vehicleType
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const rideId = res.data?.ride?._id;
+      if (!rideId) throw new Error("Ride creation failed");
+
+      setMessage("✅ Driver found! Redirecting...");
+
+      setTimeout(() => navigate(`/payment/${rideId}`), 1200);
+
+    } catch (err) {
+      setMessage(
+        err.response?.data?.message ||
+        err.message ||
+        "Booking failed"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================= UI =================
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-100 dark:bg-gray-900 transition">
+    <div className="min-h-screen flex flex-col md:flex-row bg-gray-100 dark:bg-gray-900">
 
       {/* LEFT */}
       <div className="w-full md:w-1/2 p-6 bg-white dark:bg-gray-800 shadow">
@@ -131,22 +197,22 @@ const BookRide = () => {
 
         {/* PICKUP */}
         <input
-          className="w-full p-3 rounded border dark:border-gray-700 bg-white dark:bg-gray-900"
+          className="w-full p-3 rounded border"
           placeholder="Pickup location"
           value={pickup}
-          onChange={(e) => {
+          onChange={(e)=>{
             setPickup(e.target.value);
-            fetchSuggestions(e.target.value, setPickupSuggestions);
+            fetchSuggestions(e.target.value,setPickupSuggestions);
           }}
         />
 
-        {pickupSuggestions.map((p) => (
+        {pickupSuggestions.map(p=>(
           <div
             key={p.place_id}
-            className="p-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => {
+            className="p-2 cursor-pointer hover:bg-gray-100"
+            onClick={()=>{
               setPickup(p.display_name);
-              setPickupCoords({ lat: +p.lat, lng: +p.lon });
+              setPickupCoords({lat:+p.lat,lng:+p.lon});
               setPickupSuggestions([]);
             }}
           >
@@ -156,22 +222,22 @@ const BookRide = () => {
 
         {/* DROP */}
         <input
-          className="w-full p-3 mt-4 rounded border dark:border-gray-700 bg-white dark:bg-gray-900"
+          className="w-full p-3 mt-4 rounded border"
           placeholder="Drop location"
           value={drop}
-          onChange={(e) => {
+          onChange={(e)=>{
             setDrop(e.target.value);
-            fetchSuggestions(e.target.value, setDropSuggestions);
+            fetchSuggestions(e.target.value,setDropSuggestions);
           }}
         />
 
-        {dropSuggestions.map((p) => (
+        {dropSuggestions.map(p=>(
           <div
             key={p.place_id}
-            className="p-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => {
+            className="p-2 cursor-pointer hover:bg-gray-100"
+            onClick={()=>{
               setDrop(p.display_name);
-              setDropCoords({ lat: +p.lat, lng: +p.lon });
+              setDropCoords({lat:+p.lat,lng:+p.lon});
               setDropSuggestions([]);
             }}
           >
@@ -180,54 +246,59 @@ const BookRide = () => {
         ))}
 
         {/* VEHICLES */}
-        <h4 className="mt-4 mb-3 font-semibold">Our Services</h4>
+        <h4 className="mt-4 mb-3 font-semibold">Select Vehicle</h4>
 
-        <div className="grid grid-cols-3 md:grid-cols-3 gap-4">
-          {vehicles.map((v) => (
+        <div className="grid grid-cols-3 gap-4">
+          {vehicles.map(v=>(
             <div
               key={v.id}
-              onClick={() => setVehicleType(v.id)}
-              className={`cursor-pointer rounded-2xl p-4 flex flex-col items-center transition border
-                ${vehicleType === v.id
-                  ? "border-indigo-600 bg-indigo-50 dark:bg-gray-700"
-                  : "bg-gray-50 dark:bg-gray-900 hover:shadow"}`}
+              onClick={()=>setVehicleType(v.id)}
+              className={`cursor-pointer rounded-xl p-3 border text-center ${
+                vehicleType===v.id
+                  ?"border-indigo-600 bg-indigo-50"
+                  :"bg-gray-50"
+              }`}
             >
-              <img src={v.img} alt={v.label} className="h-30 mb-2" />
-              <p className="font-semibold">{v.label}</p>
+              <img src={v.img} className="h-16 mx-auto mb-2"/>
+              <p className="text-sm font-semibold">{v.label}</p>
             </div>
           ))}
         </div>
 
+        {/* BUTTON */}
         <button
           onClick={handleBookRide}
-          className="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-semibold"
+          disabled={loading}
+          className="w-full mt-6 bg-indigo-600 text-white py-3 rounded-xl"
         >
-          Show Route
+          {loading ? "Processing..." : "Book Ride & Pay"}
         </button>
 
         {distance && (
-          <div className="mt-4 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
-            <p>📏 Distance: <b>{distance} km</b></p>
-            <p>⏱ Duration: <b>{duration} mins</b></p>
-            <p>💰 Fare: <b>₹{fare}</b></p>
+          <div className="mt-4 p-4 bg-gray-100 rounded-lg">
+            <p>Distance: {distance} km</p>
+            <p>Duration: {duration} mins</p>
+            <p className="font-bold text-indigo-600">Fare: ₹{fare}</p>
           </div>
         )}
 
         {message && <p className="mt-3 font-semibold">{message}</p>}
       </div>
 
-      {/* RIGHT */}
+      {/* MAP */}
       <div className="w-full md:w-1/2 h-[400px] md:h-auto">
-        <MapContainer center={[23.0225, 72.5714]} zoom={6} className="h-full w-full">
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <MapContainer center={[23.0225,72.5714]} zoom={6} className="h-full w-full">
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
 
-          {pickupCoords && <Marker position={[pickupCoords.lat, pickupCoords.lng]} />}
-          {dropCoords && <Marker position={[dropCoords.lat, dropCoords.lng]} />}
-          {route.length > 0 && (
-            <Polyline positions={route} pathOptions={{ color: "#4f46e5", weight: 5 }} />
-          )}
-          {driverPosition && <Marker position={driverPosition} />}
-          <FitBounds route={route} />
+          {pickupCoords && <Marker position={[pickupCoords.lat,pickupCoords.lng]}/>}
+          {dropCoords && <Marker position={[dropCoords.lat,dropCoords.lng]}/>}
+          {driverPosition && <Marker position={driverPosition}/>}
+
+          {route.length>0 &&
+            <Polyline positions={route} pathOptions={{color:"#4f46e5",weight:5}}/>
+          }
+
+          <FitBounds route={route}/>
         </MapContainer>
       </div>
     </div>
