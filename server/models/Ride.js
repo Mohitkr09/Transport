@@ -1,162 +1,106 @@
 const mongoose = require("mongoose");
 
-const rideSchema = new mongoose.Schema(
-  {
-    // =========================
-    // USER
-    // =========================
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true
-    },
+const pointSchema = {
+  type: {
+    type: String,
+    enum: ["Point"],
+    default: "Point"
+  },
+  coordinates: {
+    type: [Number],
+    required: true
+  }
+};
 
-    // =========================
-    // DRIVER
-    // =========================
-    driver: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Driver",
-      default: null
-    },
+const rideSchema = new mongoose.Schema({
 
-    // =========================
-    // PICKUP LOCATION
-    // =========================
-    pickupLocation: {
-      address: { type: String, required: true },
-      lat: { type: Number, required: true },
-      lng: { type: Number, required: true }
-    },
-
-    // =========================
-    // DROP LOCATION
-    // =========================
-    dropLocation: {
-      address: { type: String, required: true },
-      lat: { type: Number, required: true },
-      lng: { type: Number, required: true }
-    },
-
-    // =========================
-    // VEHICLE TYPE
-    // =========================
-    vehicleType: {
-      type: String,
-      enum: ["bike", "auto", "car"],
-      required: true
-    },
-
-    // =========================
-    // DISTANCE + TIME
-    // =========================
-    distanceKm: {
-      type: Number,
-      default: 0
-    },
-
-    durationMin: {
-      type: Number,
-      default: 0
-    },
-
-    // =========================
-    // FARE
-    // =========================
-    fare: {
-      type: Number,
-      required: true
-    },
-
-    // =========================
-    // PAYMENT INFO
-    // =========================
-    paymentStatus: {
-      type: String,
-      enum: ["pending", "paid", "failed", "refunded"],
-      default: "pending"
-    },
-
-    paymentIntentId: String,
-    paymentMethod: String,
-
-    // =========================
-    // RIDE STATUS
-    // =========================
-    status: {
-      type: String,
-      enum: [
-        "requested",
-        "driver_assigned",
-        "accepted",
-        "ongoing",
-        "completed",
-        "cancelled"
-      ],
-      default: "requested",
-      index: true
-    },
-
-    // =========================
-    // STATUS TIMESTAMPS
-    // =========================
-    requestedAt: {
-      type: Date,
-      default: Date.now
-    },
-
-    acceptedAt: Date,
-    startedAt: Date,
-    completedAt: Date,
-    cancelledAt: Date,
-
-    // =========================
-    // DRIVER LIVE LOCATION
-    // =========================
-    driverLocation: {
-      lat: Number,
-      lng: Number,
-      updatedAt: Date
-    },
-
-    // =========================
-    // CANCELLATION INFO
-    // =========================
-    cancelledBy: {
-      type: String,
-      enum: ["user", "driver", "admin", null],
-      default: null
-    },
-
-    cancelReason: String
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true
   },
 
-  { timestamps: true }
-);
+  driver: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Driver",
+    default: null
+  },
 
-// =========================
-// INDEXES FOR PERFORMANCE
-// =========================
-rideSchema.index({ user: 1, createdAt: -1 });
-rideSchema.index({ driver: 1, status: 1 });
+  pickupLocation: {
+    address: String,
+    location: pointSchema
+  },
 
-// =========================
-// VIRTUAL FIELD
-// =========================
-rideSchema.virtual("isCompleted").get(function () {
-  return this.status === "completed";
-});
+  dropLocation: {
+    address: String,
+    location: pointSchema
+  },
 
-// =========================
-// JSON CLEANUP
-// =========================
-rideSchema.set("toJSON", {
-  virtuals: true,
-  transform: (_, ret) => {
-    delete ret.__v;
-    return ret;
-  }
-});
+  vehicleType: {
+    type: String,
+    enum: ["bike","auto","car"],
+    required: true
+  },
+
+  distanceKm: Number,
+  durationMin: Number,
+
+  fare: { type:Number, required:true },
+
+  paymentStatus:{
+    type:String,
+    enum:["pending","paid","failed","refunded"],
+    default:"pending"
+  },
+
+  paymentIntentId:{ type:String, select:false },
+
+  status:{
+    type:String,
+    enum:[
+      "requested",
+      "driver_assigned",
+      "accepted",
+      "ongoing",
+      "completed",
+      "cancelled"
+    ],
+    default:"requested",
+    index:true
+  },
+
+  requestedAt:{ type:Date, default:Date.now },
+  acceptedAt:Date,
+  startedAt:Date,
+  completedAt:Date,
+  cancelledAt:Date,
+
+  driverLocation:{
+    type:pointSchema,
+    updatedAt:Date
+  },
+
+  cancelledBy:{
+    type:String,
+    enum:["user","driver","admin",null],
+    default:null
+  },
+
+  cancelReason:String,
+
+  rating:Number,
+  feedback:String,
+  surgeMultiplier:Number,
+  estimatedArrivalMin:Number,
+  otp:Number,
+
+  isDeleted:{ type:Boolean, default:false }
+
+},{ timestamps:true });
+
+rideSchema.index({ user:1, createdAt:-1 });
+rideSchema.index({ driver:1, status:1 });
+rideSchema.index({ "pickupLocation.location":"2dsphere" });
 
 module.exports = mongoose.model("Ride", rideSchema);

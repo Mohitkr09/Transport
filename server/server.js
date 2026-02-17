@@ -104,17 +104,13 @@ app.use(express.json());
 // ======================================================
 app.use("/uploads", express.static(path.join(root, "uploads")));
 
-// ======================================================
-// REQUEST LOGGER
-// ======================================================
+
 app.use((req, res, next) => {
   console.log(`➡️ ${req.method} ${req.originalUrl}`);
   next();
 });
 
-// ======================================================
-// API ROUTES
-// ======================================================
+
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
@@ -126,9 +122,7 @@ app.use("/api/location", locationRoutes);
 // DEBUG ROUTE CHECK
 console.log("✅ All routes mounted successfully");
 
-// ======================================================
-// HEALTH CHECK
-// ======================================================
+
 app.get("/", (req, res) => {
   res.send("🚀 TransportX API running...");
 });
