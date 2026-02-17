@@ -32,6 +32,16 @@ router.put(
   asyncHandler(rideController.completeRide)
 );
 
+
+// TEMP TEST ROUTE
+router.post("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "POST route working",
+    body: req.body
+  });
+});
+
 // ================= HEALTH CHECK =================
 // useful for testing route mount
 router.get("/", (req, res) => {
