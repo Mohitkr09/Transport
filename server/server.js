@@ -18,7 +18,9 @@ const { Server } = require("socket.io");
 // absolute path helper
 const root = __dirname;
 
-// ROUTES (absolute paths fix Render issues)
+// ======================================================
+// ROUTES
+// ======================================================
 const authRoutes = require(path.join(root, "routes/authRoutes"));
 const driverRoutes = require(path.join(root, "routes/driverRoutes"));
 const adminRoutes = require(path.join(root, "routes/adminRoutes"));
@@ -79,7 +81,7 @@ app.use(cors({
   origin: [
     "http://localhost:5173",
     process.env.FRONTEND_URL
-  ],
+  ].filter(Boolean),
   credentials: true
 }));
 
@@ -104,13 +106,17 @@ app.use(express.json());
 // ======================================================
 app.use("/uploads", express.static(path.join(root, "uploads")));
 
-
+// ======================================================
+// REQUEST LOGGER
+// ======================================================
 app.use((req, res, next) => {
   console.log(`➡️ ${req.method} ${req.originalUrl}`);
   next();
 });
 
-
+// ======================================================
+// API ROUTES
+// ======================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
@@ -119,10 +125,11 @@ app.use("/api/support", supportRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/location", locationRoutes);
 
-// DEBUG ROUTE CHECK
 console.log("✅ All routes mounted successfully");
 
-
+// ======================================================
+// ROOT CHECK
+// ======================================================
 app.get("/", (req, res) => {
   res.send("🚀 TransportX API running...");
 });
@@ -162,7 +169,7 @@ const io = new Server(server, {
     origin: [
       "http://localhost:5173",
       process.env.FRONTEND_URL
-    ],
+    ].filter(Boolean),
     methods: ["GET", "POST"]
   }
 });

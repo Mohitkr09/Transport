@@ -20,7 +20,7 @@ const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
   "https://transport-mpb5.onrender.com";
 
-// axios instance (clean + reusable)
+// axios instance
 const api = axios.create({
   baseURL: API,
   withCredentials: true
@@ -37,10 +37,8 @@ import cabPremiumImg from "../assets/services/cab-premium.png";
 const vehicles = [
   { id: "bike", label: "Bike", img: bikeImg },
   { id: "auto", label: "Auto", img: autoImg },
-  { id: "auto-share", label: "Auto Share", img: autoShareImg },
-  { id: "parcel", label: "Parcel", img: parcelImg },
-  { id: "cab-economy", label: "Cab Economy", img: cabEcoImg },
-  { id: "cab-premium", label: "Cab Premium", img: cabPremiumImg }
+  { id: "car", label: "Cab Economy", img: cabEcoImg },
+  { id: "car-premium", label: "Cab Premium", img: cabPremiumImg }
 ];
 
 // ================= MAP FIT =================
@@ -94,7 +92,7 @@ const BookRide = () => {
     return () => socketRef.current.disconnect();
   }, []);
 
-  // ================= SEARCH API =================
+  // ================= SEARCH =================
   const fetchSuggestions = (query, setter) => {
     if (!query || query.length < 3) return setter([]);
 
@@ -152,12 +150,12 @@ const BookRide = () => {
     if (loading) return;
 
     if (!token) {
-      setMessage("❌ Please login first");
+      setMessage("Please login first");
       return;
     }
 
     if (!pickupCoords || !dropCoords) {
-      setMessage("❌ Select locations from suggestions");
+      setMessage("Select locations from suggestions");
       return;
     }
 
@@ -170,8 +168,9 @@ const BookRide = () => {
 
       setMessage("Finding driver...");
 
+      // ✅ FIXED ENDPOINT HERE
       const res = await api.post(
-        "/ride/create",
+        "/ride",
         {
           pickupLocation: { address: pickup, ...pickupCoords },
           dropLocation: { address: drop, ...dropCoords },
@@ -185,13 +184,12 @@ const BookRide = () => {
       const rideId = res.data?.ride?._id;
       if (!rideId) throw new Error("Ride creation failed");
 
-      setMessage("✅ Driver found! Redirecting...");
+      setMessage("Driver found! Redirecting...");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
       console.error(err);
-
       setMessage(
         err.response?.data?.message ||
         err.message ||
@@ -204,10 +202,10 @@ const BookRide = () => {
 
   // ================= UI =================
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-100 dark:bg-gray-900">
+    <div className="min-h-screen flex flex-col md:flex-row bg-gray-100">
 
       {/* LEFT */}
-      <div className="w-full md:w-1/2 p-6 bg-white dark:bg-gray-800 shadow">
+      <div className="w-full md:w-1/2 p-6 bg-white shadow">
         <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
 
         {/* PICKUP */}
