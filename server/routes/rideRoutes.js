@@ -5,12 +5,11 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect } = require("../middleware/authMiddleware");
 
-// ================= ASYNC WRAPPER =================
-// prevents server crash if controller throws error
+
 const asyncHandler = fn => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
-// ================= ROUTES =================
+
 
 // Create ride
 router.post(
@@ -42,5 +41,5 @@ router.get("/", (req, res) => {
   });
 });
 
-// ================= EXPORT =================
+
 module.exports = router;

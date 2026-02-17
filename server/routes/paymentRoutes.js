@@ -6,16 +6,12 @@ const { protect } = require("../middleware/authMiddleware");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ======================================================
-// CREATE CHECKOUT SESSION (SECURE VERSION)
-// ======================================================
+
 router.post("/create-checkout-session", protect, async (req, res) => {
   try {
     const { rideId } = req.body;
 
-    // ===============================
-    // Validate ride
-    // ===============================
+ 
     const ride = await Ride.findById(rideId);
 
     if (!ride) {

@@ -20,6 +20,12 @@ const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
   "https://transport-mpb5.onrender.com";
 
+// axios instance (clean + reusable)
+const api = axios.create({
+  baseURL: API,
+  withCredentials: true
+});
+
 // ================= VEHICLES =================
 import bikeImg from "../assets/services/bike.png";
 import autoImg from "../assets/services/auto.png";
@@ -48,8 +54,10 @@ const FitBounds = ({ route }) => {
 
 const BookRide = () => {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
   const socketRef = useRef(null);
+  const abortRef = useRef(null);
+
+  const token = localStorage.getItem("token");
 
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
@@ -71,24 +79,22 @@ const BookRide = () => {
   const [driverPosition, setDriverPosition] = useState(null);
 
   const debounceRef = useRef(null);
-  const cancelToken = useRef(null);
 
   // ================= SOCKET =================
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
       transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5
+      reconnection: true
     });
 
-    socketRef.current.on("receiveLocation", (data) => {
+    socketRef.current.on("receiveLocation", data => {
       setDriverPosition([data.lat, data.lng]);
     });
 
     return () => socketRef.current.disconnect();
   }, []);
 
-  // ================= SEARCH API (BACKEND PROXY) =================
+  // ================= SEARCH API =================
   const fetchSuggestions = (query, setter) => {
     if (!query || query.length < 3) return setter([]);
 
@@ -96,14 +102,12 @@ const BookRide = () => {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        if (cancelToken.current) cancelToken.current.cancel();
+        if (abortRef.current) abortRef.current.abort();
+        abortRef.current = new AbortController();
 
-        cancelToken.current = axios.CancelToken.source();
-
-        const res = await axios.get(
-          `${API}/location/search?q=${query}`,
-          { cancelToken: cancelToken.current.token }
-        );
+        const res = await api.get(`/location/search?q=${query}`, {
+          signal: abortRef.current.signal
+        });
 
         setter(res.data);
       } catch {
@@ -121,7 +125,7 @@ const BookRide = () => {
       );
 
       const data = res.data.routes[0];
-      if (!data) return null;
+      if (!data) return false;
 
       const coords = data.geometry.coordinates.map(
         ([lng, lat]) => [lat, lng]
@@ -147,26 +151,35 @@ const BookRide = () => {
   const handleBookRide = async () => {
     if (loading) return;
 
-    if (!pickupCoords || !dropCoords)
-      return setMessage("❌ Select locations from suggestions");
+    if (!token) {
+      setMessage("❌ Please login first");
+      return;
+    }
+
+    if (!pickupCoords || !dropCoords) {
+      setMessage("❌ Select locations from suggestions");
+      return;
+    }
 
     try {
       setLoading(true);
       setMessage("Calculating route...");
 
       const ok = await drawRoute(pickupCoords, dropCoords);
-      if (!ok) throw new Error("Route failed");
+      if (!ok) throw new Error("Route calculation failed");
 
       setMessage("Finding driver...");
 
-      const res = await axios.post(
-        `${API}/ride/create`,
+      const res = await api.post(
+        "/ride/create",
         {
           pickupLocation: { address: pickup, ...pickupCoords },
           dropLocation: { address: drop, ...dropCoords },
           vehicleType
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
       );
 
       const rideId = res.data?.ride?._id;
@@ -177,6 +190,8 @@ const BookRide = () => {
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
+      console.error(err);
+
       setMessage(
         err.response?.data?.message ||
         err.message ||
@@ -200,19 +215,19 @@ const BookRide = () => {
           className="w-full p-3 rounded border"
           placeholder="Pickup location"
           value={pickup}
-          onChange={(e)=>{
+          onChange={e => {
             setPickup(e.target.value);
-            fetchSuggestions(e.target.value,setPickupSuggestions);
+            fetchSuggestions(e.target.value, setPickupSuggestions);
           }}
         />
 
-        {pickupSuggestions.map(p=>(
+        {pickupSuggestions.map(p => (
           <div
             key={p.place_id}
             className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={()=>{
+            onClick={() => {
               setPickup(p.display_name);
-              setPickupCoords({lat:+p.lat,lng:+p.lon});
+              setPickupCoords({ lat: +p.lat, lng: +p.lon });
               setPickupSuggestions([]);
             }}
           >
@@ -225,19 +240,19 @@ const BookRide = () => {
           className="w-full p-3 mt-4 rounded border"
           placeholder="Drop location"
           value={drop}
-          onChange={(e)=>{
+          onChange={e => {
             setDrop(e.target.value);
-            fetchSuggestions(e.target.value,setDropSuggestions);
+            fetchSuggestions(e.target.value, setDropSuggestions);
           }}
         />
 
-        {dropSuggestions.map(p=>(
+        {dropSuggestions.map(p => (
           <div
             key={p.place_id}
             className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={()=>{
+            onClick={() => {
               setDrop(p.display_name);
-              setDropCoords({lat:+p.lat,lng:+p.lon});
+              setDropCoords({ lat: +p.lat, lng: +p.lon });
               setDropSuggestions([]);
             }}
           >
@@ -249,17 +264,17 @@ const BookRide = () => {
         <h4 className="mt-4 mb-3 font-semibold">Select Vehicle</h4>
 
         <div className="grid grid-cols-3 gap-4">
-          {vehicles.map(v=>(
+          {vehicles.map(v => (
             <div
               key={v.id}
-              onClick={()=>setVehicleType(v.id)}
+              onClick={() => setVehicleType(v.id)}
               className={`cursor-pointer rounded-xl p-3 border text-center ${
-                vehicleType===v.id
-                  ?"border-indigo-600 bg-indigo-50"
-                  :"bg-gray-50"
+                vehicleType === v.id
+                  ? "border-indigo-600 bg-indigo-50"
+                  : "bg-gray-50"
               }`}
             >
-              <img src={v.img} className="h-16 mx-auto mb-2"/>
+              <img src={v.img} className="h-16 mx-auto mb-2" />
               <p className="text-sm font-semibold">{v.label}</p>
             </div>
           ))}
