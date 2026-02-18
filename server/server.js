@@ -15,8 +15,6 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { Server } = require("socket.io");
 
-const root = __dirname;
-
 // ======================================================
 // ROUTES
 // ======================================================
@@ -32,11 +30,11 @@ const webhookRoutes = require("./routes/webhookRoutes");
 const connectDB = require("./config/db");
 
 // ======================================================
-// VERIFY ENV VARIABLES
+// VERIFY ENV
 // ======================================================
-["MONGO_URI","JWT_SECRET"].forEach(key=>{
-  if(!process.env[key]){
-    console.error(`❌ Missing ENV variable: ${key}`);
+["MONGO_URI", "JWT_SECRET"].forEach(key => {
+  if (!process.env[key]) {
+    console.error("❌ Missing ENV:", key);
     process.exit(1);
   }
 });
@@ -52,11 +50,11 @@ dns.setDefaultResultOrder("ipv4first");
 // CONNECT DATABASE
 // ======================================================
 connectDB()
-.then(()=>console.log("✅ MongoDB Connected"))
-.catch(err=>{
-  console.error("Mongo Error:",err.message);
-  process.exit(1);
-});
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch(err => {
+    console.error("DB Error:", err.message);
+    process.exit(1);
+  });
 
 // ======================================================
 // INIT APP
@@ -77,31 +75,33 @@ const allowedOrigins = [
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin))
-      return callback(null, true);
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
 
-    console.warn("Blocked CORS:", origin);
-    return callback(null, true); // allow for now
-  },
-  credentials: true
-}));
+      console.warn("⚠️ CORS blocked:", origin);
+      return cb(null, true); // allow temporarily
+    },
+    credentials: true
+  })
+);
 
 // ======================================================
-// LOGGER
+// LOGGING
 // ======================================================
 app.use(morgan("dev"));
 
-app.use((req,res,next)=>{
-  console.log("➡️",req.method,req.originalUrl);
+app.use((req, res, next) => {
+  console.log("➡️", req.method, req.originalUrl);
   next();
 });
 
 // ======================================================
-// STRIPE WEBHOOK RAW BODY
+// STRIPE WEBHOOK
 // ======================================================
+// must be BEFORE express.json()
 app.use(
   "/api/webhook",
   express.raw({ type: "application/json" }),
@@ -109,14 +109,14 @@ app.use(
 );
 
 // ======================================================
-// JSON PARSER
+// JSON BODY PARSER
 // ======================================================
 app.use(express.json());
 
 // ======================================================
 // STATIC FILES
 // ======================================================
-app.use("/uploads", express.static(path.join(root,"uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ======================================================
 // ROUTES
@@ -129,34 +129,34 @@ app.use("/api/support", supportRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/location", locationRoutes);
 
-console.log("✅ All routes mounted successfully");
+console.log("✅ Routes mounted");
 
 // ======================================================
-// ROOT ROUTE
+// ROOT
 // ======================================================
-app.get("/", (req,res)=>{
+app.get("/", (req, res) => {
   res.send("🚀 TransportX API running...");
 });
 
 // ======================================================
-// 404 HANDLER
+// 404 HANDLER (ONLY ONE GLOBAL)
 // ======================================================
-app.use((req,res)=>{
+app.use((req, res) => {
   res.status(404).json({
-    success:false,
-    message:`Route not found → ${req.method} ${req.originalUrl}`
+    success: false,
+    message: `Route not found → ${req.method} ${req.originalUrl}`
   });
 });
 
 // ======================================================
-// GLOBAL ERROR HANDLER
+// ERROR HANDLER
 // ======================================================
-app.use((err,req,res,next)=>{
-  console.error("🔥 ERROR:",err);
+app.use((err, req, res, next) => {
+  console.error("🔥 ERROR:", err);
 
   res.status(err.status || 500).json({
-    success:false,
-    message:err.message || "Internal Server Error"
+    success: false,
+    message: err.message || "Internal Server Error"
   });
 });
 
@@ -165,34 +165,34 @@ app.use((err,req,res,next)=>{
 // ======================================================
 const server = http.createServer(app);
 
-const io = new Server(server,{
-  cors:{
-    origin:true,
-    methods:["GET","POST"]
+const io = new Server(server, {
+  cors: {
+    origin: true,
+    methods: ["GET", "POST"]
   }
 });
 
-io.on("connection",(socket)=>{
-  console.log("🟢 Socket connected:",socket.id);
+io.on("connection", socket => {
+  console.log("🟢 Socket:", socket.id);
 
-  socket.on("sendLocation",(data)=>{
-    io.emit("receiveLocation",data);
+  socket.on("sendLocation", data => {
+    io.emit("receiveLocation", data);
   });
 
-  socket.on("disconnect",()=>{
-    console.log("🔴 Socket disconnected:",socket.id);
+  socket.on("disconnect", () => {
+    console.log("🔴 Socket:", socket.id);
   });
 });
 
 // ======================================================
 // CRASH HANDLERS
 // ======================================================
-process.on("uncaughtException",err=>{
-  console.error("UNCAUGHT:",err);
+process.on("uncaughtException", err => {
+  console.error("UNCAUGHT:", err);
 });
 
-process.on("unhandledRejection",err=>{
-  console.error("PROMISE ERROR:",err);
+process.on("unhandledRejection", err => {
+  console.error("PROMISE ERROR:", err);
 });
 
 // ======================================================
@@ -200,6 +200,6 @@ process.on("unhandledRejection",err=>{
 // ======================================================
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT,()=>{
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
