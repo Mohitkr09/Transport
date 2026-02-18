@@ -72,9 +72,7 @@ exports.adminOnly = (req, res, next) => {
   next();
 };
 
-// ======================================================
-// DRIVER ONLY
-// ======================================================
+
 exports.driverOnly = (req, res, next) => {
   if (!req.user || req.user.role !== "driver") {
     return res.status(403).json({

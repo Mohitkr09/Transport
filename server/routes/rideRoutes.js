@@ -15,17 +15,15 @@ router.use((req,res,next)=>{
   next();
 });
 
+// ======================================================
+// CREATE RIDE  (MUST BE FIRST)
+// ======================================================
 router.post("/", protect, asyncHandler(rideController.createRide));
 
 // ======================================================
 // GET USER RIDES
 // ======================================================
 router.get("/", protect, asyncHandler(rideController.getUserRides));
-
-// ======================================================
-// GET SINGLE RIDE
-// ======================================================
-router.get("/:id", protect, asyncHandler(rideController.getRideById));
 
 // ======================================================
 // ACCEPT
@@ -41,5 +39,10 @@ router.put("/:id/complete", protect, asyncHandler(rideController.completeRide));
 // CANCEL
 // ======================================================
 router.put("/:id/cancel", protect, asyncHandler(rideController.cancelRide));
+
+// ======================================================
+// GET SINGLE RIDE (MUST BE LAST)
+// ======================================================
+router.get("/:id", protect, asyncHandler(rideController.getRideById));
 
 module.exports = router;
