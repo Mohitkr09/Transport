@@ -1,17 +1,30 @@
 const express = require("express");
 const router = express.Router();
 
-// ================= IMPORTS =================
+// =================================================
+// IMPORTS
+// =================================================
 const upload = require("../middleware/upload");
 const driverController = require("../controllers/driverController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
-// ================= ASYNC WRAPPER =================
-const asyncHandler = fn => (req, res, next) =>
+// =================================================
+// SAFE ASYNC WRAPPER
+// =================================================
+const asyncHandler = fn => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
+};
 
 // =================================================
-// REGISTER DRIVER (UPLOAD DOCS)
+// DEBUG LOGGER (helps debug routes)
+// =================================================
+router.use((req, res, next) => {
+  console.log("🚚 DRIVER ROUTE:", req.method, req.originalUrl);
+  next();
+});
+
+// =================================================
+// REGISTER DRIVER
 // POST /api/driver/register
 // =================================================
 router.post(
@@ -24,7 +37,7 @@ router.post(
 );
 
 // =================================================
-// DRIVER LOGIN
+// LOGIN DRIVER
 // POST /api/driver/login
 // =================================================
 router.post(
@@ -102,12 +115,12 @@ router.get(
 router.get("/health", (req, res) => {
   res.json({
     success: true,
-    message: "Driver routes working"
+    message: "Driver routes working ✅"
   });
 });
 
 // =================================================
-// FALLBACK
+// FALLBACK ROUTE (must be LAST)
 // =================================================
 router.use((req, res) => {
   res.status(404).json({

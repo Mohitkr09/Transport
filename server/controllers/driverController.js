@@ -5,13 +5,12 @@ const jwt = require("jsonwebtoken");
 // =====================================================
 // TOKEN GENERATOR
 // =====================================================
-const generateToken = (id) => {
-  return jwt.sign(
+const generateToken = id =>
+  jwt.sign(
     { id, role: "driver" },
     process.env.JWT_SECRET,
     { expiresIn: "7d" }
   );
-};
 
 // =====================================================
 // REGISTER DRIVER
@@ -20,34 +19,31 @@ exports.registerDriver = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // ---------- VALIDATION ----------
-    if (!name || !email || !password) {
+    // ---------- validation ----------
+    if (!name || !email || !password)
       return res.status(400).json({
         success: false,
-        message: "All fields are required"
+        message: "All fields required"
       });
-    }
 
-    if (!req.files?.license || !req.files?.vehicleRC) {
+    if (!req.files?.license || !req.files?.vehicleRC)
       return res.status(400).json({
         success: false,
-        message: "License and Vehicle RC required"
+        message: "License & RC required"
       });
-    }
 
-    // ---------- CHECK EXISTING ----------
+    // ---------- existing ----------
     const existing = await Driver.findOne({ email });
-    if (existing) {
+    if (existing)
       return res.status(409).json({
         success: false,
         message: "Driver already exists"
       });
-    }
 
-    // ---------- HASH PASSWORD ----------
+    // ---------- hash ----------
     const hashed = await bcrypt.hash(password, 10);
 
-    // ---------- CREATE DRIVER ----------
+    // ---------- create ----------
     const driver = await Driver.create({
       name,
       email,
@@ -55,9 +51,7 @@ exports.registerDriver = async (req, res) => {
       documents: {
         license: req.files.license[0].filename,
         vehicleRC: req.files.vehicleRC[0].filename
-      },
-      isApproved: false,
-      isOnline: false
+      }
     });
 
     res.status(201).json({
@@ -80,9 +74,8 @@ exports.registerDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// DRIVER LOGIN
+// LOGIN DRIVER
 // =====================================================
 exports.loginDriver = async (req, res) => {
   try {
@@ -90,28 +83,25 @@ exports.loginDriver = async (req, res) => {
 
     const driver = await Driver.findOne({ email });
 
-    if (!driver) {
+    if (!driver)
       return res.status(404).json({
         success: false,
         message: "Driver not found"
       });
-    }
 
     const match = await bcrypt.compare(password, driver.password);
 
-    if (!match) {
+    if (!match)
       return res.status(401).json({
         success: false,
         message: "Invalid credentials"
       });
-    }
 
-    if (!driver.isApproved) {
+    if (!driver.isApproved)
       return res.status(403).json({
         success: false,
         message: "Driver not approved yet"
       });
-    }
 
     res.json({
       success: true,
@@ -133,7 +123,6 @@ exports.loginDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
 // GET DRIVER PROFILE
 // =====================================================
@@ -141,12 +130,11 @@ exports.getDriverProfile = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user._id).select("-password");
 
-    if (!driver) {
+    if (!driver)
       return res.status(404).json({
         success: false,
         message: "Driver not found"
       });
-    }
 
     res.json({
       success: true,
@@ -161,7 +149,6 @@ exports.getDriverProfile = async (req, res) => {
     });
   }
 };
-
 
 // =====================================================
 // TOGGLE ONLINE STATUS
@@ -193,20 +180,18 @@ exports.toggleOnlineStatus = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// UPDATE DRIVER LOCATION (REALTIME GPS)
+// UPDATE LOCATION
 // =====================================================
 exports.updateLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
 
-    if (!lat || !lng) {
+    if (lat === undefined || lng === undefined)
       return res.status(400).json({
         success: false,
         message: "lat and lng required"
       });
-    }
 
     const driver = await Driver.findByIdAndUpdate(
       req.user._id,
@@ -219,6 +204,12 @@ exports.updateLocation = async (req, res) => {
       },
       { new: true }
     );
+
+    if (!driver)
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found"
+      });
 
     res.json({
       success: true,
@@ -233,7 +224,6 @@ exports.updateLocation = async (req, res) => {
     });
   }
 };
-
 
 // =====================================================
 // ADMIN APPROVE DRIVER
@@ -265,7 +255,6 @@ exports.approveDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
 // ADMIN REJECT DRIVER
 // =====================================================
@@ -294,7 +283,6 @@ exports.rejectDriver = async (req, res) => {
     });
   }
 };
-
 
 // =====================================================
 // ADMIN GET ALL DRIVERS
