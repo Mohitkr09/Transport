@@ -15,26 +15,29 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { Server } = require("socket.io");
 
-// ======================================================
-// ROUTES
-// ======================================================
-const authRoutes = require("./routes/authRoutes");
-const driverRoutes = require("./routes/driverRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const rideRoutes = require("./routes/rideRoutes");
-const supportRoutes = require("./routes/supportRoutes");
-const paymentRoutes = require("./routes/paymentRoutes");
-const locationRoutes = require("./routes/locationRoutes");
-const webhookRoutes = require("./routes/webhookRoutes");
+// absolute path root
+const root = __dirname;
 
-const connectDB = require("./config/db");
+// ======================================================
+// ROUTES (ABSOLUTE PATH SAFE)
+// ======================================================
+const authRoutes = require(path.join(root,"routes","authRoutes.js"));
+const driverRoutes = require(path.join(root,"routes","driverRoutes.js"));
+const adminRoutes = require(path.join(root,"routes","adminRoutes.js"));
+const rideRoutes = require(path.join(root,"routes","rideRoutes.js"));
+const supportRoutes = require(path.join(root,"routes","supportRoutes.js"));
+const paymentRoutes = require(path.join(root,"routes","paymentRoutes.js"));
+const locationRoutes = require(path.join(root,"routes","locationRoutes.js"));
+const webhookRoutes = require(path.join(root,"routes","webhookRoutes.js"));
+
+const connectDB = require(path.join(root,"config","db.js"));
 
 // ======================================================
 // VERIFY ENV
 // ======================================================
-["MONGO_URI", "JWT_SECRET"].forEach(key => {
-  if (!process.env[key]) {
-    console.error("❌ Missing ENV:", key);
+["MONGO_URI","JWT_SECRET"].forEach(key=>{
+  if(!process.env[key]){
+    console.error("❌ Missing ENV:",key);
     process.exit(1);
   }
 });
@@ -42,7 +45,7 @@ const connectDB = require("./config/db");
 console.log("✅ ENV Loaded");
 
 // ======================================================
-// DNS FIX
+// DNS FIX (Mongo Atlas IPv6 bug)
 // ======================================================
 dns.setDefaultResultOrder("ipv4first");
 
@@ -50,11 +53,11 @@ dns.setDefaultResultOrder("ipv4first");
 // CONNECT DATABASE
 // ======================================================
 connectDB()
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => {
-    console.error("DB Error:", err.message);
-    process.exit(1);
-  });
+.then(()=>console.log("✅ MongoDB Connected"))
+.catch(err=>{
+  console.error("DB ERROR:",err.message);
+  process.exit(1);
+});
 
 // ======================================================
 // INIT APP
@@ -67,139 +70,133 @@ const app = express();
 app.use(helmet());
 
 // ======================================================
-// CORS (AUTO DEV + PROD)
+// CORS
 // ======================================================
-const allowedOrigins = [
+const allowedOrigins=[
   "http://localhost:5173",
   "http://localhost:3000",
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
+app.use(cors({
+  origin:(origin,cb)=>{
+    if(!origin) return cb(null,true);
+    if(allowedOrigins.includes(origin)) return cb(null,true);
 
-      console.warn("⚠️ CORS blocked:", origin);
-      return cb(null, true); // allow temporarily
-    },
-    credentials: true
-  })
-);
+    console.warn("⚠️ Blocked CORS:",origin);
+    return cb(null,true); // allow for testing
+  },
+  credentials:true
+}));
 
 // ======================================================
 // LOGGING
 // ======================================================
 app.use(morgan("dev"));
 
-app.use((req, res, next) => {
-  console.log("➡️", req.method, req.originalUrl);
+app.use((req,res,next)=>{
+  console.log("➡️",req.method,req.originalUrl);
   next();
 });
 
 // ======================================================
-// STRIPE WEBHOOK
+// STRIPE WEBHOOK (RAW BODY)
 // ======================================================
-// must be BEFORE express.json()
 app.use(
   "/api/webhook",
-  express.raw({ type: "application/json" }),
+  express.raw({type:"application/json"}),
   webhookRoutes
 );
 
 // ======================================================
-// JSON BODY PARSER
+// JSON PARSER
 // ======================================================
 app.use(express.json());
 
 // ======================================================
 // STATIC FILES
 // ======================================================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads",express.static(path.join(root,"uploads")));
 
 // ======================================================
 // ROUTES
 // ======================================================
-app.use("/api/auth", authRoutes);
-app.use("/api/driver", driverRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/ride", rideRoutes);
-app.use("/api/support", supportRoutes);
-app.use("/api/payment", paymentRoutes);
-app.use("/api/location", locationRoutes);
+app.use("/api/auth",authRoutes);
+app.use("/api/driver",driverRoutes);
+app.use("/api/admin",adminRoutes);
+app.use("/api/ride",rideRoutes);
+app.use("/api/support",supportRoutes);
+app.use("/api/payment",paymentRoutes);
+app.use("/api/location",locationRoutes);
 
-console.log("✅ Routes mounted");
+console.log("✅ Routes mounted successfully");
 
 // ======================================================
-// ROOT
+// ROOT CHECK
 // ======================================================
-app.get("/", (req, res) => {
+app.get("/",(req,res)=>{
   res.send("🚀 TransportX API running...");
 });
 
 // ======================================================
-// 404 HANDLER (ONLY ONE GLOBAL)
+// GLOBAL 404
 // ======================================================
-app.use((req, res) => {
+app.use((req,res)=>{
   res.status(404).json({
-    success: false,
-    message: `Route not found → ${req.method} ${req.originalUrl}`
+    success:false,
+    message:`Route not found → ${req.method} ${req.originalUrl}`
   });
 });
 
 // ======================================================
 // ERROR HANDLER
 // ======================================================
-app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", err);
+app.use((err,req,res,next)=>{
+  console.error("🔥 SERVER ERROR:",err);
 
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Internal Server Error"
+  res.status(err.status||500).json({
+    success:false,
+    message:err.message||"Internal Server Error"
   });
 });
 
 // ======================================================
 // SERVER + SOCKET
 // ======================================================
-const server = http.createServer(app);
+const server=http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: true,
-    methods: ["GET", "POST"]
-  }
+const io=new Server(server,{
+  cors:{origin:true,methods:["GET","POST"]}
 });
 
-io.on("connection", socket => {
-  console.log("🟢 Socket:", socket.id);
+io.on("connection",socket=>{
+  console.log("🟢 Socket:",socket.id);
 
-  socket.on("sendLocation", data => {
-    io.emit("receiveLocation", data);
+  socket.on("sendLocation",data=>{
+    io.emit("receiveLocation",data);
   });
 
-  socket.on("disconnect", () => {
-    console.log("🔴 Socket:", socket.id);
+  socket.on("disconnect",()=>{
+    console.log("🔴 Socket:",socket.id);
   });
 });
 
 // ======================================================
 // CRASH HANDLERS
 // ======================================================
-process.on("uncaughtException", err => {
-  console.error("UNCAUGHT:", err);
+process.on("uncaughtException",err=>{
+  console.error("UNCAUGHT:",err);
 });
 
-process.on("unhandledRejection", err => {
-  console.error("PROMISE ERROR:", err);
+process.on("unhandledRejection",err=>{
+  console.error("PROMISE ERROR:",err);
 });
 
 // ======================================================
 // START SERVER
 // ======================================================
-const PORT = process.env.PORT || 5000;
+const PORT=process.env.PORT||5000;
 
-server.listen(PORT, () => {
+server.listen(PORT,()=>{
   console.log(`🚀 Server running on port ${PORT}`);
 });

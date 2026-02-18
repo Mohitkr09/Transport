@@ -4,45 +4,37 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect } = require("../middleware/authMiddleware");
 
-const asyncHandler = fn => (req,res,next)=>
-  Promise.resolve(fn(req,res,next)).catch(next);
+const asyncHandler = fn =>
+  (req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 
-// ======================================================
-// LOGGER
-// ======================================================
+// ================= LOGGER =================
 router.use((req,res,next)=>{
-  console.log("🚗",req.method,req.originalUrl);
+  console.log("🚗 RIDE ROUTE:", req.method, req.originalUrl);
   next();
 });
 
-// ======================================================
-// CREATE RIDE  (MUST BE FIRST)
-// ======================================================
+// ================= CREATE RIDE =================
+// POST /api/ride
 router.post("/", protect, asyncHandler(rideController.createRide));
 
-// ======================================================
-// GET USER RIDES
-// ======================================================
+// ================= USER RIDES =================
+// GET /api/ride
 router.get("/", protect, asyncHandler(rideController.getUserRides));
 
-// ======================================================
-// ACCEPT
-// ======================================================
+// ================= SINGLE RIDE =================
+// GET /api/ride/:id
+router.get("/:id", protect, asyncHandler(rideController.getRideById));
+
+// ================= ACCEPT =================
+// PUT /api/ride/:id/accept
 router.put("/:id/accept", protect, asyncHandler(rideController.acceptRide));
 
-// ======================================================
-// COMPLETE
-// ======================================================
+// ================= COMPLETE =================
+// PUT /api/ride/:id/complete
 router.put("/:id/complete", protect, asyncHandler(rideController.completeRide));
 
-// ======================================================
-// CANCEL
-// ======================================================
+// ================= CANCEL =================
+// PUT /api/ride/:id/cancel
 router.put("/:id/cancel", protect, asyncHandler(rideController.cancelRide));
-
-// ======================================================
-// GET SINGLE RIDE (MUST BE LAST)
-// ======================================================
-router.get("/:id", protect, asyncHandler(rideController.getRideById));
 
 module.exports = router;
