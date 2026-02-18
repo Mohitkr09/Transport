@@ -14,7 +14,7 @@ import "leaflet/dist/leaflet.css";
 // ======================================================
 // CONFIG
 // ======================================================
-const API =
+const API_BASE =
   import.meta.env.VITE_API_URL ||
   "https://transport-mpb5.onrender.com/api";
 
@@ -23,14 +23,13 @@ const SOCKET_URL =
   "https://transport-mpb5.onrender.com";
 
 // ======================================================
-// AXIOS INSTANCE (WITH TOKEN AUTO ATTACH)
+// AXIOS INSTANCE
 // ======================================================
 const api = axios.create({
-  baseURL: API,
-  withCredentials: true
+  baseURL: API_BASE,
+  timeout: 15000
 });
 
-// auto attach token
 api.interceptors.request.use(config => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -38,27 +37,26 @@ api.interceptors.request.use(config => {
 });
 
 // ======================================================
-// VEHICLES (MATCH BACKEND ENUM)
+// VEHICLES (must match backend enum)
 // ======================================================
 import bikeImg from "../assets/services/bike.png";
 import autoImg from "../assets/services/auto.png";
-import cabEcoImg from "../assets/services/cab-economy.png";
+import cabImg from "../assets/services/cab-economy.png";
 
 const vehicles = [
   { id: "bike", label: "Bike", img: bikeImg },
   { id: "auto", label: "Auto", img: autoImg },
-  { id: "car", label: "Cab", img: cabEcoImg }
+  { id: "car", label: "Cab", img: cabImg }
 ];
 
 // ======================================================
-// MAP AUTO FIT
+// MAP FIT
 // ======================================================
 const FitBounds = ({ route }) => {
   const map = useMap();
 
   useEffect(() => {
-    if (route.length > 0)
-      map.fitBounds(route, { padding: [50, 50] });
+    if (route.length) map.fitBounds(route, { padding: [50, 50] });
   }, [route]);
 
   return null;
@@ -70,7 +68,6 @@ const FitBounds = ({ route }) => {
 const BookRide = () => {
   const navigate = useNavigate();
   const socketRef = useRef(null);
-  const abortRef = useRef(null);
   const debounceRef = useRef(null);
 
   const [pickup, setPickup] = useState("");
@@ -93,14 +90,12 @@ const BookRide = () => {
   const [driverPosition, setDriverPosition] = useState(null);
 
   // ======================================================
-  // SOCKET CONNECTION
+  // SOCKET
   // ======================================================
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
       transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      timeout: 10000
+      reconnection: true
     });
 
     socketRef.current.on("receiveLocation", data => {
@@ -112,22 +107,16 @@ const BookRide = () => {
   }, []);
 
   // ======================================================
-  // SEARCH SUGGESTIONS
+  // SEARCH
   // ======================================================
   const fetchSuggestions = (query, setter) => {
-    if (!query || query.length < 3) return setter([]);
+    if (query.length < 3) return setter([]);
 
     clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(async () => {
       try {
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
-
-        const res = await api.get(`/location/search?q=${query}`, {
-          signal: abortRef.current.signal
-        });
-
+        const res = await api.get(`/location/search?q=${query}`);
         setter(res.data || []);
       } catch {
         setter([]);
@@ -136,7 +125,7 @@ const BookRide = () => {
   };
 
   // ======================================================
-  // ROUTE DRAW
+  // ROUTE CALC
   // ======================================================
   const drawRoute = async (start, end) => {
     try {
@@ -145,18 +134,17 @@ const BookRide = () => {
         { params: { overview: "full", geometries: "geojson" } }
       );
 
-      const data = res.data.routes?.[0];
-      if (!data) return false;
+      const routeData = res.data.routes?.[0];
+      if (!routeData) return false;
 
-      const coords = data.geometry.coordinates.map(
+      const coords = routeData.geometry.coordinates.map(
         ([lng, lat]) => [lat, lng]
       );
 
+      const km = routeData.distance / 1000;
+      const mins = routeData.duration / 60;
+
       setRoute(coords);
-
-      const km = data.distance / 1000;
-      const mins = data.duration / 60;
-
       setDistance(km.toFixed(2));
       setDuration(mins.toFixed(1));
       setFare(Math.round(km * 15));
@@ -173,8 +161,8 @@ const BookRide = () => {
   const handleBookRide = async () => {
     if (loading) return;
 
-    const token = localStorage.getItem("token");
-    if (!token) return setMessage("Please login first");
+    if (!localStorage.getItem("token"))
+      return setMessage("Please login first");
 
     if (!pickupCoords || !dropCoords)
       return setMessage("Select valid locations");
@@ -192,23 +180,19 @@ const BookRide = () => {
         pickupLocation: { address: pickup, ...pickupCoords },
         dropLocation: { address: drop, ...dropCoords },
         vehicleType,
-        distance
+        distance: Number(distance) // ✅ fix
       });
 
       const rideId = res.data?.ride?._id;
       if (!rideId) throw new Error("Ride failed");
 
-      setMessage("Driver found!");
+      setMessage("Driver assigned!");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
       console.error(err);
-
-      setMessage(
-        err.response?.data?.message ||
-        "Booking failed"
-      );
+      setMessage(err.response?.data?.message || "Booking failed");
     } finally {
       setLoading(false);
     }
@@ -289,7 +273,7 @@ const BookRide = () => {
                   : "bg-gray-50"
               }`}
             >
-              <img src={v.img} className="h-16 mx-auto mb-2" />
+              <img src={v.img} className="h-16 mx-auto mb-2"/>
               <p className="text-sm font-semibold">{v.label}</p>
             </div>
           ))}
@@ -304,7 +288,6 @@ const BookRide = () => {
           {loading ? "Processing..." : "Book Ride & Pay"}
         </button>
 
-        {/* ROUTE INFO */}
         {distance && (
           <div className="mt-4 p-4 bg-gray-100 rounded-lg">
             <p>Distance: {distance} km</p>
@@ -319,14 +302,13 @@ const BookRide = () => {
       {/* MAP */}
       <div className="w-full md:w-1/2 h-[400px] md:h-auto">
         <MapContainer center={[23.0225,72.5714]} zoom={6} className="h-full w-full">
-
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
 
           {pickupCoords && <Marker position={[pickupCoords.lat,pickupCoords.lng]}/>}
           {dropCoords && <Marker position={[dropCoords.lat,dropCoords.lng]}/>}
           {driverPosition && <Marker position={driverPosition}/>}
 
-          {route.length > 0 &&
+          {route.length>0 &&
             <Polyline positions={route} pathOptions={{color:"#4f46e5",weight:5}}/>
           }
 

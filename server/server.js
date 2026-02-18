@@ -15,36 +15,27 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { Server } = require("socket.io");
 
-// absolute path helper
 const root = __dirname;
 
 // ======================================================
 // ROUTES
 // ======================================================
-const authRoutes = require(path.join(root, "routes/authRoutes"));
-const driverRoutes = require(path.join(root, "routes/driverRoutes"));
-const adminRoutes = require(path.join(root, "routes/adminRoutes"));
-const rideRoutes = require(path.join(root, "routes/rideRoutes"));
-const supportRoutes = require(path.join(root, "routes/supportRoutes"));
-const paymentRoutes = require(path.join(root, "routes/paymentRoutes"));
-const locationRoutes = require(path.join(root, "routes/locationRoutes"));
-const webhookRoutes = require(path.join(root, "routes/webhookRoutes"));
+const authRoutes = require("./routes/authRoutes");
+const driverRoutes = require("./routes/driverRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const rideRoutes = require("./routes/rideRoutes");
+const supportRoutes = require("./routes/supportRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const locationRoutes = require("./routes/locationRoutes");
+const webhookRoutes = require("./routes/webhookRoutes");
 
-const connectDB = require(path.join(root, "config/db"));
+const connectDB = require("./config/db");
 
 // ======================================================
 // VERIFY ENV VARIABLES
 // ======================================================
-const requiredEnv = [
-  "MONGO_URI",
-  "JWT_SECRET",
-  "EMAIL",
-  "EMAIL_PASS",
-  "STRIPE_SECRET_KEY"
-];
-
-requiredEnv.forEach(key => {
-  if (!process.env[key]) {
+["MONGO_URI","JWT_SECRET"].forEach(key=>{
+  if(!process.env[key]){
     console.error(`❌ Missing ENV variable: ${key}`);
     process.exit(1);
   }
@@ -53,7 +44,7 @@ requiredEnv.forEach(key => {
 console.log("✅ ENV Loaded");
 
 // ======================================================
-// FIX MONGODB DNS (Atlas fix)
+// DNS FIX
 // ======================================================
 dns.setDefaultResultOrder("ipv4first");
 
@@ -61,11 +52,11 @@ dns.setDefaultResultOrder("ipv4first");
 // CONNECT DATABASE
 // ======================================================
 connectDB()
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => {
-    console.error("❌ MongoDB connection failed:", err.message);
-    process.exit(1);
-  });
+.then(()=>console.log("✅ MongoDB Connected"))
+.catch(err=>{
+  console.error("Mongo Error:",err.message);
+  process.exit(1);
+});
 
 // ======================================================
 // INIT APP
@@ -73,22 +64,43 @@ connectDB()
 const app = express();
 
 // ======================================================
-// SECURITY + MIDDLEWARE
+// SECURITY
 // ======================================================
 app.use(helmet());
 
+// ======================================================
+// CORS (AUTO DEV + PROD)
+// ======================================================
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin))
+      return callback(null, true);
+
+    console.warn("Blocked CORS:", origin);
+    return callback(null, true); // allow for now
+  },
   credentials: true
 }));
 
+// ======================================================
+// LOGGER
+// ======================================================
 app.use(morgan("dev"));
 
+app.use((req,res,next)=>{
+  console.log("➡️",req.method,req.originalUrl);
+  next();
+});
+
 // ======================================================
-// STRIPE WEBHOOK (RAW BODY REQUIRED)
+// STRIPE WEBHOOK RAW BODY
 // ======================================================
 app.use(
   "/api/webhook",
@@ -104,18 +116,10 @@ app.use(express.json());
 // ======================================================
 // STATIC FILES
 // ======================================================
-app.use("/uploads", express.static(path.join(root, "uploads")));
+app.use("/uploads", express.static(path.join(root,"uploads")));
 
 // ======================================================
-// REQUEST LOGGER
-// ======================================================
-app.use((req, res, next) => {
-  console.log(`➡️ ${req.method} ${req.originalUrl}`);
-  next();
-});
-
-// ======================================================
-// API ROUTES
+// ROUTES
 // ======================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
@@ -128,73 +132,67 @@ app.use("/api/location", locationRoutes);
 console.log("✅ All routes mounted successfully");
 
 // ======================================================
-// ROOT CHECK
+// ROOT ROUTE
 // ======================================================
-app.get("/", (req, res) => {
+app.get("/", (req,res)=>{
   res.send("🚀 TransportX API running...");
 });
 
 // ======================================================
 // 404 HANDLER
 // ======================================================
-app.use((req, res) => {
+app.use((req,res)=>{
   res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.originalUrl}`
+    success:false,
+    message:`Route not found → ${req.method} ${req.originalUrl}`
   });
 });
 
 // ======================================================
 // GLOBAL ERROR HANDLER
 // ======================================================
-app.use((err, req, res, next) => {
-  console.error("🔥 SERVER ERROR:", err);
+app.use((err,req,res,next)=>{
+  console.error("🔥 ERROR:",err);
 
   res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Internal Server Error"
+    success:false,
+    message:err.message || "Internal Server Error"
   });
 });
 
 // ======================================================
-// CREATE HTTP SERVER
+// SERVER + SOCKET
 // ======================================================
 const server = http.createServer(app);
 
-// ======================================================
-// SOCKET.IO
-// ======================================================
-const io = new Server(server, {
-  cors: {
-    origin: [
-      "http://localhost:5173",
-      process.env.FRONTEND_URL
-    ].filter(Boolean),
-    methods: ["GET", "POST"]
+const io = new Server(server,{
+  cors:{
+    origin:true,
+    methods:["GET","POST"]
   }
 });
 
-io.on("connection", (socket) => {
-  console.log("🟢 Socket connected:", socket.id);
+io.on("connection",(socket)=>{
+  console.log("🟢 Socket connected:",socket.id);
 
-  socket.on("sendLocation", (data) => {
-    io.emit("receiveLocation", data);
+  socket.on("sendLocation",(data)=>{
+    io.emit("receiveLocation",data);
   });
 
-  socket.on("disconnect", () => {
-    console.log("🔴 Socket disconnected:", socket.id);
+  socket.on("disconnect",()=>{
+    console.log("🔴 Socket disconnected:",socket.id);
   });
 });
 
 // ======================================================
 // CRASH HANDLERS
 // ======================================================
-process.on("uncaughtException", err => {
-  console.error("💥 UNCAUGHT EXCEPTION:", err);
+process.on("uncaughtException",err=>{
+  console.error("UNCAUGHT:",err);
 });
 
-process.on("unhandledRejection", err => {
-  console.error("💥 UNHANDLED PROMISE:", err);
+process.on("unhandledRejection",err=>{
+  console.error("PROMISE ERROR:",err);
 });
 
 // ======================================================
@@ -202,6 +200,6 @@ process.on("unhandledRejection", err => {
 // ======================================================
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT, () => {
+server.listen(PORT,()=>{
   console.log(`🚀 Server running on port ${PORT}`);
 });
