@@ -1,16 +1,14 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-// ======================================================
-// PROTECT ROUTES (JWT AUTH)
-// ======================================================
+// ===============================
+// PROTECT ROUTES
+// ===============================
 exports.protect = async (req, res, next) => {
-  try {
-    let token;
+  let token;
 
-    // ===============================
+  try {
     // READ TOKEN
-    // ===============================
     if (
       req.headers.authorization &&
       req.headers.authorization.startsWith("Bearer")
@@ -18,9 +16,7 @@ exports.protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
     }
 
-    // ===============================
-    // TOKEN MISSING
-    // ===============================
+    // NO TOKEN
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -28,14 +24,10 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    // ===============================
     // VERIFY TOKEN
-    // ===============================
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // ===============================
-    // FIND USER
-    // ===============================
+    // GET USER
     const user = await User.findById(decoded.id).select("-password");
 
     if (!user) {
@@ -45,12 +37,12 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    // attach user to request
+    // ATTACH USER
     req.user = user;
 
     next();
   } catch (err) {
-    console.error("JWT VERIFY FAILED:", err.message);
+    console.error("AUTH ERROR:", err.message);
 
     return res.status(401).json({
       success: false,
@@ -59,26 +51,28 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// ======================================================
+// ===============================
 // ADMIN ONLY
-// ======================================================
+// ===============================
 exports.adminOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "admin") {
+  if (!req.user || req.user.role !== "admin")
     return res.status(403).json({
       success: false,
-      message: "Access denied: Admin only"
+      message: "Admin access only"
     });
-  }
+
   next();
 };
 
 
 exports.driverOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "driver") {
+  if (!req.user || req.user.role !== "driver")
     return res.status(403).json({
       success: false,
-      message: "Access denied: Driver only"
+      message: "Driver access only"
     });
-  }
+
   next();
 };
+
+                                              
