@@ -19,7 +19,6 @@ exports.registerDriver = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // ---------- validation ----------
     if (!name || !email || !password)
       return res.status(400).json({
         success: false,
@@ -32,7 +31,6 @@ exports.registerDriver = async (req, res) => {
         message: "License & RC required"
       });
 
-    // ---------- existing ----------
     const existing = await Driver.findOne({ email });
     if (existing)
       return res.status(409).json({
@@ -40,10 +38,8 @@ exports.registerDriver = async (req, res) => {
         message: "Driver already exists"
       });
 
-    // ---------- hash ----------
     const hashed = await bcrypt.hash(password, 10);
 
-    // ---------- create ----------
     const driver = await Driver.create({
       name,
       email,
@@ -66,7 +62,7 @@ exports.registerDriver = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("REGISTER DRIVER ERROR:", err);
+    console.error("REGISTER DRIVER ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Driver registration failed"
@@ -81,7 +77,7 @@ exports.loginDriver = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const driver = await Driver.findOne({ email });
+    const driver = await Driver.findOne({ email }).select("+password");
 
     if (!driver)
       return res.status(404).json({
@@ -110,12 +106,13 @@ exports.loginDriver = async (req, res) => {
         id: driver._id,
         name: driver.name,
         email: driver.email,
-        isOnline: driver.isOnline
+        isOnline: driver.isOnline,
+        isAvailable: driver.isAvailable
       }
     });
 
   } catch (err) {
-    console.error("LOGIN DRIVER ERROR:", err);
+    console.error("LOGIN DRIVER ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Login failed"
@@ -136,13 +133,10 @@ exports.getDriverProfile = async (req, res) => {
         message: "Driver not found"
       });
 
-    res.json({
-      success: true,
-      driver
-    });
+    res.json({ success: true, driver });
 
   } catch (err) {
-    console.error("PROFILE ERROR:", err);
+    console.error("PROFILE ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Failed to fetch profile"
@@ -164,15 +158,20 @@ exports.toggleOnlineStatus = async (req, res) => {
       });
 
     driver.isOnline = !driver.isOnline;
+
+    // if offline → also unavailable
+    if (!driver.isOnline) driver.isAvailable = false;
+
     await driver.save();
 
     res.json({
       success: true,
-      isOnline: driver.isOnline
+      isOnline: driver.isOnline,
+      isAvailable: driver.isAvailable
     });
 
   } catch (err) {
-    console.error("STATUS ERROR:", err);
+    console.error("STATUS ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Status update failed"
@@ -187,10 +186,13 @@ exports.updateLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
 
-    if (lat === undefined || lng === undefined)
+    if (
+      typeof lat !== "number" ||
+      typeof lng !== "number"
+    )
       return res.status(400).json({
         success: false,
-        message: "lat and lng required"
+        message: "Valid lat and lng required"
       });
 
     const driver = await Driver.findByIdAndUpdate(
@@ -217,7 +219,7 @@ exports.updateLocation = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("LOCATION ERROR:", err);
+    console.error("LOCATION ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Location update failed"
@@ -247,7 +249,7 @@ exports.approveDriver = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("APPROVE ERROR:", err);
+    console.error("APPROVE ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Approval failed"
@@ -276,7 +278,7 @@ exports.rejectDriver = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("REJECT ERROR:", err);
+    console.error("REJECT ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Reject failed"
@@ -298,7 +300,7 @@ exports.getAllDrivers = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("GET DRIVERS ERROR:", err);
+    console.error("GET DRIVERS ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Failed to fetch drivers"
