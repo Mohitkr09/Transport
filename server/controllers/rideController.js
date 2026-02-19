@@ -91,7 +91,7 @@ exports.createRide = async (req, res) => {
       );
 
       // 10km radius filter
-      if (dist > 10) continue;
+      if (dist > 50) continue;
 
       if (dist < minDistance) {
         minDistance = dist;
