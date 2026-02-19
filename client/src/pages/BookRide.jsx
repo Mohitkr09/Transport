@@ -12,29 +12,41 @@ import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 
 // ======================================================
-// CONFIG
+// API CONFIG  ✅ FIXED
 // ======================================================
-const API_BASE =
+const BASE =
   import.meta.env.VITE_API_URL ||
-  "https://transport-mpb5.onrender.com/api";
+  "https://transport-mpb5.onrender.com";
+
+const API_BASE = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
   "https://transport-mpb5.onrender.com";
 
 // ======================================================
-// AXIOS INSTANCE
+// AXIOS INSTANCE  ✅ STABLE
 // ======================================================
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 15000
+  timeout: 20000
 });
 
+// attach token
 api.interceptors.request.use(config => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+// global error handler
+api.interceptors.response.use(
+  res => res,
+  err => {
+    console.error("API ERROR:", err.response?.data || err.message);
+    return Promise.reject(err);
+  }
+);
 
 // ======================================================
 // VEHICLES
@@ -63,7 +75,7 @@ const FitBounds = ({ route }) => {
 // ======================================================
 // COMPONENT
 // ======================================================
-const BookRide = () => {
+export default function BookRide() {
   const navigate = useNavigate();
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
@@ -80,6 +92,8 @@ const BookRide = () => {
   const [duration, setDuration] = useState(null);
   const [fare, setFare] = useState(null);
 
+
+
   const [pickupSuggestions, setPickupSuggestions] = useState([]);
   const [dropSuggestions, setDropSuggestions] = useState([]);
 
@@ -88,16 +102,18 @@ const BookRide = () => {
   const [driverPosition, setDriverPosition] = useState(null);
 
   // ======================================================
-  // SOCKET CONNECTION FIXED
+  // SOCKET CONNECT
   // ======================================================
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket", "polling"], // fallback added
-      withCredentials: true
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000
     });
 
     socketRef.current.on("connect", () =>
-      console.log("Socket connected")
+      console.log("🟢 Socket connected")
     );
 
     socketRef.current.on("receiveLocation", data => {
@@ -113,7 +129,7 @@ const BookRide = () => {
   }, []);
 
   // ======================================================
-  // SEARCH
+  // SEARCH LOCATIONS
   // ======================================================
   const fetchSuggestions = (query, setter) => {
     if (query.length < 3) return setter([]);
@@ -131,7 +147,7 @@ const BookRide = () => {
   };
 
   // ======================================================
-  // ROUTE CALC
+  // ROUTE CALCULATION
   // ======================================================
   const drawRoute = async (start, end) => {
     try {
@@ -140,29 +156,27 @@ const BookRide = () => {
         { params: { overview: "full", geometries: "geojson" } }
       );
 
-      const routeData = res.data.routes?.[0];
-      if (!routeData) return null;
+      const r = res.data.routes?.[0];
+      if (!r) return null;
 
-      const coords = routeData.geometry.coordinates.map(
-        ([lng, lat]) => [lat, lng]
-      );
+      const coords = r.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
 
-      const km = routeData.distance / 1000;
-      const mins = routeData.duration / 60;
+      const km = r.distance / 1000;
+      const mins = r.duration / 60;
 
       setRoute(coords);
       setDistance(km.toFixed(2));
       setDuration(mins.toFixed(1));
       setFare(Math.round(km * 15));
 
-      return km; // ← return real distance
+      return km;
     } catch {
       return null;
     }
   };
 
   // ======================================================
-  // BOOK RIDE (FIXED LOGIC)
+  // BOOK RIDE
   // ======================================================
   const handleBookRide = async () => {
     if (loading) return;
@@ -189,28 +203,20 @@ const BookRide = () => {
         pickupLocation: { address: pickup, ...pickupCoords },
         dropLocation: { address: drop, ...dropCoords },
         vehicleType,
-        distance: km // ✅ FIXED DISTANCE BUG
+        distance: km
       });
 
-      // ================= RESPONSE LOGIC FIX =================
-      if (!res.data.success) {
-        setMessage(res.data.message);
-        return;
-      }
+      if (!res.data?.success)
+        return setMessage(res.data?.message || "Ride failed");
 
       const rideId = res.data.ride?._id;
-
-      if (!rideId) {
-        setMessage("Ride creation failed");
-        return;
-      }
+      if (!rideId) return setMessage("Ride creation failed");
 
       setMessage("Driver assigned!");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
-      console.error(err);
       setMessage(err.response?.data?.message || "Server error");
     } finally {
       setLoading(false);
@@ -225,6 +231,7 @@ const BookRide = () => {
 
       {/* LEFT */}
       <div className="w-full md:w-1/2 p-6 bg-white shadow">
+
         <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
 
         {/* PICKUP */}
@@ -232,22 +239,20 @@ const BookRide = () => {
           className="w-full p-3 rounded border"
           placeholder="Pickup location"
           value={pickup}
-          onChange={e => {
+          onChange={e=>{
             setPickup(e.target.value);
-            fetchSuggestions(e.target.value, setPickupSuggestions);
+            fetchSuggestions(e.target.value,setPickupSuggestions);
           }}
         />
 
-        {pickupSuggestions.map(p => (
-          <div
-            key={p.place_id}
+        {pickupSuggestions.map(p=>(
+          <div key={p.place_id}
             className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={() => {
+            onClick={()=>{
               setPickup(p.display_name);
-              setPickupCoords({ lat: +p.lat, lng: +p.lon });
+              setPickupCoords({lat:+p.lat,lng:+p.lon});
               setPickupSuggestions([]);
-            }}
-          >
+            }}>
             {p.display_name}
           </div>
         ))}
@@ -257,22 +262,20 @@ const BookRide = () => {
           className="w-full p-3 mt-4 rounded border"
           placeholder="Drop location"
           value={drop}
-          onChange={e => {
+          onChange={e=>{
             setDrop(e.target.value);
-            fetchSuggestions(e.target.value, setDropSuggestions);
+            fetchSuggestions(e.target.value,setDropSuggestions);
           }}
         />
 
-        {dropSuggestions.map(p => (
-          <div
-            key={p.place_id}
+        {dropSuggestions.map(p=>(
+          <div key={p.place_id}
             className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={() => {
+            onClick={()=>{
               setDrop(p.display_name);
-              setDropCoords({ lat: +p.lat, lng: +p.lon });
+              setDropCoords({lat:+p.lat,lng:+p.lon});
               setDropSuggestions([]);
-            }}
-          >
+            }}>
             {p.display_name}
           </div>
         ))}
@@ -281,16 +284,14 @@ const BookRide = () => {
         <h4 className="mt-4 mb-3 font-semibold">Select Vehicle</h4>
 
         <div className="grid grid-cols-3 gap-4">
-          {vehicles.map(v => (
-            <div
-              key={v.id}
-              onClick={() => setVehicleType(v.id)}
+          {vehicles.map(v=>(
+            <div key={v.id}
+              onClick={()=>setVehicleType(v.id)}
               className={`cursor-pointer rounded-xl p-3 border text-center ${
-                vehicleType === v.id
-                  ? "border-indigo-600 bg-indigo-50"
-                  : "bg-gray-50"
-              }`}
-            >
+                vehicleType===v.id
+                  ?"border-indigo-600 bg-indigo-50"
+                  :"bg-gray-50"
+              }`}>
               <img src={v.img} className="h-16 mx-auto mb-2"/>
               <p className="text-sm font-semibold">{v.label}</p>
             </div>
@@ -306,6 +307,7 @@ const BookRide = () => {
           {loading ? "Processing..." : "Book Ride & Pay"}
         </button>
 
+        {/* INFO */}
         {distance && (
           <div className="mt-4 p-4 bg-gray-100 rounded-lg">
             <p>Distance: {distance} km</p>
@@ -333,8 +335,7 @@ const BookRide = () => {
           <FitBounds route={route}/>
         </MapContainer>
       </div>
+
     </div>
   );
-};
-
-export default BookRide;
+}
