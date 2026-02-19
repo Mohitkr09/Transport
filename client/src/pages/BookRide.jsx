@@ -37,7 +37,7 @@ api.interceptors.request.use(config => {
 });
 
 // ======================================================
-// VEHICLES (must match backend enum)
+// VEHICLES
 // ======================================================
 import bikeImg from "../assets/services/bike.png";
 import autoImg from "../assets/services/auto.png";
@@ -54,11 +54,9 @@ const vehicles = [
 // ======================================================
 const FitBounds = ({ route }) => {
   const map = useMap();
-
   useEffect(() => {
     if (route.length) map.fitBounds(route, { padding: [50, 50] });
   }, [route]);
-
   return null;
 };
 
@@ -90,18 +88,26 @@ const BookRide = () => {
   const [driverPosition, setDriverPosition] = useState(null);
 
   // ======================================================
-  // SOCKET
+  // SOCKET CONNECTION FIXED
   // ======================================================
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket"],
-      reconnection: true
+      transports: ["websocket", "polling"], // fallback added
+      withCredentials: true
     });
+
+    socketRef.current.on("connect", () =>
+      console.log("Socket connected")
+    );
 
     socketRef.current.on("receiveLocation", data => {
       if (data?.lat && data?.lng)
         setDriverPosition([data.lat, data.lng]);
     });
+
+    socketRef.current.on("connect_error", err =>
+      console.log("Socket error:", err.message)
+    );
 
     return () => socketRef.current?.disconnect();
   }, []);
@@ -135,7 +141,7 @@ const BookRide = () => {
       );
 
       const routeData = res.data.routes?.[0];
-      if (!routeData) return false;
+      if (!routeData) return null;
 
       const coords = routeData.geometry.coordinates.map(
         ([lng, lat]) => [lat, lng]
@@ -149,14 +155,14 @@ const BookRide = () => {
       setDuration(mins.toFixed(1));
       setFare(Math.round(km * 15));
 
-      return true;
+      return km; // ← return real distance
     } catch {
-      return false;
+      return null;
     }
   };
 
   // ======================================================
-  // BOOK RIDE
+  // BOOK RIDE (FIXED LOGIC)
   // ======================================================
   const handleBookRide = async () => {
     if (loading) return;
@@ -171,8 +177,11 @@ const BookRide = () => {
       setLoading(true);
       setMessage("Calculating route...");
 
-      const ok = await drawRoute(pickupCoords, dropCoords);
-      if (!ok) throw new Error("Route failed");
+      const km = await drawRoute(pickupCoords, dropCoords);
+      if (!km) {
+        setMessage("Route calculation failed");
+        return;
+      }
 
       setMessage("Finding driver...");
 
@@ -180,11 +189,21 @@ const BookRide = () => {
         pickupLocation: { address: pickup, ...pickupCoords },
         dropLocation: { address: drop, ...dropCoords },
         vehicleType,
-        distance: Number(distance) // ✅ fix
+        distance: km // ✅ FIXED DISTANCE BUG
       });
 
-      const rideId = res.data?.ride?._id;
-      if (!rideId) throw new Error("Ride failed");
+      // ================= RESPONSE LOGIC FIX =================
+      if (!res.data.success) {
+        setMessage(res.data.message);
+        return;
+      }
+
+      const rideId = res.data.ride?._id;
+
+      if (!rideId) {
+        setMessage("Ride creation failed");
+        return;
+      }
 
       setMessage("Driver assigned!");
 
@@ -192,7 +211,7 @@ const BookRide = () => {
 
     } catch (err) {
       console.error(err);
-      setMessage(err.response?.data?.message || "Booking failed");
+      setMessage(err.response?.data?.message || "Server error");
     } finally {
       setLoading(false);
     }
@@ -206,7 +225,6 @@ const BookRide = () => {
 
       {/* LEFT */}
       <div className="w-full md:w-1/2 p-6 bg-white shadow">
-
         <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
 
         {/* PICKUP */}
