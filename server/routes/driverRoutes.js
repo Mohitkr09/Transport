@@ -7,6 +7,7 @@ const router = express.Router();
 const upload = require("../middleware/upload");
 const driverController = require("../controllers/driverController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
+const Driver = require("../models/Driver");
 
 // =================================================
 // SAFE ASYNC WRAPPER
@@ -59,12 +60,15 @@ router.post(
   "/logout",
   protect,
   asyncHandler(async (req, res) => {
-    await require("../models/Driver").findByIdAndUpdate(req.user._id, {
+    await Driver.findByIdAndUpdate(req.user._id, {
       isOnline: false,
       isAvailable: false
     });
 
-    res.json({ success: true, message: "Logged out successfully" });
+    res.json({
+      success: true,
+      message: "Logged out successfully"
+    });
   })
 );
 
@@ -72,19 +76,31 @@ router.post(
 // DRIVER PROFILE
 // GET /api/driver/me
 // =================================================
-router.get("/me", protect, asyncHandler(driverController.getDriverProfile));
+router.get(
+  "/me",
+  protect,
+  asyncHandler(driverController.getDriverProfile)
+);
 
 // =================================================
 // TOGGLE ONLINE STATUS
 // PUT /api/driver/online
 // =================================================
-router.put("/online", protect, asyncHandler(driverController.toggleOnlineStatus));
+router.put(
+  "/online",
+  protect,
+  asyncHandler(driverController.toggleOnlineStatus)
+);
 
 // =================================================
 // UPDATE LOCATION
 // PUT /api/driver/location
 // =================================================
-router.put("/location", protect, asyncHandler(driverController.updateLocation));
+router.put(
+  "/location",
+  protect,
+  asyncHandler(driverController.updateLocation)
+);
 
 // =================================================
 // FIND NEARBY DRIVERS
@@ -95,6 +111,30 @@ router.get(
   protect,
   asyncHandler(driverController.findNearbyDrivers)
 );
+
+// =================================================
+// 🧪 DEBUG ROUTE — FORCE DRIVER AVAILABLE
+// (REMOVE IN PRODUCTION)
+// =================================================
+router.put("/force-available/:id", asyncHandler(async (req, res) => {
+  const driver = await Driver.findByIdAndUpdate(
+    req.params.id,
+    { isAvailable: true },
+    { new: true }
+  );
+
+  if (!driver)
+    return res.status(404).json({
+      success: false,
+      message: "Driver not found"
+    });
+
+  res.json({
+    success: true,
+    message: "Driver availability reset",
+    driver
+  });
+}));
 
 // =================================================
 // ADMIN APPROVE DRIVER
