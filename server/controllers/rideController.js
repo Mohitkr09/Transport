@@ -7,7 +7,6 @@ const Driver = require("../models/Driver");
 // ======================================================
 const getDistanceKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
-
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
 
@@ -35,6 +34,9 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 // 🚕 CREATE RIDE
 // ======================================================
 exports.createRide = async (req, res) => {
+
+  let nearestDriver = null;
+
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
@@ -59,7 +61,7 @@ exports.createRide = async (req, res) => {
     }
 
     // ======================================================
-    // FIND ELIGIBLE DRIVERS (SAFE FILTER)
+    // FIND ELIGIBLE DRIVERS
     // ======================================================
     const drivers = await Driver.find({
       isApproved:true,
@@ -80,37 +82,32 @@ exports.createRide = async (req, res) => {
     // ======================================================
     // FIND NEAREST DRIVER
     // ======================================================
-    let nearest=null;
-    let min=Infinity;
+    let min = Infinity;
 
     for(const d of drivers){
 
-      if(
-        !d.location ||
-        !Array.isArray(d.location.coordinates) ||
-        d.location.coordinates.length !== 2
-      ) continue;
+      if(!d.location?.coordinates) continue;
 
-      const [lng,lat]=d.location.coordinates;
+      const [lng,lat] = d.location.coordinates;
 
       if(!lat || !lng) continue;
 
-      const dist=getDistanceKm(
+      const dist = getDistanceKm(
         pickupLocation.lat,
         pickupLocation.lng,
         lat,
         lng
       );
 
-      if(dist>50) continue;
+      if(dist > 50) continue;
 
-      if(dist<min){
-        min=dist;
-        nearest=d;
+      if(dist < min){
+        min = dist;
+        nearestDriver = d;
       }
     }
 
-    if(!nearest)
+    if(!nearestDriver)
       return res.status(404).json({
         success:false,
         message:"No nearby drivers found"
@@ -120,8 +117,8 @@ exports.createRide = async (req, res) => {
     // ======================================================
     // 🔒 ATOMIC DRIVER LOCK
     // ======================================================
-    const locked=await Driver.findOneAndUpdate(
-      { _id:nearest._id, isAvailable:true },
+    const locked = await Driver.findOneAndUpdate(
+      { _id:nearestDriver._id, isAvailable:true },
       { isAvailable:false },
       { new:true }
     );
@@ -136,18 +133,18 @@ exports.createRide = async (req, res) => {
     // ======================================================
     // DISTANCE + FARE
     // ======================================================
-    const parsed=parseFloat(distance);
+    const parsed = parseFloat(distance);
 
     const safeDistance =
-      Number.isFinite(parsed) && parsed>0 ? parsed : 5;
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
 
-    const fare=calculateFare(vehicleType,safeDistance);
+    const fare = calculateFare(vehicleType,safeDistance);
 
 
     // ======================================================
     // CREATE RIDE
     // ======================================================
-    const ride=await Ride.create({
+    const ride = await Ride.create({
       user:req.user._id,
       driver:locked._id,
       pickupLocation:{
@@ -171,19 +168,25 @@ exports.createRide = async (req, res) => {
       requestedAt:new Date()
     });
 
+
     // ======================================================
-    // ⏳ AUTO RELEASE DRIVER IF NOT ACCEPTED
+    // AUTO RELEASE DRIVER IF NOT ACCEPTED
     // ======================================================
     setTimeout(async()=>{
-      const r=await Ride.findById(ride._id);
-      if(r && r.status==="driver_assigned"){
-        r.status="cancelled";
-        r.cancelledBy="system_timeout";
-        await r.save();
+      try{
+        const r = await Ride.findById(ride._id);
 
-        await Driver.findByIdAndUpdate(r.driver,{isAvailable:true});
+        if(r && r.status === "driver_assigned"){
+          r.status = "cancelled";
+          r.cancelledBy = "system_timeout";
+          await r.save();
+
+          await Driver.findByIdAndUpdate(r.driver,{isAvailable:true});
+        }
+      }catch(err){
+        console.error("AUTO RELEASE ERROR:",err);
       }
-    },30000); // 30 sec
+    },30000);
 
 
     res.status(201).json({
@@ -193,7 +196,14 @@ exports.createRide = async (req, res) => {
     });
 
   } catch(err){
+
     console.error("CREATE RIDE ERROR:",err);
+
+    // unlock driver if crash happens
+    if(nearestDriver?._id){
+      await Driver.findByIdAndUpdate(nearestDriver._id,{isAvailable:true});
+    }
+
     res.status(500).json({
       success:false,
       message:"Failed to create ride"
@@ -208,7 +218,7 @@ exports.createRide = async (req, res) => {
 // ======================================================
 exports.getUserRides = async (req,res)=>{
   try{
-    const rides=await Ride.find({user:req.user._id})
+    const rides = await Ride.find({user:req.user._id})
       .populate("driver","name email rating vehicle")
       .sort({createdAt:-1});
 
@@ -226,16 +236,16 @@ exports.getUserRides = async (req,res)=>{
 // ======================================================
 exports.getRideById = async (req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id)
+    const ride = await Ride.findById(req.params.id)
       .populate("driver","name email rating vehicle");
 
     if(!ride)
       return res.status(404).json({message:"Ride not found"});
 
     if(
-      ride.user.toString()!==req.user._id.toString() &&
-      ride.driver.toString()!==req.user._id.toString() &&
-      req.user.role!=="admin"
+      ride.user.toString() !== req.user._id.toString() &&
+      ride.driver.toString() !== req.user._id.toString() &&
+      req.user.role !== "admin"
     )
       return res.status(403).json({message:"Access denied"});
 
@@ -254,14 +264,14 @@ exports.getRideById = async (req,res)=>{
 // ======================================================
 exports.acceptRide = async (req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id);
 
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
-    if(ride.driver.toString()!==req.user._id.toString())
+    if(ride.driver.toString() !== req.user._id.toString())
       return res.status(403).json({message:"Not your ride"});
 
-    if(ride.status!=="driver_assigned")
+    if(ride.status !== "driver_assigned")
       return res.status(400).json({message:"Ride already accepted"});
 
     ride.status="accepted";
@@ -282,14 +292,14 @@ exports.acceptRide = async (req,res)=>{
 // ======================================================
 exports.startRide = async (req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id);
 
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
-    if(ride.driver.toString()!==req.user._id.toString())
+    if(ride.driver.toString() !== req.user._id.toString())
       return res.status(403).json({message:"Not your ride"});
 
-    if(ride.status!=="accepted")
+    if(ride.status !== "accepted")
       return res.status(400).json({message:"Ride cannot start"});
 
     ride.status="ongoing";
@@ -297,6 +307,7 @@ exports.startRide = async (req,res)=>{
     await ride.save();
 
     res.json({success:true,message:"Ride started",ride});
+
   }catch(err){
     console.error(err);
     res.status(500).json({message:"Failed to start ride"});
@@ -306,15 +317,15 @@ exports.startRide = async (req,res)=>{
 
 
 // ======================================================
-// COMPLETE
+// COMPLETE RIDE
 // ======================================================
 exports.completeRide = async (req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id);
 
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
-    if(ride.driver.toString()!==req.user._id.toString())
+    if(ride.driver.toString() !== req.user._id.toString())
       return res.status(403).json({message:"Not your ride"});
 
     if(!["accepted","ongoing"].includes(ride.status))
@@ -336,16 +347,18 @@ exports.completeRide = async (req,res)=>{
 
 
 // ======================================================
-// CANCEL
+// CANCEL RIDE
 // ======================================================
 exports.cancelRide = async (req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id);
 
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
-    if(ride.status==="completed")
-      return res.status(400).json({message:"Completed ride cannot be cancelled"});
+    if(ride.status === "completed")
+      return res.status(400).json({
+        message:"Completed ride cannot be cancelled"
+      });
 
     ride.status="cancelled";
     ride.cancelledAt=new Date();
@@ -368,29 +381,33 @@ exports.cancelRide = async (req,res)=>{
 // ======================================================
 exports.rateRide = async (req,res)=>{
   try{
-    const {rating,feedback}=req.body;
+    const {rating,feedback} = req.body;
 
-    const ride=await Ride.findById(req.params.id);
+    if(!rating || rating < 1 || rating > 5)
+      return res.status(400).json({message:"Rating must be 1-5"});
+
+    const ride = await Ride.findById(req.params.id);
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
-    if(ride.user.toString()!==req.user._id.toString())
+    if(ride.user.toString() !== req.user._id.toString())
       return res.status(403).json({message:"Not allowed"});
 
-    if(ride.status!=="completed")
+    if(ride.status !== "completed")
       return res.status(400).json({message:"Ride not completed"});
 
-    ride.rating=rating;
-    ride.feedback=feedback;
+    ride.rating = rating;
+    ride.feedback = feedback;
     await ride.save();
 
-    const driver=await Driver.findById(ride.driver);
+    const driver = await Driver.findById(ride.driver);
 
-    const total=driver.totalRides+1;
+    const total = driver.totalRides + 1;
     const newRating =
-      ((driver.rating*driver.totalRides)+Number(rating))/total;
+      ((driver.rating * driver.totalRides) + Number(rating)) / total;
 
-    driver.rating=Number(newRating.toFixed(1));
-    driver.totalRides=total;
+    driver.rating = Number(newRating.toFixed(1));
+    driver.totalRides = total;
+
     await driver.save();
 
     res.json({success:true,message:"Rating submitted"});
@@ -408,7 +425,7 @@ exports.rateRide = async (req,res)=>{
 // ======================================================
 exports.getAllRides = async(req,res)=>{
   try{
-    const rides=await Ride.find()
+    const rides = await Ride.find()
       .populate("user","name email")
       .populate("driver","name email")
       .sort({createdAt:-1});
@@ -427,7 +444,7 @@ exports.getAllRides = async(req,res)=>{
 // ======================================================
 exports.adminCancelRide = async(req,res)=>{
   try{
-    const ride=await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id);
 
     if(!ride) return res.status(404).json({message:"Ride not found"});
 
