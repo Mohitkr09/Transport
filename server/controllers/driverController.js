@@ -2,7 +2,6 @@ const Driver = require("../models/Driver");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-
 // =====================================================
 // TOKEN GENERATOR
 // =====================================================
@@ -13,7 +12,6 @@ const generateToken = id =>
     { expiresIn: "7d" }
   );
 
-
 // =====================================================
 // REGISTER DRIVER
 // =====================================================
@@ -21,11 +19,10 @@ exports.registerDriver = async (req, res) => {
   try {
     const { name, email, password, vehicleType } = req.body;
 
-    // ---------- VALIDATION ----------
     if (!name || !email || !password || !vehicleType)
       return res.status(400).json({
         success: false,
-        message: "Name, email, password & vehicle type required"
+        message: "All fields required"
       });
 
     if (!req.files?.license || !req.files?.vehicleRC)
@@ -34,39 +31,32 @@ exports.registerDriver = async (req, res) => {
         message: "License & RC files required"
       });
 
-    // ---------- EXISTING ----------
-    const existing = await Driver.findOne({ email });
-    if (existing)
+    const exists = await Driver.findOne({ email });
+    if (exists)
       return res.status(409).json({
         success: false,
         message: "Driver already exists"
       });
 
-    // ---------- HASH ----------
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 12);
 
-    // ---------- CREATE ----------
     const driver = await Driver.create({
       name,
-      email,
+      email: email.toLowerCase(),
       password: hashed,
-
-      vehicle: {
-        type: vehicleType
-      },
-
+      vehicle: { type: vehicleType },
       documents: {
         license: req.files.license[0].filename,
         vehicleRC: req.files.vehicleRC[0].filename
       },
-
       isOnline: false,
-      isAvailable: false
+      isAvailable: false,
+      lastLocationUpdate: new Date()
     });
 
     res.status(201).json({
       success: true,
-      message: "Registered successfully. Waiting for admin approval.",
+      message: "Registered. Waiting for admin approval.",
       driver: {
         id: driver._id,
         name: driver.name,
@@ -84,7 +74,6 @@ exports.registerDriver = async (req, res) => {
     });
   }
 };
-
 
 // =====================================================
 // LOGIN DRIVER
@@ -115,9 +104,10 @@ exports.loginDriver = async (req, res) => {
         message: "Driver not approved yet"
       });
 
-    // auto online on login
     driver.isOnline = true;
     driver.isAvailable = true;
+    driver.lastLogin = new Date();
+
     await driver.save();
 
     res.json({
@@ -142,9 +132,8 @@ exports.loginDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// GET PROFILE
+// PROFILE
 // =====================================================
 exports.getDriverProfile = async (req, res) => {
   try {
@@ -167,9 +156,8 @@ exports.getDriverProfile = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// TOGGLE ONLINE STATUS
+// TOGGLE ONLINE
 // =====================================================
 exports.toggleOnlineStatus = async (req, res) => {
   try {
@@ -200,7 +188,6 @@ exports.toggleOnlineStatus = async (req, res) => {
     });
   }
 };
-
 
 // =====================================================
 // UPDATE LOCATION
@@ -247,9 +234,8 @@ exports.updateLocation = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// ADMIN APPROVE DRIVER
+// ADMIN APPROVE
 // =====================================================
 exports.approveDriver = async (req, res) => {
   try {
@@ -279,9 +265,8 @@ exports.approveDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// ADMIN REJECT DRIVER
+// ADMIN REJECT
 // =====================================================
 exports.rejectDriver = async (req, res) => {
   try {
@@ -307,9 +292,8 @@ exports.rejectDriver = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// ADMIN GET ALL DRIVERS
+// ADMIN LIST
 // =====================================================
 exports.getAllDrivers = async (req, res) => {
   try {
@@ -330,9 +314,8 @@ exports.getAllDrivers = async (req, res) => {
   }
 };
 
-
 // =====================================================
-// FIND NEARBY DRIVERS
+// NEARBY DRIVERS (GEO SEARCH)
 // =====================================================
 exports.findNearbyDrivers = async (req, res) => {
   try {
@@ -362,6 +345,7 @@ exports.findNearbyDrivers = async (req, res) => {
     if (vehicleType) query["vehicle.type"] = vehicleType;
 
     const drivers = await Driver.find(query)
+      .limit(20)
       .select("name rating vehicle location");
 
     res.json({

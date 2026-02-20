@@ -146,9 +146,7 @@ driverSchema.pre("save", function (next) {
 });
 
 
-// =====================================================
-// LOCATION HELPER METHOD
-// =====================================================
+
 driverSchema.methods.updateLocation = function (lat, lng) {
   this.location = {
     type: "Point",

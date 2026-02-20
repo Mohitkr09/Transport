@@ -12,7 +12,7 @@ import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 
 // ======================================================
-// API CONFIG  ✅ FIXED
+// API CONFIG
 // ======================================================
 const BASE =
   import.meta.env.VITE_API_URL ||
@@ -25,14 +25,14 @@ const SOCKET_URL =
   "https://transport-mpb5.onrender.com";
 
 // ======================================================
-// AXIOS INSTANCE  ✅ STABLE
+// AXIOS INSTANCE
 // ======================================================
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 20000
 });
 
-// attach token
+// attach token automatically
 api.interceptors.request.use(config => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -92,8 +92,6 @@ export default function BookRide() {
   const [duration, setDuration] = useState(null);
   const [fare, setFare] = useState(null);
 
-
-
   const [pickupSuggestions, setPickupSuggestions] = useState([]);
   const [dropSuggestions, setDropSuggestions] = useState([]);
 
@@ -108,8 +106,8 @@ export default function BookRide() {
     socketRef.current = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1500
     });
 
     socketRef.current.on("connect", () =>
@@ -129,7 +127,7 @@ export default function BookRide() {
   }, []);
 
   // ======================================================
-  // SEARCH LOCATIONS
+  // LOCATION SEARCH
   // ======================================================
   const fetchSuggestions = (query, setter) => {
     if (query.length < 3) return setter([]);
@@ -147,7 +145,7 @@ export default function BookRide() {
   };
 
   // ======================================================
-  // ROUTE CALCULATION
+  // ROUTE CALCULATE
   // ======================================================
   const drawRoute = async (start, end) => {
     try {
@@ -197,7 +195,7 @@ export default function BookRide() {
         return;
       }
 
-      setMessage("Finding driver...");
+      setMessage("Finding nearby driver...");
 
       const res = await api.post("/ride", {
         pickupLocation: { address: pickup, ...pickupCoords },
@@ -212,12 +210,12 @@ export default function BookRide() {
       const rideId = res.data.ride?._id;
       if (!rideId) return setMessage("Ride creation failed");
 
-      setMessage("Driver assigned!");
+      setMessage("Driver assigned 🚖");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
-      setMessage(err.response?.data?.message || "Server error");
+      setMessage(err.response?.data?.message || "Server busy. Try again.");
     } finally {
       setLoading(false);
     }
