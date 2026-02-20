@@ -19,20 +19,22 @@ const generateToken = id =>
 // =====================================================
 exports.registerDriver = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, vehicleType } = req.body;
 
-    if (!name || !email || !password)
+    // ---------- VALIDATION ----------
+    if (!name || !email || !password || !vehicleType)
       return res.status(400).json({
         success: false,
-        message: "All fields required"
+        message: "Name, email, password & vehicle type required"
       });
 
     if (!req.files?.license || !req.files?.vehicleRC)
       return res.status(400).json({
         success: false,
-        message: "License & RC required"
+        message: "License & RC files required"
       });
 
+    // ---------- EXISTING ----------
     const existing = await Driver.findOne({ email });
     if (existing)
       return res.status(409).json({
@@ -40,32 +42,42 @@ exports.registerDriver = async (req, res) => {
         message: "Driver already exists"
       });
 
+    // ---------- HASH ----------
     const hashed = await bcrypt.hash(password, 10);
 
+    // ---------- CREATE ----------
     const driver = await Driver.create({
       name,
       email,
       password: hashed,
+
+      vehicle: {
+        type: vehicleType
+      },
+
       documents: {
         license: req.files.license[0].filename,
         vehicleRC: req.files.vehicleRC[0].filename
       },
+
       isOnline: false,
       isAvailable: false
     });
 
     res.status(201).json({
       success: true,
-      message: "Registered. Waiting for admin approval.",
+      message: "Registered successfully. Waiting for admin approval.",
       driver: {
         id: driver._id,
         name: driver.name,
         email: driver.email,
+        vehicle: driver.vehicle,
         isApproved: driver.isApproved
       }
     });
 
   } catch (err) {
+    console.error("REGISTER DRIVER ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Driver registration failed"
@@ -103,7 +115,7 @@ exports.loginDriver = async (req, res) => {
         message: "Driver not approved yet"
       });
 
-    // auto set available when login
+    // auto online on login
     driver.isOnline = true;
     driver.isAvailable = true;
     await driver.save();
@@ -115,12 +127,14 @@ exports.loginDriver = async (req, res) => {
         id: driver._id,
         name: driver.name,
         email: driver.email,
+        vehicle: driver.vehicle,
         isOnline: driver.isOnline,
         isAvailable: driver.isAvailable
       }
     });
 
-  } catch {
+  } catch (err) {
+    console.error("LOGIN DRIVER ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Login failed"
@@ -144,7 +158,8 @@ exports.getDriverProfile = async (req, res) => {
 
     res.json({ success: true, driver });
 
-  } catch {
+  } catch (err) {
+    console.error("PROFILE ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Failed to fetch profile"
@@ -167,10 +182,7 @@ exports.toggleOnlineStatus = async (req, res) => {
       });
 
     driver.isOnline = !driver.isOnline;
-
-    // offline → unavailable
-    if (!driver.isOnline) driver.isAvailable = false;
-    else driver.isAvailable = true;
+    driver.isAvailable = driver.isOnline;
 
     await driver.save();
 
@@ -180,7 +192,8 @@ exports.toggleOnlineStatus = async (req, res) => {
       isAvailable: driver.isAvailable
     });
 
-  } catch {
+  } catch (err) {
+    console.error("STATUS ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Status update failed"
@@ -196,10 +209,7 @@ exports.updateLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
 
-    if (
-      typeof lat !== "number" ||
-      typeof lng !== "number"
-    )
+    if (typeof lat !== "number" || typeof lng !== "number")
       return res.status(400).json({
         success: false,
         message: "Valid lat/lng required"
@@ -228,7 +238,8 @@ exports.updateLocation = async (req, res) => {
       location: driver.location
     });
 
-  } catch {
+  } catch (err) {
+    console.error("LOCATION ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Location update failed"
@@ -259,7 +270,8 @@ exports.approveDriver = async (req, res) => {
       message: "Driver approved"
     });
 
-  } catch {
+  } catch (err) {
+    console.error("APPROVE ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Approval failed"
@@ -286,7 +298,8 @@ exports.rejectDriver = async (req, res) => {
       message: "Driver removed"
     });
 
-  } catch {
+  } catch (err) {
+    console.error("REJECT ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Reject failed"
@@ -308,7 +321,8 @@ exports.getAllDrivers = async (req, res) => {
       drivers
     });
 
-  } catch {
+  } catch (err) {
+    console.error("GET DRIVERS ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Failed to fetch drivers"
@@ -318,11 +332,11 @@ exports.getAllDrivers = async (req, res) => {
 
 
 // =====================================================
-// FIND NEARBY DRIVERS (PRO FEATURE)
+// FIND NEARBY DRIVERS
 // =====================================================
 exports.findNearbyDrivers = async (req, res) => {
   try {
-    const { lat, lng, radius = 5000 } = req.query;
+    const { lat, lng, radius = 5000, vehicleType } = req.query;
 
     if (!lat || !lng)
       return res.status(400).json({
@@ -330,7 +344,7 @@ exports.findNearbyDrivers = async (req, res) => {
         message: "lat & lng required"
       });
 
-    const drivers = await Driver.find({
+    const query = {
       isApproved: true,
       isOnline: true,
       isAvailable: true,
@@ -343,7 +357,12 @@ exports.findNearbyDrivers = async (req, res) => {
           $maxDistance: Number(radius)
         }
       }
-    }).select("name rating vehicle location");
+    };
+
+    if (vehicleType) query["vehicle.type"] = vehicleType;
+
+    const drivers = await Driver.find(query)
+      .select("name rating vehicle location");
 
     res.json({
       success: true,
@@ -351,7 +370,8 @@ exports.findNearbyDrivers = async (req, res) => {
       drivers
     });
 
-  } catch {
+  } catch (err) {
+    console.error("NEARBY ERROR:", err);
     res.status(500).json({
       success: false,
       message: "Driver search failed"
