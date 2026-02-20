@@ -59,10 +59,7 @@ router.get("/analytics/driver-growth", getDriverGrowth);
 router.put("/drivers/:id/approve", approveDriver);
 
 
-// =======================================================
-// ❌ REJECT DRIVER
-// DELETE /api/admin/drivers/:id
-// =======================================================
+
 router.delete("/drivers/:id", rejectDriver);
 
 

@@ -1,26 +1,29 @@
 const mongoose = require("mongoose");
 
 // ======================================================
-// GEO POINT SCHEMA
+// GEO POINT SCHEMA (Reusable)
 // ======================================================
-const pointSchema = {
-  type: {
-    type: String,
-    enum: ["Point"],
-    default: "Point"
-  },
-  coordinates: {
-    type: [Number], // [lng, lat]
-    required: true,
-    validate: {
-      validator: arr =>
-        Array.isArray(arr) &&
-        arr.length === 2 &&
-        arr.every(n => typeof n === "number"),
-      message: "Coordinates must be [lng, lat]"
+const pointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point"
+    },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      validate: {
+        validator: arr =>
+          !arr ||
+          (Array.isArray(arr) &&
+            arr.length === 2 &&
+            arr.every(n => typeof n === "number")),
+        message: "Coordinates must be [lng, lat]"
+      }
     }
-  }
-};
+  },
+  { _id: false }
+);
 
 // ======================================================
 // RIDE SCHEMA
@@ -46,12 +49,18 @@ const rideSchema = new mongoose.Schema(
     // ================= LOCATIONS =================
     pickupLocation: {
       address: String,
-      location: pointSchema
+      location: {
+        type: pointSchema,
+        required: true
+      }
     },
 
     dropLocation: {
       address: String,
-      location: pointSchema
+      location: {
+        type: pointSchema,
+        required: true
+      }
     },
 
     // ================= VEHICLE =================
@@ -63,7 +72,11 @@ const rideSchema = new mongoose.Schema(
     },
 
     // ================= DISTANCE =================
-    distanceKm: Number,
+    distanceKm: {
+      type: Number,
+      default: 0
+    },
+
     durationMin: Number,
 
     // ================= FARE =================
@@ -127,8 +140,10 @@ const rideSchema = new mongoose.Schema(
     // ================= LIVE DRIVER LOCATION =================
     driverLocation: {
       type: pointSchema,
-      updatedAt: Date
+      default: null
     },
+
+    driverLocationUpdatedAt: Date,
 
     // ================= CANCELLATION =================
     cancelledBy: {
@@ -168,10 +183,8 @@ const rideSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-
-
 // ======================================================
-// INDEXES (PERFORMANCE CRITICAL)
+// INDEXES (IMPORTANT)
 // ======================================================
 rideSchema.index({ user: 1, createdAt: -1 });
 rideSchema.index({ driver: 1, status: 1 });
@@ -179,8 +192,6 @@ rideSchema.index({ status: 1, requestedAt: -1 });
 rideSchema.index({ paymentStatus: 1 });
 rideSchema.index({ "pickupLocation.location": "2dsphere" });
 rideSchema.index({ driverResponseDeadline: 1 });
-
-
 
 // ======================================================
 // VIRTUALS
@@ -194,8 +205,6 @@ rideSchema.virtual("isActive").get(function () {
 rideSchema.virtual("isCompleted").get(function () {
   return this.status === "completed";
 });
-
-
 
 // ======================================================
 // METHODS
@@ -232,8 +241,6 @@ rideSchema.methods.assignDriver = function (driverId) {
   return this.save();
 };
 
-
-
 // ======================================================
 // JSON CLEANUP
 // ======================================================
@@ -244,8 +251,6 @@ rideSchema.set("toJSON", {
     return ret;
   }
 });
-
-
 
 // ======================================================
 // EXPORT
