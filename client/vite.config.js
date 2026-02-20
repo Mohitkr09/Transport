@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
 
   server: {
-    // ⭐ SPA fallback — fixes refresh on `/journal`
+  
     historyApiFallback: true,
 
     // ⭐ Correct backend proxy
