@@ -4,37 +4,93 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect } = require("../middleware/authMiddleware");
 
+// ======================================================
+// ASYNC WRAPPER (NO TRY CATCH IN ROUTES)
+// ======================================================
 const asyncHandler = fn =>
-  (req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+  (req, res, next) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
 
-// ================= LOGGER =================
-router.use((req,res,next)=>{
+// ======================================================
+// OPTIONAL DEBUG LOGGER
+// (disable in production by removing console.log)
+// ======================================================
+router.use((req, res, next) => {
   console.log("🚗 RIDE ROUTE:", req.method, req.originalUrl);
   next();
 });
 
-// ================= CREATE RIDE =================
+// ======================================================
+// ROUTE HEALTH CHECK
+// ======================================================
+router.get("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "Ride route working"
+  });
+});
+
+// ======================================================
+// CREATE RIDE
 // POST /api/ride
-router.post("/", protect, asyncHandler(rideController.createRide));
+// ======================================================
+router.post(
+  "/",
+  protect,
+  asyncHandler(rideController.createRide)
+);
 
-// ================= USER RIDES =================
+// ======================================================
+// GET USER RIDES
 // GET /api/ride
-router.get("/", protect, asyncHandler(rideController.getUserRides));
+// ======================================================
+router.get(
+  "/",
+  protect,
+  asyncHandler(rideController.getUserRides)
+);
 
-// ================= SINGLE RIDE =================
+// ======================================================
+// GET SINGLE RIDE
 // GET /api/ride/:id
-router.get("/:id", protect, asyncHandler(rideController.getRideById));
+// ======================================================
+router.get(
+  "/:id",
+  protect,
+  asyncHandler(rideController.getRideById)
+);
 
-// ================= ACCEPT =================
+// ======================================================
+// DRIVER ACCEPT RIDE
 // PUT /api/ride/:id/accept
-router.put("/:id/accept", protect, asyncHandler(rideController.acceptRide));
+// ======================================================
+router.put(
+  "/:id/accept",
+  protect,
+  asyncHandler(rideController.acceptRide)
+);
 
-// ================= COMPLETE =================
+// ======================================================
+// COMPLETE RIDE
 // PUT /api/ride/:id/complete
-router.put("/:id/complete", protect, asyncHandler(rideController.completeRide));
+// ======================================================
+router.put(
+  "/:id/complete",
+  protect,
+  asyncHandler(rideController.completeRide)
+);
 
-// ================= CANCEL =================
+// ======================================================
+// CANCEL RIDE
 // PUT /api/ride/:id/cancel
-router.put("/:id/cancel", protect, asyncHandler(rideController.cancelRide));
+// ======================================================
+router.put(
+  "/:id/cancel",
+  protect,
+  asyncHandler(rideController.cancelRide)
+);
 
+// ======================================================
+// EXPORT
+// ======================================================
 module.exports = router;
