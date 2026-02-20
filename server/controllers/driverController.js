@@ -2,6 +2,7 @@ const Driver = require("../models/Driver");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+
 // =====================================================
 // TOKEN GENERATOR
 // =====================================================
@@ -11,6 +12,7 @@ const generateToken = id =>
     process.env.JWT_SECRET,
     { expiresIn: "7d" }
   );
+
 
 // =====================================================
 // REGISTER DRIVER
@@ -47,12 +49,14 @@ exports.registerDriver = async (req, res) => {
       documents: {
         license: req.files.license[0].filename,
         vehicleRC: req.files.vehicleRC[0].filename
-      }
+      },
+      isOnline: false,
+      isAvailable: false
     });
 
     res.status(201).json({
       success: true,
-      message: "Registered successfully. Await admin approval.",
+      message: "Registered. Waiting for admin approval.",
       driver: {
         id: driver._id,
         name: driver.name,
@@ -62,13 +66,13 @@ exports.registerDriver = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("REGISTER DRIVER ERROR:", err.message);
     res.status(500).json({
       success: false,
       message: "Driver registration failed"
     });
   }
 };
+
 
 // =====================================================
 // LOGIN DRIVER
@@ -99,6 +103,11 @@ exports.loginDriver = async (req, res) => {
         message: "Driver not approved yet"
       });
 
+    // auto set available when login
+    driver.isOnline = true;
+    driver.isAvailable = true;
+    await driver.save();
+
     res.json({
       success: true,
       token: generateToken(driver._id),
@@ -111,8 +120,7 @@ exports.loginDriver = async (req, res) => {
       }
     });
 
-  } catch (err) {
-    console.error("LOGIN DRIVER ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Login failed"
@@ -120,8 +128,9 @@ exports.loginDriver = async (req, res) => {
   }
 };
 
+
 // =====================================================
-// GET DRIVER PROFILE
+// GET PROFILE
 // =====================================================
 exports.getDriverProfile = async (req, res) => {
   try {
@@ -135,14 +144,14 @@ exports.getDriverProfile = async (req, res) => {
 
     res.json({ success: true, driver });
 
-  } catch (err) {
-    console.error("PROFILE ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Failed to fetch profile"
     });
   }
 };
+
 
 // =====================================================
 // TOGGLE ONLINE STATUS
@@ -159,8 +168,9 @@ exports.toggleOnlineStatus = async (req, res) => {
 
     driver.isOnline = !driver.isOnline;
 
-    // if offline → also unavailable
+    // offline → unavailable
     if (!driver.isOnline) driver.isAvailable = false;
+    else driver.isAvailable = true;
 
     await driver.save();
 
@@ -170,14 +180,14 @@ exports.toggleOnlineStatus = async (req, res) => {
       isAvailable: driver.isAvailable
     });
 
-  } catch (err) {
-    console.error("STATUS ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Status update failed"
     });
   }
 };
+
 
 // =====================================================
 // UPDATE LOCATION
@@ -192,7 +202,7 @@ exports.updateLocation = async (req, res) => {
     )
       return res.status(400).json({
         success: false,
-        message: "Valid lat and lng required"
+        message: "Valid lat/lng required"
       });
 
     const driver = await Driver.findByIdAndUpdate(
@@ -218,8 +228,7 @@ exports.updateLocation = async (req, res) => {
       location: driver.location
     });
 
-  } catch (err) {
-    console.error("LOCATION ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Location update failed"
@@ -227,12 +236,17 @@ exports.updateLocation = async (req, res) => {
   }
 };
 
+
 // =====================================================
 // ADMIN APPROVE DRIVER
 // =====================================================
 exports.approveDriver = async (req, res) => {
   try {
-    const driver = await Driver.findById(req.params.id);
+    const driver = await Driver.findByIdAndUpdate(
+      req.params.id,
+      { isApproved: true },
+      { new: true }
+    );
 
     if (!driver)
       return res.status(404).json({
@@ -240,16 +254,12 @@ exports.approveDriver = async (req, res) => {
         message: "Driver not found"
       });
 
-    driver.isApproved = true;
-    await driver.save();
-
     res.json({
       success: true,
       message: "Driver approved"
     });
 
-  } catch (err) {
-    console.error("APPROVE ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Approval failed"
@@ -257,12 +267,13 @@ exports.approveDriver = async (req, res) => {
   }
 };
 
+
 // =====================================================
 // ADMIN REJECT DRIVER
 // =====================================================
 exports.rejectDriver = async (req, res) => {
   try {
-    const driver = await Driver.findById(req.params.id);
+    const driver = await Driver.findByIdAndDelete(req.params.id);
 
     if (!driver)
       return res.status(404).json({
@@ -270,21 +281,19 @@ exports.rejectDriver = async (req, res) => {
         message: "Driver not found"
       });
 
-    await driver.deleteOne();
-
     res.json({
       success: true,
-      message: "Driver rejected and removed"
+      message: "Driver removed"
     });
 
-  } catch (err) {
-    console.error("REJECT ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Reject failed"
     });
   }
 };
+
 
 // =====================================================
 // ADMIN GET ALL DRIVERS
@@ -299,11 +308,53 @@ exports.getAllDrivers = async (req, res) => {
       drivers
     });
 
-  } catch (err) {
-    console.error("GET DRIVERS ERROR:", err.message);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Failed to fetch drivers"
+    });
+  }
+};
+
+
+// =====================================================
+// FIND NEARBY DRIVERS (PRO FEATURE)
+// =====================================================
+exports.findNearbyDrivers = async (req, res) => {
+  try {
+    const { lat, lng, radius = 5000 } = req.query;
+
+    if (!lat || !lng)
+      return res.status(400).json({
+        success: false,
+        message: "lat & lng required"
+      });
+
+    const drivers = await Driver.find({
+      isApproved: true,
+      isOnline: true,
+      isAvailable: true,
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [+lng, +lat]
+          },
+          $maxDistance: Number(radius)
+        }
+      }
+    }).select("name rating vehicle location");
+
+    res.json({
+      success: true,
+      count: drivers.length,
+      drivers
+    });
+
+  } catch {
+    res.status(500).json({
+      success: false,
+      message: "Driver search failed"
     });
   }
 };
