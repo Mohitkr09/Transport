@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import api from "../utils/api";
 import {
   MapContainer,
   TileLayer,
@@ -11,46 +11,15 @@ import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 
-// ======================================================
-// API CONFIG
-// ======================================================
-const BASE =
-  import.meta.env.VITE_API_URL ||
-  "https://transport-mpb5.onrender.com";
+/* ======================================================
+CONFIG
+====================================================== */
+const BASE = import.meta.env.VITE_API_URL;
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
-const API_BASE = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
-
-const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL ||
-  "https://transport-mpb5.onrender.com";
-
-// ======================================================
-// AXIOS INSTANCE
-// ======================================================
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 20000
-});
-
-// attach token automatically
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-// global error handler
-api.interceptors.response.use(
-  res => res,
-  err => {
-    console.error("API ERROR:", err.response?.data || err.message);
-    return Promise.reject(err);
-  }
-);
-
-// ======================================================
-// VEHICLES
-// ======================================================
+/* ======================================================
+VEHICLES
+====================================================== */
 import bikeImg from "../assets/services/bike.png";
 import autoImg from "../assets/services/auto.png";
 import cabImg from "../assets/services/cab-economy.png";
@@ -61,9 +30,9 @@ const vehicles = [
   { id: "car", label: "Cab", img: cabImg }
 ];
 
-// ======================================================
-// MAP FIT
-// ======================================================
+/* ======================================================
+MAP FIT
+====================================================== */
 const FitBounds = ({ route }) => {
   const map = useMap();
   useEffect(() => {
@@ -72,13 +41,15 @@ const FitBounds = ({ route }) => {
   return null;
 };
 
-// ======================================================
-// COMPONENT
-// ======================================================
+/* ======================================================
+COMPONENT
+====================================================== */
 export default function BookRide() {
+
   const navigate = useNavigate();
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
+  const abortRef = useRef(null);
 
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
@@ -99,19 +70,26 @@ export default function BookRide() {
   const [message, setMessage] = useState("");
   const [driverPosition, setDriverPosition] = useState(null);
 
-  // ======================================================
-  // SOCKET CONNECT
-  // ======================================================
+  /* ======================================================
+  WAKE BACKEND (RENDER SLEEP FIX)
+  ====================================================== */
+  useEffect(() => {
+    fetch(`${BASE}/api/ride/health`).catch(() => {});
+  }, []);
+
+  /* ======================================================
+  SOCKET
+  ====================================================== */
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1500
     });
 
     socketRef.current.on("connect", () =>
-      console.log("🟢 Socket connected")
+      console.log("🟢 socket connected")
     );
 
     socketRef.current.on("receiveLocation", data => {
@@ -119,42 +97,47 @@ export default function BookRide() {
         setDriverPosition([data.lat, data.lng]);
     });
 
-    socketRef.current.on("connect_error", err =>
-      console.log("Socket error:", err.message)
-    );
-
     return () => socketRef.current?.disconnect();
   }, []);
 
-  // ======================================================
-  // LOCATION SEARCH
-  // ======================================================
+  /* ======================================================
+  SEARCH SUGGESTIONS
+  ====================================================== */
   const fetchSuggestions = (query, setter) => {
+
     if (query.length < 3) return setter([]);
 
     clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await api.get(`/location/search?q=${query}`);
+
+        abortRef.current?.abort();
+        abortRef.current = new AbortController();
+
+        const res = await api.get(`/api/location/search?q=${query}`, {
+          signal: abortRef.current.signal
+        });
+
         setter(res.data || []);
+
       } catch {
         setter([]);
       }
-    }, 400);
+    }, 350);
   };
 
-  // ======================================================
-  // ROUTE CALCULATE
-  // ======================================================
+  /* ======================================================
+  ROUTE CALCULATION
+  ====================================================== */
   const drawRoute = async (start, end) => {
     try {
-      const res = await axios.get(
-        `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}`,
-        { params: { overview: "full", geometries: "geojson" } }
+      const res = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`
       );
 
-      const r = res.data.routes?.[0];
+      const data = await res.json();
+      const r = data.routes?.[0];
       if (!r) return null;
 
       const coords = r.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
@@ -168,15 +151,17 @@ export default function BookRide() {
       setFare(Math.round(km * 15));
 
       return km;
+
     } catch {
       return null;
     }
   };
 
-  // ======================================================
-  // BOOK RIDE
-  // ======================================================
+  /* ======================================================
+  BOOK RIDE
+  ====================================================== */
   const handleBookRide = async () => {
+
     if (loading) return;
 
     if (!localStorage.getItem("token"))
@@ -190,14 +175,11 @@ export default function BookRide() {
       setMessage("Calculating route...");
 
       const km = await drawRoute(pickupCoords, dropCoords);
-      if (!km) {
-        setMessage("Route calculation failed");
-        return;
-      }
+      if (!km) return setMessage("Route calculation failed");
 
       setMessage("Finding nearby driver...");
 
-      const res = await api.post("/ride", {
+      const res = await api.post("/api/ride", {
         pickupLocation: { address: pickup, ...pickupCoords },
         dropLocation: { address: drop, ...dropCoords },
         vehicleType,
@@ -208,26 +190,34 @@ export default function BookRide() {
         return setMessage(res.data?.message || "Ride failed");
 
       const rideId = res.data.ride?._id;
-      if (!rideId) return setMessage("Ride creation failed");
+
+      if (!rideId)
+        return setMessage("Ride creation failed");
 
       setMessage("Driver assigned 🚖");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
-      setMessage(err.response?.data?.message || "Server busy. Try again.");
+
+      if (err.response?.status === 404)
+        setMessage("No drivers nearby. Retrying...");
+
+      else
+        setMessage(err.response?.data?.message || "Server busy");
+
     } finally {
       setLoading(false);
     }
   };
 
-  // ======================================================
-  // UI
-  // ======================================================
+  /* ======================================================
+  UI
+  ====================================================== */
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-100">
 
-      {/* LEFT */}
+      {/* LEFT PANEL */}
       <div className="w-full md:w-1/2 p-6 bg-white shadow">
 
         <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
