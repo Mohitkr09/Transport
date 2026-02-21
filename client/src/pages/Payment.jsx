@@ -32,7 +32,7 @@ const Payment = () => {
   useEffect(() => {
     const fetchRide = async () => {
       try {
-        const res = await api.get(`/ride/${rideId}`);
+      const res = await api.get(`/api/ride/${rideId}`);
 
         if (!res.data?.ride) {
           throw new Error("Ride not found");

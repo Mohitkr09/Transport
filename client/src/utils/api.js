@@ -23,22 +23,38 @@ const api = axios.create({
 });
 
 // ======================================================
-// DUPLICATE REQUEST CONTROL
-// (Only cancels PREVIOUS duplicate — never current)
+// SAFE DUPLICATE CONTROL (ONLY SEARCH REQUESTS)
 // ======================================================
 const pendingRequests = new Map();
+
+const shouldCancel = url => {
+  if (!url) return false;
+
+  // ❌ NEVER cancel these critical APIs
+  const whitelist = [
+    "/ride/",
+    "/payment",
+    "/auth",
+    "/driver",
+    "/admin"
+  ];
+
+  return !whitelist.some(route => url.includes(route));
+};
 
 const generateKey = config =>
   `${config.method}-${config.url}-${JSON.stringify(config.params || {})}`;
 
 const addPending = config => {
-  if (config.method !== "get") return;
+  if (!config || config.method !== "get") return;
+  if (!shouldCancel(config.url)) return;
 
   const key = generateKey(config);
 
-  // cancel previous request with same key
+  // cancel previous duplicate
   if (pendingRequests.has(key)) {
-    pendingRequests.get(key)("Canceled duplicate request");
+    const cancel = pendingRequests.get(key);
+    cancel("Canceled previous duplicate request");
     pendingRequests.delete(key);
   }
 
@@ -98,9 +114,9 @@ api.interceptors.response.use(
     if (original) removePending(original);
 
     // ==================================================
-    // REQUEST CANCELLED → ignore silently
+    // IGNORE CANCELLED REQUESTS
     // ==================================================
-    if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+    if (axios.isCancel(error) || error.message?.includes("Canceled")) {
       console.log("🟡 Request cancelled:", error.message);
       return Promise.reject(error);
     }
