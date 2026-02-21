@@ -158,7 +158,7 @@ function App() {
           />
 
 
-          {/* ================= DRIVER ================= */}
+          
           <Route
             path="/driver"
             element={
@@ -187,7 +187,7 @@ function App() {
           </Route>
 
 
-          {/* ================= 404 ================= */}
+       
           <Route path="*" element={<NotFound />} />
 
         </Routes>

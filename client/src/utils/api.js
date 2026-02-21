@@ -1,16 +1,18 @@
 import axios from "axios";
 
-
+// ======================================================
+// ENV
+// ======================================================
 const BASE = import.meta.env.VITE_API_URL;
 
 if (!BASE) {
   throw new Error("❌ VITE_API_URL missing in environment variables");
 }
 
-// remove trailing slash
 const BASE_URL = BASE.replace(/\/$/, "");
 
-
+// ======================================================
+// AXIOS INSTANCE
 // ======================================================
 const api = axios.create({
   baseURL: BASE_URL,
@@ -21,15 +23,16 @@ const api = axios.create({
 });
 
 // ======================================================
-// REQUEST TRACKER (prevent duplicates safely)
+// REQUEST TRACKER (ONLY FOR GET REQUESTS)
+// prevents duplicate search spam
 // ======================================================
 const pendingRequests = new Map();
 
 const generateKey = config =>
-  `${config.method}-${config.url}-${JSON.stringify(config.data || {})}`;
+  `${config.method}-${config.url}-${JSON.stringify(config.params || {})}`;
 
 const addPending = config => {
-  if (!config) return;
+  if (!config || config.method !== "get") return;
 
   const key = generateKey(config);
 
@@ -43,12 +46,12 @@ const addPending = config => {
 };
 
 const removePending = config => {
-  if (!config) return;
+  if (!config || config.method !== "get") return;
 
   const key = generateKey(config);
 
   if (pendingRequests.has(key)) {
-    pendingRequests.get(key)();
+    pendingRequests.get(key)("Canceled duplicate request");
     pendingRequests.delete(key);
   }
 };
@@ -58,6 +61,7 @@ const removePending = config => {
 // ======================================================
 api.interceptors.request.use(
   config => {
+    // only GET requests deduplicated
     removePending(config);
     addPending(config);
 
@@ -97,15 +101,23 @@ api.interceptors.response.use(
 
     if (original) removePending(original);
 
+    // ===============================
+    // CANCELLED REQUEST → IGNORE
+    // ===============================
+    if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+      console.log("🟡 Request cancelled:", error.message);
+      return Promise.reject(error);
+    }
+
     console.error(
       "%cAPI ERROR:",
       "color:red;font-weight:bold",
       error?.response?.data || error.message
     );
 
-    // ==================================================
-    // TOKEN EXPIRED
-    // ==================================================
+    // ===============================
+    // AUTH EXPIRED
+    // ===============================
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
 
@@ -116,24 +128,22 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // ==================================================
-    // NETWORK / SERVER DOWN
-    // ==================================================
-    if (!error.response) {
-      console.warn("Server unreachable or network lost");
+    // ===============================
+    // NETWORK ISSUE RETRY (SAFE)
+    // ===============================
+    if (!error.response && original && !original._retryNetwork) {
+      original._retryNetwork = true;
 
-      if (original && !original._retryNetwork) {
-        original._retryNetwork = true;
+      console.warn("🌐 Network issue → retrying once...");
 
-        await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1200));
 
-        return api(original);
-      }
-
-      alert("Server not responding. Try again later.");
-      return Promise.reject(error);
+      return api(original);
     }
 
+    // ===============================
+    // RENDER COLD START WAKEUP
+    // ===============================
     if (error.response?.status === 404 && original && !original._retryWake) {
       original._retryWake = true;
 
@@ -146,11 +156,13 @@ api.interceptors.response.use(
       return api(original);
     }
 
-    // ==================================================
+    // ===============================
     // TIMEOUT RETRY
-    // ==================================================
+    // ===============================
     if (error.code === "ECONNABORTED" && original && !original._retryTimeout) {
       original._retryTimeout = true;
+
+      console.warn("⏱ Timeout → retrying once...");
       return api(original);
     }
 
@@ -158,7 +170,9 @@ api.interceptors.response.use(
   }
 );
 
-
+// ======================================================
+// HELPERS
+// ======================================================
 export const setToken = token => {
   localStorage.setItem("token", token);
 };
