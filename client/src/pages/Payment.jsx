@@ -1,30 +1,46 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
-
-const API = "http://localhost:5000/api";
+import api from "../utils/api"; // <-- use your axios instance
 
 const Payment = () => {
   const { rideId } = useParams();
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
 
   const [ride, setRide] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
 
-  // ================= FETCH RIDE =================
+  // ======================================================
+  // VALIDATION
+  // ======================================================
+  useEffect(() => {
+    if (!rideId) {
+      setError("Invalid ride ID");
+      setLoading(false);
+      return;
+    }
+
+    if (!localStorage.getItem("token")) {
+      navigate("/login");
+      return;
+    }
+  }, [rideId, navigate]);
+
+  // ======================================================
+  // FETCH RIDE
+  // ======================================================
   useEffect(() => {
     const fetchRide = async () => {
       try {
-        const res = await axios.get(`${API}/ride/${rideId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
+        const res = await api.get(`/api/ride/${rideId}`);
         setRide(res.data.ride);
       } catch (err) {
-        setError("Ride not found or unauthorized");
+        console.error(err);
+        setError(
+          err.response?.data?.message ||
+          "Ride not found or unauthorized"
+        );
       } finally {
         setLoading(false);
       }
@@ -33,52 +49,63 @@ const Payment = () => {
     fetchRide();
   }, [rideId]);
 
-  // ================= PAYMENT =================
+  // ======================================================
+  // PAYMENT
+  // ======================================================
   const handlePayment = async () => {
+    if (paying) return;
+
     try {
       setPaying(true);
 
-      const res = await axios.post(
-        `${API}/payment/create-checkout-session`,
-        {
-          rideId,
-          amount: ride.fare
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      const res = await api.post("/api/payment/create-checkout-session", {
+        rideId,
+        amount: ride.fare
+      });
+
+      if (!res.data?.url) {
+        throw new Error("Payment session failed");
+      }
 
       window.location.href = res.data.url;
 
     } catch (err) {
       console.error(err);
-      alert("Payment failed");
+
+      alert(
+        err.response?.data?.message ||
+        "Payment failed. Please try again."
+      );
     } finally {
       setPaying(false);
     }
   };
 
-  // ================= LOADING =================
+  // ======================================================
+  // LOADING STATE
+  // ======================================================
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500 text-lg animate-pulse">
+        <div className="animate-pulse text-gray-500 text-lg">
           Loading payment details...
-        </p>
+        </div>
       </div>
     );
   }
 
-  // ================= ERROR =================
+  // ======================================================
+  // ERROR STATE
+  // ======================================================
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-white p-8 rounded-2xl shadow text-center">
+        <div className="bg-white p-8 rounded-2xl shadow text-center max-w-sm">
           <p className="text-red-500 font-semibold">{error}</p>
+
           <button
             onClick={() => navigate("/")}
-            className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg"
+            className="mt-5 px-6 py-2 bg-indigo-600 text-white rounded-lg"
           >
             Go Home
           </button>
@@ -87,7 +114,9 @@ const Payment = () => {
     );
   }
 
-  // ================= UI =================
+  // ======================================================
+  // UI
+  // ======================================================
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
 
@@ -108,14 +137,14 @@ const Payment = () => {
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-300">Pickup</span>
             <span className="font-semibold text-right">
-              {ride.pickupLocation.address}
+              {ride.pickupLocation?.address}
             </span>
           </div>
 
           <div className="flex justify-between">
             <span className="text-gray-600 dark:text-gray-300">Drop</span>
             <span className="font-semibold text-right">
-              {ride.dropLocation.address}
+              {ride.dropLocation?.address}
             </span>
           </div>
 
@@ -146,7 +175,7 @@ const Payment = () => {
           {paying ? "Redirecting..." : "Pay Securely"}
         </button>
 
-        {/* TEST INFO */}
+        {/* TEST CARD */}
         <p className="text-xs text-gray-400 mt-4 text-center">
           Test Card: 4242 4242 4242 4242
         </p>

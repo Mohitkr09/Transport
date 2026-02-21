@@ -7,46 +7,51 @@ const { protect } = require("../middleware/authMiddleware");
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 
+// ======================================================
+// CREATE CHECKOUT SESSION
+// ======================================================
 router.post("/create-checkout-session", protect, async (req, res) => {
   try {
     const { rideId } = req.body;
 
- 
+    if (!rideId)
+      return res.status(400).json({
+        success: false,
+        message: "Ride ID required"
+      });
+
     const ride = await Ride.findById(rideId);
 
-    if (!ride) {
+    if (!ride)
       return res.status(404).json({
         success: false,
         message: "Ride not found"
       });
-    }
 
     // ===============================
-    // Ensure user owns ride
+    // OWNER VALIDATION
     // ===============================
-    if (ride.user.toString() !== req.user._id.toString()) {
+    if (ride.user.toString() !== req.user._id.toString())
       return res.status(403).json({
         success: false,
         message: "Unauthorized ride access"
       });
-    }
 
     // ===============================
-    // Prevent duplicate payment
+    // PREVENT DOUBLE PAYMENT
     // ===============================
-    if (ride.paymentStatus === "paid") {
+    if (ride.paymentStatus === "paid")
       return res.status(400).json({
         success: false,
         message: "Ride already paid"
       });
-    }
 
     // ===============================
-    // Create Stripe Session
+    // CREATE STRIPE SESSION
     // ===============================
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
       mode: "payment",
+      payment_method_types: ["card"],
 
       line_items: [
         {
@@ -67,19 +72,15 @@ router.post("/create-checkout-session", protect, async (req, res) => {
         userId: ride.user.toString()
       },
 
-      success_url: `http://localhost:5173/payment-success/${ride._id}`,
-      cancel_url: `http://localhost:5173/payment-failed/${ride._id}`
+      success_url: `${process.env.CLIENT_URL}/payment-success/${ride._id}`,
+      cancel_url: `${process.env.CLIENT_URL}/payment-failed/${ride._id}`
     });
 
-    // ===============================
-    // Save payment intent reference
-    // ===============================
-    ride.paymentIntentId = session.payment_intent;
+    // save session reference
+    ride.paymentSessionId = session.id;
+    ride.paymentStatus = "pending";
     await ride.save();
 
-    // ===============================
-    // RESPONSE
-    // ===============================
     res.json({
       success: true,
       url: session.url
@@ -87,11 +88,71 @@ router.post("/create-checkout-session", protect, async (req, res) => {
 
   } catch (err) {
     console.error("STRIPE SESSION ERROR:", err);
+
     res.status(500).json({
       success: false,
       message: "Payment session failed"
     });
   }
 });
+
+
+// ======================================================
+// STRIPE WEBHOOK (REQUIRED FOR REAL PAYMENTS)
+// ======================================================
+router.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("Webhook signature error:", err.message);
+      return res.status(400).send("Webhook Error");
+    }
+
+    // ==================================================
+    // PAYMENT SUCCESS
+    // ==================================================
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+
+      const rideId = session.metadata.rideId;
+
+      const ride = await Ride.findById(rideId);
+
+      if (ride && ride.paymentStatus !== "paid") {
+        ride.paymentStatus = "paid";
+        ride.status = "confirmed";
+        ride.paidAt = new Date();
+        await ride.save();
+      }
+    }
+
+    // ==================================================
+    // PAYMENT FAILED
+    // ==================================================
+    if (event.type === "payment_intent.payment_failed") {
+      const intent = event.data.object;
+
+      const rideId = intent.metadata?.rideId;
+
+      if (rideId) {
+        await Ride.findByIdAndUpdate(rideId, {
+          paymentStatus: "failed"
+        });
+      }
+    }
+
+    res.json({ received: true });
+  }
+);
 
 module.exports = router;

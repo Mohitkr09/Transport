@@ -1,28 +1,63 @@
 import axios from "axios";
 
 // ======================================================
-// BASE URL
+// ENV VALIDATION
 // ======================================================
-const BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  "https://transport-mpb5.onrender.com/api";
+const BASE = import.meta.env.VITE_API_URL;
+
+if (!BASE) {
+  throw new Error("VITE_API_URL missing in environment variables");
+}
+
+// ensure no trailing slash
+const BASE_URL = BASE.replace(/\/$/, "");
 
 // ======================================================
-// CREATE INSTANCE
+// AXIOS INSTANCE
 // ======================================================
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000,
+  timeout: 20000,
   headers: {
     "Content-Type": "application/json"
   }
 });
 
 // ======================================================
+// REQUEST TRACKER (prevent duplicate requests)
+// ======================================================
+const pendingRequests = new Map();
+
+const generateKey = config =>
+  `${config.method}-${config.url}-${JSON.stringify(config.data || {})}`;
+
+const addPending = config => {
+  const key = generateKey(config);
+  config.cancelToken =
+    config.cancelToken ||
+    new axios.CancelToken(cancel => {
+      if (!pendingRequests.has(key)) {
+        pendingRequests.set(key, cancel);
+      }
+    });
+};
+
+const removePending = config => {
+  const key = generateKey(config);
+  if (pendingRequests.has(key)) {
+    pendingRequests.get(key)();
+    pendingRequests.delete(key);
+  }
+};
+
+// ======================================================
 // REQUEST INTERCEPTOR
 // ======================================================
 api.interceptors.request.use(
   config => {
+    removePending(config);
+    addPending(config);
+
     const token = localStorage.getItem("token");
 
     if (token) {
@@ -30,8 +65,8 @@ api.interceptors.request.use(
     }
 
     console.log(
-      `%cAPI → ${config.method?.toUpperCase()} ${config.url}`,
-      "color:#4f46e5;font-weight:bold"
+      `%cAPI → ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`,
+      "color:#6366f1;font-weight:bold"
     );
 
     return config;
@@ -44,41 +79,82 @@ api.interceptors.request.use(
 // ======================================================
 api.interceptors.response.use(
   response => {
+    removePending(response.config);
+
     console.log(
       `%cAPI SUCCESS ← ${response.config.url}`,
-      "color:green"
+      "color:#16a34a;font-weight:bold"
     );
+
     return response;
   },
+
   async error => {
     const original = error.config;
 
-    console.error("API ERROR:", error?.response?.data || error.message);
+    if (original) removePending(original);
+
+    console.error(
+      "%cAPI ERROR:",
+      "color:red;font-weight:bold",
+      error?.response?.data || error.message
+    );
 
     // ==================================================
-    // UNAUTHORIZED → AUTO LOGOUT
+    // SESSION EXPIRED
     // ==================================================
     if (error.response?.status === 401) {
-      console.warn("Session expired → Logging out");
-
       localStorage.removeItem("token");
 
-      window.location.href = "/login";
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+
       return Promise.reject(error);
     }
 
     // ==================================================
-    // SERVER DOWN
+    // SERVER DOWN / NETWORK ERROR
     // ==================================================
     if (!error.response) {
-      alert("Server not responding. Try again later.");
+      console.warn("Server unreachable or network lost");
+
+      if (!original._retry) {
+        original._retry = true;
+
+        await new Promise(res => setTimeout(res, 1500));
+
+        return api(original);
+      }
+
+      alert("Server not responding. Please try again later.");
+      return Promise.reject(error);
     }
 
     // ==================================================
-    // RETRY NETWORK ERROR (1 TIME)
+    // RENDER COLD START FIX
     // ==================================================
-    if (!original._retry && error.code === "ECONNABORTED") {
-      original._retry = true;
+    if (
+      error.response?.status === 404 &&
+      !original._retryWake
+    ) {
+      original._retryWake = true;
+
+      await fetch(`${BASE_URL}/api/ride/health`).catch(() => {});
+
+      await new Promise(r => setTimeout(r, 1200));
+
+      return api(original);
+    }
+
+    // ==================================================
+    // TIMEOUT RETRY
+    // ==================================================
+    if (
+      error.code === "ECONNABORTED" &&
+      !original._retryTimeout
+    ) {
+      original._retryTimeout = true;
       return api(original);
     }
 
@@ -87,7 +163,7 @@ api.interceptors.response.use(
 );
 
 // ======================================================
-// HELPER METHODS
+// HELPERS
 // ======================================================
 export const setToken = token => {
   localStorage.setItem("token", token);
@@ -98,4 +174,5 @@ export const logout = () => {
   window.location.href = "/login";
 };
 
+// ======================================================
 export default api;

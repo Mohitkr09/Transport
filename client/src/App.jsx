@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import Navbar from "./components/Navbar";
 
 /* ================= PAGES ================= */
@@ -23,11 +24,64 @@ import SupportMessages from "./pages/admin/SupportMessages";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 
+// ======================================================
+// SCROLL TO TOP ON ROUTE CHANGE
+// ======================================================
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return null;
+}
+
+
+// ======================================================
+// BACKEND WAKEUP (Fix Render Sleep)
+// ======================================================
+function BackendWakeup() {
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/api/ride/health`)
+      .catch(() => {});
+  }, []);
+
+  return null;
+}
+
+
+// ======================================================
+// 404 PAGE
+// ======================================================
+function NotFound() {
+  return (
+    <div className="h-screen flex flex-col items-center justify-center text-center">
+      <h1 className="text-6xl font-bold text-indigo-600">404</h1>
+      <p className="text-xl mt-4">Page not found</p>
+      <a
+        href="/"
+        className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg"
+      >
+        Go Home
+      </a>
+    </div>
+  );
+}
+
+
+// ======================================================
+// APP
+// ======================================================
 function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
 
-      {/* GLOBAL NAVBAR */}
+      {/* SYSTEM UTILITIES */}
+      <ScrollToTop />
+      <BackendWakeup />
+
+      {/* NAVBAR */}
       <Navbar />
 
       <div className="pt-16">
@@ -44,7 +98,7 @@ function App() {
 
 
           {/* ================================================= */}
-          {/* PAYMENT ROUTES */}
+          {/* PAYMENT */}
           {/* ================================================= */}
           <Route
             path="/payment"
@@ -75,7 +129,7 @@ function App() {
 
 
           {/* ================================================= */}
-          {/* USER ROUTE */}
+          {/* USER */}
           {/* ================================================= */}
           <Route
             path="/book"
@@ -88,7 +142,7 @@ function App() {
 
 
           {/* ================================================= */}
-          {/* DRIVER ROUTE */}
+          {/* DRIVER */}
           {/* ================================================= */}
           <Route
             path="/driver"
@@ -101,7 +155,7 @@ function App() {
 
 
           {/* ================================================= */}
-          {/* ADMIN ROUTES */}
+          {/* ADMIN */}
           {/* ================================================= */}
           <Route
             path="/admin"
@@ -111,9 +165,7 @@ function App() {
               </ProtectedRoute>
             }
           >
-            {/* DEFAULT ADMIN PAGE */}
-            <Route index element={<Navigate to="dashboard" />} />
-
+            <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="drivers" element={<Drivers />} />
             <Route path="analytics" element={<Analytics />} />
@@ -123,9 +175,9 @@ function App() {
 
 
           {/* ================================================= */}
-          {/* 404 FALLBACK */}
+          {/* 404 */}
           {/* ================================================= */}
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="*" element={<NotFound />} />
 
         </Routes>
       </div>

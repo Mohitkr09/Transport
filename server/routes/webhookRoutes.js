@@ -1,16 +1,20 @@
 const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
+const Ride = require("../models/Ride");
+const Driver = require("../models/Driver");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// IMPORTANT → raw body needed for Stripe verification
+// ======================================================
+// STRIPE WEBHOOK
+// ======================================================
 router.post(
   "/stripe",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    const sig = req.headers["stripe-signature"];
 
+    const sig = req.headers["stripe-signature"];
     let event;
 
     try {
@@ -20,30 +24,96 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.log("❌ Webhook verification failed:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      console.error("❌ Webhook signature failed:", err.message);
+      return res.status(400).send(`Webhook Error`);
     }
 
-    // ===============================
-    // HANDLE EVENTS
-    // ===============================
-    switch (event.type) {
-      case "checkout.session.completed":
+    try {
+
+      // ==================================================
+      // PAYMENT SUCCESS
+      // ==================================================
+      if (event.type === "checkout.session.completed") {
+
         const session = event.data.object;
 
-        console.log("✅ Payment success:", session.id);
+        const rideId = session.metadata?.rideId;
 
-        // 👉 Update DB payment status here
-        // await Ride.findByIdAndUpdate(session.metadata.rideId, { paid: true });
+        if (!rideId) {
+          console.warn("No rideId in metadata");
+          return res.json({ received: true });
+        }
 
-        break;
+        const ride = await Ride.findById(rideId);
 
-      case "payment_intent.payment_failed":
-        console.log("❌ Payment failed");
-        break;
+        if (!ride) {
+          console.warn("Ride not found:", rideId);
+          return res.json({ received: true });
+        }
 
-      default:
-        console.log(`Unhandled event type ${event.type}`);
+        // prevent duplicate updates (important)
+        if (ride.paymentStatus === "paid") {
+          return res.json({ received: true });
+        }
+
+        // mark paid
+        ride.paymentStatus = "paid";
+        ride.status = "confirmed";
+        ride.paidAt = new Date();
+        ride.stripeSessionId = session.id;
+
+        await ride.save();
+
+        console.log("✅ Payment recorded for ride:", rideId);
+      }
+
+
+      // ==================================================
+      // PAYMENT FAILED
+      // ==================================================
+      if (event.type === "payment_intent.payment_failed") {
+
+        const intent = event.data.object;
+
+        const rideId = intent.metadata?.rideId;
+
+        if (rideId) {
+
+          const ride = await Ride.findById(rideId);
+
+          if (ride) {
+
+            ride.paymentStatus = "failed";
+            await ride.save();
+
+            // release driver if payment fails
+            if (ride.driver) {
+              await Driver.findByIdAndUpdate(
+                ride.driver,
+                { isAvailable: true }
+              );
+            }
+
+            console.log("❌ Payment failed for ride:", rideId);
+          }
+        }
+      }
+
+
+      // ==================================================
+      // OPTIONAL EVENTS (good for analytics/logging)
+      // ==================================================
+      if (event.type === "charge.refunded") {
+        console.log("💰 Refund issued");
+      }
+
+      if (event.type === "checkout.session.expired") {
+        console.log("⌛ Checkout expired");
+      }
+
+    } catch (err) {
+      console.error("Webhook handler error:", err);
+      return res.status(500).json({ error: "Webhook handler failed" });
     }
 
     res.json({ received: true });

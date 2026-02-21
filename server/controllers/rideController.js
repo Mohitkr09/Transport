@@ -1,25 +1,6 @@
 const Ride = require("../models/Ride");
 const Driver = require("../models/Driver");
 
-
-// ======================================================
-// 📍 DISTANCE CALCULATOR
-// ======================================================
-const getDistanceKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) ** 2;
-
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-};
-
-
 // ======================================================
 // 💰 FARE CALCULATOR
 // ======================================================
@@ -28,21 +9,50 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
   return Math.round(distanceKm * (rates[vehicleType] || 20));
 };
 
+// ======================================================
+// 🎯 FIND BEST DRIVER (SMART MATCHING)
+// ======================================================
+const findBestDriver = async ({ lat, lng, vehicleType }) => {
+  const drivers = await Driver.find({
+    isApproved: true,
+    isOnline: true,
+    isAvailable: true,
+    "vehicle.type": vehicleType,
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: [lng, lat]
+        },
+        $maxDistance: 7000
+      }
+    }
+  }).limit(10);
 
+  if (!drivers.length) return null;
+
+  // smart ranking score
+  drivers.sort((a, b) => {
+    const scoreA = a.rating * 2 + a.totalRides / 50;
+    const scoreB = b.rating * 2 + b.totalRides / 50;
+    return scoreB - scoreA;
+  });
+
+  return drivers[0];
+};
 
 // ======================================================
 // 🚕 CREATE RIDE
 // ======================================================
 exports.createRide = async (req, res) => {
-
-  let nearestDriver = null;
+  let lockedDriver = null;
 
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
     // ---------- AUTH ----------
     if (!req.user?._id)
-      return res.status(401).json({ success:false, message:"Unauthorized" });
+      return res.status(401).json({ success: false, message: "Unauthorized" });
 
     // ---------- VALIDATION ----------
     if (
@@ -55,80 +65,43 @@ exports.createRide = async (req, res) => {
       typeof dropLocation.lng !== "number"
     ) {
       return res.status(400).json({
-        success:false,
-        message:"Invalid ride data"
+        success: false,
+        message: "Invalid ride data"
       });
     }
 
     // ======================================================
-    // FIND ELIGIBLE DRIVERS
+    // FIND BEST DRIVER
     // ======================================================
-    const drivers = await Driver.find({
-      isApproved:true,
-      isOnline:true,
-      isAvailable:true,
-      "vehicle.type":vehicleType,
-      "location.coordinates.0": { $exists:true },
-      "location.coordinates.1": { $exists:true }
+    const bestDriver = await findBestDriver({
+      lat: pickupLocation.lat,
+      lng: pickupLocation.lng,
+      vehicleType
     });
 
-    if(!drivers.length)
+    if (!bestDriver)
       return res.status(404).json({
-        success:false,
-        message:"No drivers available"
+        success: false,
+        message: "No nearby drivers available"
       });
 
-
     // ======================================================
-    // FIND NEAREST DRIVER
+    // ATOMIC LOCK DRIVER (ANTI DOUBLE BOOKING)
     // ======================================================
-    let min = Infinity;
-
-    for(const d of drivers){
-
-      if(!d.location?.coordinates) continue;
-
-      const [lng,lat] = d.location.coordinates;
-
-      if(!lat || !lng) continue;
-
-      const dist = getDistanceKm(
-        pickupLocation.lat,
-        pickupLocation.lng,
-        lat,
-        lng
-      );
-
-      if(dist > 50) continue;
-
-      if(dist < min){
-        min = dist;
-        nearestDriver = d;
-      }
-    }
-
-    if(!nearestDriver)
-      return res.status(404).json({
-        success:false,
-        message:"No nearby drivers found"
-      });
-
-
-    // ======================================================
-    // 🔒 ATOMIC DRIVER LOCK
-    // ======================================================
-    const locked = await Driver.findOneAndUpdate(
-      { _id:nearestDriver._id, isAvailable:true },
-      { isAvailable:false },
-      { new:true }
+    lockedDriver = await Driver.findOneAndUpdate(
+      {
+        _id: bestDriver._id,
+        isAvailable: true
+      },
+      { isAvailable: false },
+      { new: true }
     );
 
-    if(!locked)
+    if (!lockedDriver)
       return res.status(409).json({
-        success:false,
-        message:"Driver just got booked. Try again."
+        success: false,
+        message: "Driver just got booked. Try again."
       });
-
 
     // ======================================================
     // DISTANCE + FARE
@@ -138,326 +111,161 @@ exports.createRide = async (req, res) => {
     const safeDistance =
       Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
 
-    const fare = calculateFare(vehicleType,safeDistance);
-
+    const fare = calculateFare(vehicleType, safeDistance);
 
     // ======================================================
     // CREATE RIDE
     // ======================================================
     const ride = await Ride.create({
-      user:req.user._id,
-      driver:locked._id,
-      pickupLocation:{
-        address:pickupLocation.address,
-        location:{
-          type:"Point",
-          coordinates:[pickupLocation.lng,pickupLocation.lat]
+      user: req.user._id,
+      driver: lockedDriver._id,
+      pickupLocation: {
+        address: pickupLocation.address,
+        location: {
+          type: "Point",
+          coordinates: [pickupLocation.lng, pickupLocation.lat]
         }
       },
-      dropLocation:{
-        address:dropLocation.address,
-        location:{
-          type:"Point",
-          coordinates:[dropLocation.lng,dropLocation.lat]
+      dropLocation: {
+        address: dropLocation.address,
+        location: {
+          type: "Point",
+          coordinates: [dropLocation.lng, dropLocation.lat]
         }
       },
       vehicleType,
-      distanceKm:safeDistance,
+      distanceKm: safeDistance,
       fare,
-      status:"driver_assigned",
-      requestedAt:new Date()
+      status: "driver_assigned",
+      requestedAt: new Date()
     });
-
 
     // ======================================================
     // AUTO RELEASE DRIVER IF NOT ACCEPTED
     // ======================================================
-    setTimeout(async()=>{
-      try{
+    setTimeout(async () => {
+      try {
         const r = await Ride.findById(ride._id);
 
-        if(r && r.status === "driver_assigned"){
+        if (r && r.status === "driver_assigned") {
           r.status = "cancelled";
           r.cancelledBy = "system_timeout";
           await r.save();
 
-          await Driver.findByIdAndUpdate(r.driver,{isAvailable:true});
+          await Driver.findByIdAndUpdate(r.driver, {
+            isAvailable: true
+          });
         }
-      }catch(err){
-        console.error("AUTO RELEASE ERROR:",err);
+      } catch (err) {
+        console.error("AUTO RELEASE ERROR:", err);
       }
-    },30000);
-
+    }, 30000);
 
     res.status(201).json({
-      success:true,
-      message:"Driver assigned successfully",
+      success: true,
+      message: "Driver assigned successfully",
       ride
     });
 
-  } catch(err){
+  } catch (err) {
 
-    console.error("CREATE RIDE ERROR:",err);
+    console.error("CREATE RIDE ERROR:", err);
 
-    // unlock driver if crash happens
-    if(nearestDriver?._id){
-      await Driver.findByIdAndUpdate(nearestDriver._id,{isAvailable:true});
+    // unlock driver if crash occurs
+    if (lockedDriver?._id) {
+      await Driver.findByIdAndUpdate(
+        lockedDriver._id,
+        { isAvailable: true }
+      );
     }
 
     res.status(500).json({
-      success:false,
-      message:"Failed to create ride"
+      success: false,
+      message: "Failed to create ride"
     });
   }
 };
-
-
 
 // ======================================================
 // USER RIDES
 // ======================================================
-exports.getUserRides = async (req,res)=>{
-  try{
-    const rides = await Ride.find({user:req.user._id})
-      .populate("driver","name email rating vehicle")
-      .sort({createdAt:-1});
+exports.getUserRides = async (req, res) => {
+  try {
+    const rides = await Ride.find({ user: req.user._id })
+      .populate("driver", "name email rating vehicle")
+      .sort({ createdAt: -1 });
 
-    res.json({success:true,rides});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({success:false,message:"Failed to fetch rides"});
+    res.json({ success: true, rides });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch rides"
+    });
   }
 };
-
-
-
-// ======================================================
-// SINGLE RIDE
-// ======================================================
-exports.getRideById = async (req,res)=>{
-  try{
-    const ride = await Ride.findById(req.params.id)
-      .populate("driver","name email rating vehicle");
-
-    if(!ride)
-      return res.status(404).json({message:"Ride not found"});
-
-    if(
-      ride.user.toString() !== req.user._id.toString() &&
-      ride.driver.toString() !== req.user._id.toString() &&
-      req.user.role !== "admin"
-    )
-      return res.status(403).json({message:"Access denied"});
-
-    res.json({success:true,ride});
-
-  }catch(err){
-    console.error(err);
-    res.status(500).json({success:false,message:"Failed to fetch ride"});
-  }
-};
-
-
 
 // ======================================================
 // ACCEPT RIDE
 // ======================================================
-exports.acceptRide = async (req,res)=>{
-  try{
+exports.acceptRide = async (req, res) => {
+  try {
     const ride = await Ride.findById(req.params.id);
 
-    if(!ride) return res.status(404).json({message:"Ride not found"});
+    if (!ride)
+      return res.status(404).json({ message: "Ride not found" });
 
-    if(ride.driver.toString() !== req.user._id.toString())
-      return res.status(403).json({message:"Not your ride"});
+    if (ride.driver.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: "Not your ride" });
 
-    if(ride.status !== "driver_assigned")
-      return res.status(400).json({message:"Ride already accepted"});
+    if (ride.status !== "driver_assigned")
+      return res.status(400).json({ message: "Ride already accepted" });
 
-    ride.status="accepted";
-    ride.acceptedAt=new Date();
+    ride.status = "accepted";
+    ride.acceptedAt = new Date();
     await ride.save();
 
-    res.json({success:true,message:"Ride accepted",ride});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Failed to accept ride"});
+    res.json({
+      success: true,
+      message: "Ride accepted",
+      ride
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Failed to accept ride" });
   }
 };
-
-
-
-// ======================================================
-// START RIDE
-// ======================================================
-exports.startRide = async (req,res)=>{
-  try{
-    const ride = await Ride.findById(req.params.id);
-
-    if(!ride) return res.status(404).json({message:"Ride not found"});
-
-    if(ride.driver.toString() !== req.user._id.toString())
-      return res.status(403).json({message:"Not your ride"});
-
-    if(ride.status !== "accepted")
-      return res.status(400).json({message:"Ride cannot start"});
-
-    ride.status="ongoing";
-    ride.startedAt=new Date();
-    await ride.save();
-
-    res.json({success:true,message:"Ride started",ride});
-
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Failed to start ride"});
-  }
-};
-
-
 
 // ======================================================
 // COMPLETE RIDE
 // ======================================================
-exports.completeRide = async (req,res)=>{
-  try{
+exports.completeRide = async (req, res) => {
+  try {
     const ride = await Ride.findById(req.params.id);
 
-    if(!ride) return res.status(404).json({message:"Ride not found"});
+    if (!ride)
+      return res.status(404).json({ message: "Ride not found" });
 
-    if(ride.driver.toString() !== req.user._id.toString())
-      return res.status(403).json({message:"Not your ride"});
+    if (ride.driver.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: "Not your ride" });
 
-    if(!["accepted","ongoing"].includes(ride.status))
-      return res.status(400).json({message:"Ride cannot be completed"});
+    if (!["accepted", "ongoing"].includes(ride.status))
+      return res.status(400).json({ message: "Ride cannot be completed" });
 
-    ride.status="completed";
-    ride.completedAt=new Date();
+    ride.status = "completed";
+    ride.completedAt = new Date();
     await ride.save();
 
-    await Driver.findByIdAndUpdate(ride.driver,{isAvailable:true});
+    await Driver.findByIdAndUpdate(ride.driver, {
+      isAvailable: true
+    });
 
-    res.json({success:true,message:"Ride completed",ride});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Failed to complete ride"});
-  }
-};
+    res.json({
+      success: true,
+      message: "Ride completed",
+      ride
+    });
 
-
-
-// ======================================================
-// CANCEL RIDE
-// ======================================================
-exports.cancelRide = async (req,res)=>{
-  try{
-    const ride = await Ride.findById(req.params.id);
-
-    if(!ride) return res.status(404).json({message:"Ride not found"});
-
-    if(ride.status === "completed")
-      return res.status(400).json({
-        message:"Completed ride cannot be cancelled"
-      });
-
-    ride.status="cancelled";
-    ride.cancelledAt=new Date();
-    ride.cancelledBy=req.user.role || "user";
-    await ride.save();
-
-    await Driver.findByIdAndUpdate(ride.driver,{isAvailable:true});
-
-    res.json({success:true,message:"Ride cancelled"});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Failed to cancel ride"});
-  }
-};
-
-
-
-// ======================================================
-// ⭐ RATE RIDE
-// ======================================================
-exports.rateRide = async (req,res)=>{
-  try{
-    const {rating,feedback} = req.body;
-
-    if(!rating || rating < 1 || rating > 5)
-      return res.status(400).json({message:"Rating must be 1-5"});
-
-    const ride = await Ride.findById(req.params.id);
-    if(!ride) return res.status(404).json({message:"Ride not found"});
-
-    if(ride.user.toString() !== req.user._id.toString())
-      return res.status(403).json({message:"Not allowed"});
-
-    if(ride.status !== "completed")
-      return res.status(400).json({message:"Ride not completed"});
-
-    ride.rating = rating;
-    ride.feedback = feedback;
-    await ride.save();
-
-    const driver = await Driver.findById(ride.driver);
-
-    const total = driver.totalRides + 1;
-    const newRating =
-      ((driver.rating * driver.totalRides) + Number(rating)) / total;
-
-    driver.rating = Number(newRating.toFixed(1));
-    driver.totalRides = total;
-
-    await driver.save();
-
-    res.json({success:true,message:"Rating submitted"});
-
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Rating failed"});
-  }
-};
-
-
-
-// ======================================================
-// ADMIN — ALL RIDES
-// ======================================================
-exports.getAllRides = async(req,res)=>{
-  try{
-    const rides = await Ride.find()
-      .populate("user","name email")
-      .populate("driver","name email")
-      .sort({createdAt:-1});
-
-    res.json({success:true,count:rides.length,rides});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Failed to fetch rides"});
-  }
-};
-
-
-
-// ======================================================
-// ADMIN CANCEL
-// ======================================================
-exports.adminCancelRide = async(req,res)=>{
-  try{
-    const ride = await Ride.findById(req.params.id);
-
-    if(!ride) return res.status(404).json({message:"Ride not found"});
-
-    ride.status="cancelled";
-    ride.cancelledBy="admin";
-    ride.cancelledAt=new Date();
-    await ride.save();
-
-    await Driver.findByIdAndUpdate(ride.driver,{isAvailable:true});
-
-    res.json({success:true,message:"Ride cancelled by admin"});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({message:"Cancel failed"});
+  } catch (err) {
+    res.status(500).json({ message: "Failed to complete ride" });
   }
 };

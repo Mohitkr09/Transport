@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 
+// ======================================================
+// DRIVER SCHEMA
+// ======================================================
 const driverSchema = new mongoose.Schema(
   {
     // ========================
@@ -16,6 +19,7 @@ const driverSchema = new mongoose.Schema(
       required: true,
       unique: true,
       lowercase: true,
+      trim: true,
       index: true
     },
 
@@ -30,8 +34,14 @@ const driverSchema = new mongoose.Schema(
     // DOCUMENTS
     // ========================
     documents: {
-      license: String,
-      vehicleRC: String
+      license: {
+        type: String,
+        default: null
+      },
+      vehicleRC: {
+        type: String,
+        default: null
+      }
     },
 
     // ========================
@@ -43,9 +53,19 @@ const driverSchema = new mongoose.Schema(
         enum: ["bike", "auto", "car"],
         required: true
       },
-      number: String,
-      model: String,
-      color: String
+      number: {
+        type: String,
+        trim: true,
+        uppercase: true
+      },
+      model: {
+        type: String,
+        trim: true
+      },
+      color: {
+        type: String,
+        trim: true
+      }
     },
 
     // ========================
@@ -73,7 +93,7 @@ const driverSchema = new mongoose.Schema(
     },
 
     // ========================
-    // LIVE LOCATION
+    // LIVE LOCATION (GeoJSON)
     // ========================
     location: {
       type: {
@@ -82,11 +102,12 @@ const driverSchema = new mongoose.Schema(
         default: "Point"
       },
       coordinates: {
-        type: [Number],
+        type: [Number], // [lng, lat]
         default: undefined,
         validate: {
           validator: arr =>
-            !arr || (
+            !arr ||
+            (
               arr.length === 2 &&
               arr[0] >= -180 &&
               arr[0] <= 180 &&
@@ -98,10 +119,13 @@ const driverSchema = new mongoose.Schema(
       }
     },
 
-    lastLocationUpdate: Date,
+    lastLocationUpdate: {
+      type: Date,
+      default: null
+    },
 
     // ========================
-    // RATINGS
+    // PERFORMANCE METRICS
     // ========================
     rating: {
       type: Number,
@@ -113,17 +137,23 @@ const driverSchema = new mongoose.Schema(
     totalRides: {
       type: Number,
       default: 0
+    },
+
+    cancelledRides: {
+      type: Number,
+      default: 0
     }
   },
-  { timestamps: true }
+  {
+    timestamps: true
+  }
 );
 
+// ======================================================
+// INDEXES (CRITICAL FOR SPEED)
+// ======================================================
 
-// =====================================================
-// INDEXES (VERY IMPORTANT FOR MATCHING SPEED)
-// =====================================================
-
-// geo search
+// geo search index
 driverSchema.index({ location: "2dsphere" });
 
 // matching optimization index
@@ -134,19 +164,28 @@ driverSchema.index({
   "vehicle.type": 1
 });
 
+// performance ranking index
+driverSchema.index({
+  rating: -1,
+  totalRides: -1
+});
 
-// =====================================================
-// AUTO STATUS LOGIC
-// =====================================================
+// ======================================================
+// PRE-SAVE HOOKS
+// ======================================================
 driverSchema.pre("save", function (next) {
-  // offline driver cannot be available
-  if (!this.isOnline) this.isAvailable = false;
-
+  // offline driver can't be available
+  if (!this.isOnline) {
+    this.isAvailable = false;
+  }
   next();
 });
 
+// ======================================================
+// INSTANCE METHODS
+// ======================================================
 
-
+// update driver location safely
 driverSchema.methods.updateLocation = function (lat, lng) {
   this.location = {
     type: "Point",
@@ -155,18 +194,68 @@ driverSchema.methods.updateLocation = function (lat, lng) {
   this.lastLocationUpdate = new Date();
 };
 
+// mark driver busy
+driverSchema.methods.markBusy = function () {
+  this.isAvailable = false;
+};
 
-// =====================================================
-// VIRTUAL FIELD
-// =====================================================
+// mark driver free
+driverSchema.methods.markAvailable = function () {
+  if (this.isOnline) {
+    this.isAvailable = true;
+  }
+};
+
+// ======================================================
+// STATIC METHODS (SMART MATCHING)
+// ======================================================
+
+driverSchema.statics.findNearbyDrivers = async function ({
+  lat,
+  lng,
+  vehicleType,
+  radius = 5000,
+  limit = 10
+}) {
+  return this.find({
+    isApproved: true,
+    isOnline: true,
+    isAvailable: true,
+    "vehicle.type": vehicleType,
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: [lng, lat]
+        },
+        $maxDistance: radius
+      }
+    }
+  })
+    .sort({ rating: -1, totalRides: -1 })
+    .limit(limit);
+};
+
+// ======================================================
+// VIRTUAL FIELDS
+// ======================================================
+
+// driver busy status
 driverSchema.virtual("isBusy").get(function () {
   return !this.isAvailable;
 });
 
+// experience level
+driverSchema.virtual("experienceLevel").get(function () {
+  if (this.totalRides > 1000) return "expert";
+  if (this.totalRides > 200) return "pro";
+  if (this.totalRides > 50) return "experienced";
+  return "new";
+});
 
-// =====================================================
+// ======================================================
 // JSON CLEANUP
-// =====================================================
+// ======================================================
 driverSchema.set("toJSON", {
   virtuals: true,
   transform: (_, ret) => {
@@ -176,6 +265,5 @@ driverSchema.set("toJSON", {
   }
 });
 
-
-// =====================================================
+// ======================================================
 module.exports = mongoose.model("Driver", driverSchema);
