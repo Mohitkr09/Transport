@@ -9,7 +9,9 @@ if (!BASE) {
   throw new Error("❌ VITE_API_URL missing in environment variables");
 }
 
-const BASE_URL = BASE.replace(/\/$/, "");
+// IMPORTANT → always include /api
+const BASE_URL = BASE.replace(/\/$/, "") + "/api";
+
 
 // ======================================================
 // AXIOS INSTANCE
@@ -22,9 +24,10 @@ const api = axios.create({
   }
 });
 
+
 // ======================================================
-// DUPLICATE REQUEST CONTROL
-// (Only cancels PREVIOUS duplicate — never current)
+// DUPLICATE REQUEST CONTROL (GET ONLY)
+// Cancels PREVIOUS duplicate, never current
 // ======================================================
 const pendingRequests = new Map();
 
@@ -32,11 +35,11 @@ const generateKey = config =>
   `${config.method}-${config.url}-${JSON.stringify(config.params || {})}`;
 
 const addPending = config => {
-  if (config.method !== "get") return;
+  if (!config || config.method !== "get") return;
 
   const key = generateKey(config);
 
-  // cancel previous request with same key
+  // cancel previous duplicate
   if (pendingRequests.has(key)) {
     pendingRequests.get(key)("Canceled duplicate request");
     pendingRequests.delete(key);
@@ -51,11 +54,9 @@ const removePending = config => {
   if (!config || config.method !== "get") return;
 
   const key = generateKey(config);
-
-  if (pendingRequests.has(key)) {
-    pendingRequests.delete(key);
-  }
+  pendingRequests.delete(key);
 };
+
 
 // ======================================================
 // REQUEST INTERCEPTOR
@@ -77,6 +78,7 @@ api.interceptors.request.use(
   error => Promise.reject(error)
 );
 
+
 // ======================================================
 // RESPONSE INTERCEPTOR
 // ======================================================
@@ -94,12 +96,11 @@ api.interceptors.response.use(
 
   async error => {
     const original = error?.config;
-
     if (original) removePending(original);
 
-    // ==================================================
-    // REQUEST CANCELLED → ignore silently
-    // ==================================================
+    // ===============================
+    // CANCELLED REQUEST → ignore
+    // ===============================
     if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
       console.log("🟡 Request cancelled:", error.message);
       return Promise.reject(error);
@@ -111,9 +112,9 @@ api.interceptors.response.use(
       error?.response?.data || error.message
     );
 
-    // ==================================================
+    // ===============================
     // AUTH EXPIRED
-    // ==================================================
+    // ===============================
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
 
@@ -124,9 +125,9 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // ==================================================
+    // ===============================
     // NETWORK RETRY
-    // ==================================================
+    // ===============================
     if (!error.response && original && !original._retryNetwork) {
       original._retryNetwork = true;
 
@@ -136,23 +137,23 @@ api.interceptors.response.use(
       return api(original);
     }
 
-    // ==================================================
-    // RENDER WAKEUP FIX (Render sleep issue)
-    // ==================================================
+    // ===============================
+    // RENDER COLD START FIX
+    // ===============================
     if (error.response?.status === 404 && original && !original._retryWake) {
       original._retryWake = true;
 
       try {
-        await fetch(`${BASE_URL}/api/ride/health`);
+        await fetch(`${BASE_URL}/ride/health`);
       } catch {}
 
       await new Promise(r => setTimeout(r, 1200));
       return api(original);
     }
 
-    // ==================================================
+    // ===============================
     // TIMEOUT RETRY
-    // ==================================================
+    // ===============================
     if (error.code === "ECONNABORTED" && original && !original._retryTimeout) {
       original._retryTimeout = true;
 
@@ -163,6 +164,7 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
 
 // ======================================================
 // HELPERS
