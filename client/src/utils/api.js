@@ -1,19 +1,16 @@
 import axios from "axios";
 
-// ======================================================
-// ENV VALIDATION
-// ======================================================
+
 const BASE = import.meta.env.VITE_API_URL;
 
 if (!BASE) {
-  throw new Error("VITE_API_URL missing in environment variables");
+  throw new Error("❌ VITE_API_URL missing in environment variables");
 }
 
-// ensure no trailing slash
+// remove trailing slash
 const BASE_URL = BASE.replace(/\/$/, "");
 
-// ======================================================
-// AXIOS INSTANCE
+
 // ======================================================
 const api = axios.create({
   baseURL: BASE_URL,
@@ -24,7 +21,7 @@ const api = axios.create({
 });
 
 // ======================================================
-// REQUEST TRACKER (prevent duplicate requests)
+// REQUEST TRACKER (prevent duplicates safely)
 // ======================================================
 const pendingRequests = new Map();
 
@@ -32,7 +29,10 @@ const generateKey = config =>
   `${config.method}-${config.url}-${JSON.stringify(config.data || {})}`;
 
 const addPending = config => {
+  if (!config) return;
+
   const key = generateKey(config);
+
   config.cancelToken =
     config.cancelToken ||
     new axios.CancelToken(cancel => {
@@ -43,7 +43,10 @@ const addPending = config => {
 };
 
 const removePending = config => {
+  if (!config) return;
+
   const key = generateKey(config);
+
   if (pendingRequests.has(key)) {
     pendingRequests.get(key)();
     pendingRequests.delete(key);
@@ -90,7 +93,7 @@ api.interceptors.response.use(
   },
 
   async error => {
-    const original = error.config;
+    const original = error?.config;
 
     if (original) removePending(original);
 
@@ -101,7 +104,7 @@ api.interceptors.response.use(
     );
 
     // ==================================================
-    // SESSION EXPIRED
+    // TOKEN EXPIRED
     // ==================================================
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
@@ -114,33 +117,29 @@ api.interceptors.response.use(
     }
 
     // ==================================================
-    // SERVER DOWN / NETWORK ERROR
+    // NETWORK / SERVER DOWN
     // ==================================================
     if (!error.response) {
       console.warn("Server unreachable or network lost");
 
-      if (!original._retry) {
-        original._retry = true;
+      if (original && !original._retryNetwork) {
+        original._retryNetwork = true;
 
-        await new Promise(res => setTimeout(res, 1500));
+        await new Promise(r => setTimeout(r, 1500));
 
         return api(original);
       }
 
-      alert("Server not responding. Please try again later.");
+      alert("Server not responding. Try again later.");
       return Promise.reject(error);
     }
 
-    // ==================================================
-    // RENDER COLD START FIX
-    // ==================================================
-    if (
-      error.response?.status === 404 &&
-      !original._retryWake
-    ) {
+    if (error.response?.status === 404 && original && !original._retryWake) {
       original._retryWake = true;
 
-      await fetch(`${BASE_URL}/api/ride/health`).catch(() => {});
+      try {
+        await fetch(`${BASE_URL}/api/ride/health`);
+      } catch {}
 
       await new Promise(r => setTimeout(r, 1200));
 
@@ -150,10 +149,7 @@ api.interceptors.response.use(
     // ==================================================
     // TIMEOUT RETRY
     // ==================================================
-    if (
-      error.code === "ECONNABORTED" &&
-      !original._retryTimeout
-    ) {
+    if (error.code === "ECONNABORTED" && original && !original._retryTimeout) {
       original._retryTimeout = true;
       return api(original);
     }
@@ -162,9 +158,7 @@ api.interceptors.response.use(
   }
 );
 
-// ======================================================
-// HELPERS
-// ======================================================
+
 export const setToken = token => {
   localStorage.setItem("token", token);
 };

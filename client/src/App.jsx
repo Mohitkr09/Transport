@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Navbar from "./components/Navbar";
 
 /* ================= PAGES ================= */
@@ -31,7 +31,7 @@ function ScrollToTop() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    window.scrollTo(0, 0);
+    window.scrollTo({ top: 0, behavior: "instant" });
   }, [pathname]);
 
   return null;
@@ -39,12 +39,20 @@ function ScrollToTop() {
 
 
 // ======================================================
-// BACKEND WAKEUP
+// BACKEND WAKEUP (Render Cold Start Fix)
 // ======================================================
 function BackendWakeup() {
+  const called = useRef(false);
+
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/ride/health`)
-      .catch(() => {});
+    if (called.current) return;
+    called.current = true;
+
+    const url = import.meta.env.VITE_API_URL;
+
+    if (!url) return;
+
+    fetch(`${url}/api/ride/health`).catch(() => {});
   }, []);
 
   return null;
@@ -59,10 +67,32 @@ function NotFound() {
     <div className="h-screen flex flex-col items-center justify-center text-center">
       <h1 className="text-6xl font-bold text-indigo-600">404</h1>
       <p className="text-xl mt-4">Page not found</p>
-      <a href="/" className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg">
-        Go Home
-      </a>
+
+      {/* SPA navigation instead of reload */}
+      <Navigate to="/" replace />
     </div>
+  );
+}
+
+
+// ======================================================
+// CONDITIONAL NAVBAR
+// hides navbar on login/register pages
+// ======================================================
+function Layout({ children }) {
+  const { pathname } = useLocation();
+
+  const hideNavbar =
+    pathname === "/login" ||
+    pathname === "/register";
+
+  return (
+    <>
+      {!hideNavbar && <Navbar />}
+      <div className={!hideNavbar ? "pt-16" : ""}>
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -74,14 +104,10 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
 
-      {/* UTILITIES */}
       <ScrollToTop />
       <BackendWakeup />
 
-      {/* NAVBAR */}
-      <Navbar />
-
-      <div className="pt-16">
+      <Layout>
         <Routes>
 
           {/* ================= PUBLIC ================= */}
@@ -93,7 +119,6 @@ function App() {
 
 
           {/* ================= PAYMENT ================= */}
-          {/* FIXED ROUTE */}
           <Route
             path="/payment/:rideId"
             element={
@@ -166,7 +191,8 @@ function App() {
           <Route path="*" element={<NotFound />} />
 
         </Routes>
-      </div>
+      </Layout>
+
     </div>
   );
 }

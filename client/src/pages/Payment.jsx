@@ -1,15 +1,25 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import api from "../utils/api"; // <-- use your axios instance
+import api from "../utils/api";
 
 const Payment = () => {
   const { rideId } = useParams();
   const navigate = useNavigate();
+  const mounted = useRef(true);
 
   const [ride, setRide] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
+
+  // ======================================================
+  // CLEANUP (avoid memory leak + state update after unmount)
+  // ======================================================
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // ======================================================
   // VALIDATION
@@ -21,9 +31,9 @@ const Payment = () => {
       return;
     }
 
-    if (!localStorage.getItem("token")) {
+    const token = localStorage.getItem("token");
+    if (!token) {
       navigate("/login");
-      return;
     }
   }, [rideId, navigate]);
 
@@ -31,18 +41,34 @@ const Payment = () => {
   // FETCH RIDE
   // ======================================================
   useEffect(() => {
+    if (!rideId) return;
+
     const fetchRide = async () => {
       try {
-        const res = await api.get(`/api/ride/${rideId}`);
+        setLoading(true);
+
+        // IMPORTANT: no /api prefix because baseURL already contains it
+        const res = await api.get(`/ride/${rideId}`);
+
+        if (!mounted.current) return;
+
+        if (!res.data?.ride) {
+          throw new Error("Ride not found");
+        }
+
         setRide(res.data.ride);
       } catch (err) {
-        console.error(err);
+        if (!mounted.current) return;
+
+        console.error("FETCH RIDE ERROR:", err);
+
         setError(
           err.response?.data?.message ||
+          err.message ||
           "Ride not found or unauthorized"
         );
       } finally {
-        setLoading(false);
+        if (mounted.current) setLoading(false);
       }
     };
 
@@ -53,12 +79,12 @@ const Payment = () => {
   // PAYMENT
   // ======================================================
   const handlePayment = async () => {
-    if (paying) return;
+    if (!ride || paying) return;
 
     try {
       setPaying(true);
 
-      const res = await api.post("/api/payment/create-checkout-session", {
+      const res = await api.post("/payment/create-checkout-session", {
         rideId,
         amount: ride.fare
       });
@@ -67,13 +93,15 @@ const Payment = () => {
         throw new Error("Payment session failed");
       }
 
+      // redirect to stripe
       window.location.href = res.data.url;
 
     } catch (err) {
-      console.error(err);
+      console.error("PAYMENT ERROR:", err);
 
       alert(
         err.response?.data?.message ||
+        err.message ||
         "Payment failed. Please try again."
       );
     } finally {
@@ -82,7 +110,7 @@ const Payment = () => {
   };
 
   // ======================================================
-  // LOADING STATE
+  // LOADING
   // ======================================================
   if (loading) {
     return (
@@ -95,13 +123,13 @@ const Payment = () => {
   }
 
   // ======================================================
-  // ERROR STATE
+  // ERROR
   // ======================================================
-  if (error) {
+  if (error || !ride) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-white p-8 rounded-2xl shadow text-center max-w-sm">
-          <p className="text-red-500 font-semibold">{error}</p>
+          <p className="text-red-500 font-semibold">{error || "Ride not found"}</p>
 
           <button
             onClick={() => navigate("/")}
@@ -122,7 +150,6 @@ const Payment = () => {
 
       <div className="bg-white dark:bg-gray-800 p-10 rounded-3xl shadow-xl w-[420px]">
 
-        {/* TITLE */}
         <h1 className="text-3xl font-bold mb-2 text-gray-800 dark:text-white text-center">
           Complete Payment
         </h1>
@@ -134,26 +161,9 @@ const Payment = () => {
         {/* RIDE DETAILS */}
         <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-xl mb-6 space-y-3">
 
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Pickup</span>
-            <span className="font-semibold text-right">
-              {ride.pickupLocation?.address}
-            </span>
-          </div>
-
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Drop</span>
-            <span className="font-semibold text-right">
-              {ride.dropLocation?.address}
-            </span>
-          </div>
-
-          <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-300">Vehicle</span>
-            <span className="font-semibold capitalize">
-              {ride.vehicleType}
-            </span>
-          </div>
+          <Row label="Pickup" value={ride.pickupLocation?.address} />
+          <Row label="Drop" value={ride.dropLocation?.address} />
+          <Row label="Vehicle" value={ride.vehicleType} />
 
           <hr />
 
@@ -166,7 +176,6 @@ const Payment = () => {
 
         </div>
 
-        {/* PAY BUTTON */}
         <button
           onClick={handlePayment}
           disabled={paying}
@@ -175,7 +184,6 @@ const Payment = () => {
           {paying ? "Redirecting..." : "Pay Securely"}
         </button>
 
-        {/* TEST CARD */}
         <p className="text-xs text-gray-400 mt-4 text-center">
           Test Card: 4242 4242 4242 4242
         </p>
@@ -184,5 +192,17 @@ const Payment = () => {
     </div>
   );
 };
+
+// ======================================================
+// SMALL REUSABLE ROW COMPONENT
+// ======================================================
+const Row = ({ label, value }) => (
+  <div className="flex justify-between">
+    <span className="text-gray-600 dark:text-gray-300">{label}</span>
+    <span className="font-semibold capitalize text-right">
+      {value || "-"}
+    </span>
+  </div>
+);
 
 export default Payment;

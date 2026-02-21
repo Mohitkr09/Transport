@@ -229,9 +229,7 @@ exports.rateRide = async (req,res)=>{
   }
 };
 
-// ======================================================
-// ADMIN — ALL RIDES
-// ======================================================
+
 exports.getAllRides = async (req,res)=>{
   try{
     const rides = await Ride.find()
@@ -245,9 +243,7 @@ exports.getAllRides = async (req,res)=>{
   }
 };
 
-// ======================================================
-// ADMIN CANCEL
-// ======================================================
+
 exports.adminCancelRide = async (req,res)=>{
   try{
     const ride = await Ride.findById(req.params.id);
