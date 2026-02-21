@@ -194,9 +194,6 @@ const Payment = () => {
   );
 };
 
-// ======================================================
-// REUSABLE ROW
-// ======================================================
 const Row = ({ label, value }) => (
   <div className="flex justify-between">
     <span className="text-gray-600 dark:text-gray-300">{label}</span>
