@@ -13,7 +13,7 @@ const Payment = () => {
   const [error, setError] = useState("");
 
   // ======================================================
-  // CLEANUP (avoid memory leak + state update after unmount)
+  // CLEANUP (prevent state update after unmount)
   // ======================================================
   useEffect(() => {
     return () => {
@@ -47,8 +47,8 @@ const Payment = () => {
       try {
         setLoading(true);
 
-        // IMPORTANT: no /api prefix because baseURL already contains it
-        const res = await api.get(`/ride/${rideId}`);
+        // ✅ CORRECT ROUTE
+        const res = await api.get(`/api/ride/${rideId}`);
 
         if (!mounted.current) return;
 
@@ -84,7 +84,7 @@ const Payment = () => {
     try {
       setPaying(true);
 
-      const res = await api.post("/payment/create-checkout-session", {
+      const res = await api.post("/api/payment/create-checkout-session", {
         rideId,
         amount: ride.fare
       });
@@ -93,7 +93,6 @@ const Payment = () => {
         throw new Error("Payment session failed");
       }
 
-      // redirect to stripe
       window.location.href = res.data.url;
 
     } catch (err) {
@@ -129,7 +128,9 @@ const Payment = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-white p-8 rounded-2xl shadow text-center max-w-sm">
-          <p className="text-red-500 font-semibold">{error || "Ride not found"}</p>
+          <p className="text-red-500 font-semibold">
+            {error || "Ride not found"}
+          </p>
 
           <button
             onClick={() => navigate("/")}
@@ -194,7 +195,7 @@ const Payment = () => {
 };
 
 // ======================================================
-// SMALL REUSABLE ROW COMPONENT
+// REUSABLE ROW
 // ======================================================
 const Row = ({ label, value }) => (
   <div className="flex justify-between">

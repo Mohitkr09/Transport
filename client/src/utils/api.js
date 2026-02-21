@@ -170,9 +170,7 @@ api.interceptors.response.use(
   }
 );
 
-// ======================================================
-// HELPERS
-// ======================================================
+
 export const setToken = token => {
   localStorage.setItem("token", token);
 };
@@ -182,5 +180,4 @@ export const logout = () => {
   window.location.href = "/login";
 };
 
-// ======================================================
 export default api;
