@@ -5,19 +5,25 @@ const rideController = require("../controllers/rideController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
 // ======================================================
-// SAFE ASYNC WRAPPER
+// SAFE ASYNC WRAPPER (CRASH SAFE)
 // ======================================================
-const asyncHandler = fn =>
-  (req, res, next) =>
+const asyncHandler = fn => {
+  if (typeof fn !== "function") {
+    throw new Error("Route handler is not a function");
+  }
+  return (req, res, next) =>
     Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 
 // ======================================================
-// DEBUG LOGGER (remove in production if needed)
+// DEBUG LOGGER
 // ======================================================
 router.use((req, res, next) => {
-  console.log("🚗 RIDE ROUTE:", req.method, req.originalUrl);
+  console.log(`🚗 RIDE ROUTE → ${req.method} ${req.originalUrl}`);
   next();
 });
+
 
 // ======================================================
 // HEALTH CHECK
@@ -29,90 +35,41 @@ router.get("/health", (req, res) => {
   });
 });
 
+
 // ======================================================
+// USER ROUTES
+// ======================================================
+
 // CREATE RIDE
-// POST /api/ride
-// ======================================================
-router.post(
-  "/",
-  protect,
-  asyncHandler(rideController.createRide)
-);
+router.post("/", protect, asyncHandler(rideController.createRide));
 
-// ======================================================
 // GET USER RIDES
-// GET /api/ride
-// ======================================================
-router.get(
-  "/",
-  protect,
-  asyncHandler(rideController.getUserRides)
-);
+router.get("/", protect, asyncHandler(rideController.getUserRides));
 
-// ======================================================
 // GET SINGLE RIDE
-// GET /api/ride/:id
-// ======================================================
-router.get(
-  "/:id",
-  protect,
-  asyncHandler(rideController.getRideById)
-);
+router.get("/:id", protect, asyncHandler(rideController.getRideById));
 
-// ======================================================
-// DRIVER ACCEPT RIDE
-// PUT /api/ride/:id/accept
-// ======================================================
-router.put(
-  "/:id/accept",
-  protect,
-  asyncHandler(rideController.acceptRide)
-);
+// ACCEPT RIDE
+router.put("/:id/accept", protect, asyncHandler(rideController.acceptRide));
 
-// ======================================================
-// START RIDE (NEW)
-// PUT /api/ride/:id/start
-// ======================================================
-router.put(
-  "/:id/start",
-  protect,
-  asyncHandler(rideController.startRide)
-);
+// START RIDE
+router.put("/:id/start", protect, asyncHandler(rideController.startRide));
 
-// ======================================================
 // COMPLETE RIDE
-// PUT /api/ride/:id/complete
-// ======================================================
-router.put(
-  "/:id/complete",
-  protect,
-  asyncHandler(rideController.completeRide)
-);
+router.put("/:id/complete", protect, asyncHandler(rideController.completeRide));
 
-// ======================================================
 // CANCEL RIDE
-// PUT /api/ride/:id/cancel
-// ======================================================
-router.put(
-  "/:id/cancel",
-  protect,
-  asyncHandler(rideController.cancelRide)
-);
+router.put("/:id/cancel", protect, asyncHandler(rideController.cancelRide));
+
+// RATE RIDE
+router.post("/:id/rate", protect, asyncHandler(rideController.rateRide));
+
 
 // ======================================================
-// RATE RIDE (NEW)
-// POST /api/ride/:id/rate
+// ADMIN ROUTES (IMPORTANT → ABOVE FALLBACK)
 // ======================================================
-router.post(
-  "/:id/rate",
-  protect,
-  asyncHandler(rideController.rateRide)
-);
 
-// ======================================================
-// ADMIN — GET ALL RIDES
-// GET /api/ride/admin/all
-// ======================================================
+// GET ALL RIDES
 router.get(
   "/admin/all",
   protect,
@@ -120,10 +77,7 @@ router.get(
   asyncHandler(rideController.getAllRides)
 );
 
-// ======================================================
-// ADMIN — FORCE CANCEL RIDE
-// PUT /api/ride/admin/:id/cancel
-// ======================================================
+// FORCE CANCEL
 router.put(
   "/admin/:id/cancel",
   protect,
@@ -131,8 +85,9 @@ router.put(
   asyncHandler(rideController.adminCancelRide)
 );
 
+
 // ======================================================
-// FALLBACK ROUTE (MUST BE LAST)
+// FALLBACK (MUST BE LAST)
 // ======================================================
 router.use((req, res) => {
   res.status(404).json({
@@ -140,6 +95,7 @@ router.use((req, res) => {
     message: `Ride route not found → ${req.method} ${req.originalUrl}`
   });
 });
+
 
 // ======================================================
 module.exports = router;

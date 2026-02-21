@@ -25,7 +25,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 
 // ======================================================
-// SCROLL TO TOP ON ROUTE CHANGE
+// SCROLL TO TOP
 // ======================================================
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -39,7 +39,7 @@ function ScrollToTop() {
 
 
 // ======================================================
-// BACKEND WAKEUP (Fix Render Sleep)
+// BACKEND WAKEUP
 // ======================================================
 function BackendWakeup() {
   useEffect(() => {
@@ -59,10 +59,7 @@ function NotFound() {
     <div className="h-screen flex flex-col items-center justify-center text-center">
       <h1 className="text-6xl font-bold text-indigo-600">404</h1>
       <p className="text-xl mt-4">Page not found</p>
-      <a
-        href="/"
-        className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg"
-      >
+      <a href="/" className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-lg">
         Go Home
       </a>
     </div>
@@ -77,7 +74,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
 
-      {/* SYSTEM UTILITIES */}
+      {/* UTILITIES */}
       <ScrollToTop />
       <BackendWakeup />
 
@@ -87,9 +84,7 @@ function App() {
       <div className="pt-16">
         <Routes>
 
-          {/* ================================================= */}
-          {/* PUBLIC ROUTES */}
-          {/* ================================================= */}
+          {/* ================= PUBLIC ================= */}
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -97,11 +92,10 @@ function App() {
           <Route path="/contact" element={<Contact />} />
 
 
-          {/* ================================================= */}
-          {/* PAYMENT */}
-          {/* ================================================= */}
+          {/* ================= PAYMENT ================= */}
+          {/* FIXED ROUTE */}
           <Route
-            path="/payment"
+            path="/payment/:rideId"
             element={
               <ProtectedRoute allowedRoles={["user"]}>
                 <Payment />
@@ -110,7 +104,7 @@ function App() {
           />
 
           <Route
-            path="/payment-success"
+            path="/payment-success/:rideId"
             element={
               <div className="h-screen flex items-center justify-center text-3xl font-bold text-green-600">
                 ✅ Payment Successful
@@ -119,7 +113,7 @@ function App() {
           />
 
           <Route
-            path="/payment-failed"
+            path="/payment-failed/:rideId"
             element={
               <div className="h-screen flex items-center justify-center text-3xl font-bold text-red-600">
                 ❌ Payment Failed
@@ -128,9 +122,7 @@ function App() {
           />
 
 
-          {/* ================================================= */}
-          {/* USER */}
-          {/* ================================================= */}
+          {/* ================= USER ================= */}
           <Route
             path="/book"
             element={
@@ -141,9 +133,7 @@ function App() {
           />
 
 
-          {/* ================================================= */}
-          {/* DRIVER */}
-          {/* ================================================= */}
+          {/* ================= DRIVER ================= */}
           <Route
             path="/driver"
             element={
@@ -154,9 +144,7 @@ function App() {
           />
 
 
-          {/* ================================================= */}
-          {/* ADMIN */}
-          {/* ================================================= */}
+          {/* ================= ADMIN ================= */}
           <Route
             path="/admin"
             element={
@@ -174,9 +162,7 @@ function App() {
           </Route>
 
 
-          {/* ================================================= */}
-          {/* 404 */}
-          {/* ================================================= */}
+          {/* ================= 404 ================= */}
           <Route path="*" element={<NotFound />} />
 
         </Routes>
