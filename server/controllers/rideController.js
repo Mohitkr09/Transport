@@ -54,162 +54,107 @@ const findBestDriver = async ({ lat, lng, vehicleType }) => {
 // 🚕 CREATE RIDE
 // ======================================================
 exports.createRide = async (req, res) => {
-
-  let lockedDriver = null;
-
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
-    // ==================================================
-    // AUTH CHECK
-    // ==================================================
     if (!req.user?._id)
-      return res.status(401).json({
-        success:false,
-        message:"Unauthorized"
-      });
+      return res.status(401).json({ success:false, message:"Unauthorized" });
 
-    // ==================================================
-    // VALIDATION
-    // ==================================================
     if (
       !pickupLocation ||
       !dropLocation ||
-      !vehicleType ||
       typeof pickupLocation.lat !== "number" ||
-      typeof pickupLocation.lng !== "number" ||
-      typeof dropLocation.lat !== "number" ||
-      typeof dropLocation.lng !== "number"
+      typeof pickupLocation.lng !== "number"
     ) {
-      return res.status(400).json({
-        success:false,
-        message:"Invalid ride data"
-      });
+      return res.status(400).json({ success:false, message:"Invalid ride data" });
     }
 
-    // ==================================================
-    // FIND DRIVER
-    // ==================================================
-    const bestDriver = await findBestDriver({
-      lat: pickupLocation.lat,
-      lng: pickupLocation.lng,
-      vehicleType
-    });
-
-    if (!bestDriver)
-      return res.status(404).json({
-        success:false,
-        message:"No nearby drivers available"
-      });
-
-    // ==================================================
-    // ATOMIC DRIVER LOCK (ANTI DOUBLE BOOKING)
-    // ==================================================
-    lockedDriver = await Driver.findOneAndUpdate(
-      {
-        _id: bestDriver._id,
-        isAvailable: true
-      },
-      { isAvailable: false },
-      { new: true }
-    );
-
-    if (!lockedDriver)
-      return res.status(409).json({
-        success:false,
-        message:"Driver just got booked. Try again."
-      });
-
-    // ==================================================
-    // DISTANCE + FARE
-    // ==================================================
+    // =============================
+    // SAFE DISTANCE
+    // =============================
     const parsed = parseFloat(distance);
+    const safeDistance = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
 
-    const safeDistance =
-      Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+    const rates = { bike:10, auto:15, car:20 };
+    const fare = Math.round(safeDistance * (rates[vehicleType] || 20));
 
-    const fare = calculateFare(vehicleType, safeDistance);
-
-    // ==================================================
-    // CREATE RIDE
-    // ==================================================
+    // =============================
+    // CREATE RIDE FIRST
+    // =============================
     const ride = await Ride.create({
-      user: req.user._id,
-      driver: lockedDriver._id,
-      pickupLocation: {
-        address: pickupLocation.address,
-        location: {
+      user:req.user._id,
+      pickupLocation:{
+        address:pickupLocation.address,
+        location:{
           type:"Point",
-          coordinates:[pickupLocation.lng, pickupLocation.lat]
+          coordinates:[pickupLocation.lng,pickupLocation.lat]
         }
       },
-      dropLocation: {
-        address: dropLocation.address,
-        location: {
+      dropLocation:{
+        address:dropLocation.address,
+        location:{
           type:"Point",
-          coordinates:[dropLocation.lng, dropLocation.lat]
+          coordinates:[dropLocation.lng,dropLocation.lat]
         }
       },
       vehicleType,
-      distanceKm: safeDistance,
+      distanceKm:safeDistance,
       fare,
-      status:"driver_assigned",
-      requestedAt:new Date()
+      status:"requested"
     });
 
-    // ==================================================
-    // AUTO RELEASE DRIVER IF NO RESPONSE
-    // ==================================================
-    setTimeout(async () => {
+    // =============================
+    // FIND DRIVER IN BACKGROUND
+    // =============================
+    setImmediate(async () => {
       try {
-        const r = await Ride.findById(ride._id);
+        const driver = await Driver.findOne({
+          isApproved:true,
+          isOnline:true,
+          isAvailable:true,
+          "vehicle.type":vehicleType,
+          location:{
+            $near:{
+              $geometry:{
+                type:"Point",
+                coordinates:[pickupLocation.lng,pickupLocation.lat]
+              },
+              $maxDistance:15000
+            }
+          }
+        });
 
-        if (r && r.status === "driver_assigned") {
-
-          r.status = "cancelled";
-          r.cancelledBy = "system_timeout";
-          await r.save();
-
-          await Driver.findByIdAndUpdate(r.driver,{
-            isAvailable:true
-          });
-
-          console.log("Driver released due to timeout");
+        if(!driver){
+          await Ride.findByIdAndUpdate(ride._id,{status:"no_driver_found"});
+          return;
         }
-      } catch (err) {
-        console.error("AUTO RELEASE ERROR:", err);
-      }
-    }, 30000);
 
-    // ==================================================
-    // RESPONSE
-    // ==================================================
+        await Driver.findByIdAndUpdate(driver._id,{isAvailable:false});
+
+        await Ride.findByIdAndUpdate(ride._id,{
+          driver:driver._id,
+          status:"driver_assigned"
+        });
+
+      } catch(err){
+        console.log("BACKGROUND MATCH ERROR:",err);
+      }
+    });
+
+    // =============================
+    // RESPONSE IMMEDIATELY
+    // =============================
     res.status(201).json({
       success:true,
-      message:"Driver assigned successfully",
+      message:"Ride request created. Searching driver...",
       ride
     });
 
-  } catch (err) {
-
-    console.error("CREATE RIDE ERROR:", err);
-
-    // unlock driver if crash occurs
-    if (lockedDriver?._id)
-      await Driver.findByIdAndUpdate(
-        lockedDriver._id,
-        { isAvailable:true }
-      );
-
-    res.status(500).json({
-      success:false,
-      message:"Failed to create ride"
-    });
+  } catch(err){
+    console.error("CREATE RIDE ERROR:",err);
+    res.status(500).json({success:false,message:"Failed to create ride"});
   }
 };
-
-
-
 // ======================================================
 // USER RIDES
 // ======================================================
