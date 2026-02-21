@@ -1,25 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../utils/api";
 
 const Payment = () => {
   const { rideId } = useParams();
   const navigate = useNavigate();
-  const mounted = useRef(true);
 
   const [ride, setRide] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
-
-  // ======================================================
-  // CLEANUP (prevent state update after unmount)
-  // ======================================================
-  useEffect(() => {
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   // ======================================================
   // VALIDATION
@@ -31,26 +21,18 @@ const Payment = () => {
       return;
     }
 
-    const token = localStorage.getItem("token");
-    if (!token) {
+    if (!localStorage.getItem("token")) {
       navigate("/login");
     }
-  }, [rideId, navigate]);
+  }, [rideId]);
 
   // ======================================================
   // FETCH RIDE
   // ======================================================
   useEffect(() => {
-    if (!rideId) return;
-
     const fetchRide = async () => {
       try {
-        setLoading(true);
-
-        // ✅ CORRECT ROUTE
-        const res = await api.get(`/api/ride/${rideId}`);
-
-        if (!mounted.current) return;
+        const res = await api.get(`/ride/${rideId}`);
 
         if (!res.data?.ride) {
           throw new Error("Ride not found");
@@ -58,8 +40,6 @@ const Payment = () => {
 
         setRide(res.data.ride);
       } catch (err) {
-        if (!mounted.current) return;
-
         console.error("FETCH RIDE ERROR:", err);
 
         setError(
@@ -68,7 +48,7 @@ const Payment = () => {
           "Ride not found or unauthorized"
         );
       } finally {
-        if (mounted.current) setLoading(false);
+        setLoading(false);
       }
     };
 
@@ -84,7 +64,7 @@ const Payment = () => {
     try {
       setPaying(true);
 
-      const res = await api.post("/api/payment/create-checkout-session", {
+      const res = await api.post("/payment/create-checkout-session", {
         rideId,
         amount: ride.fare
       });
@@ -94,7 +74,6 @@ const Payment = () => {
       }
 
       window.location.href = res.data.url;
-
     } catch (err) {
       console.error("PAYMENT ERROR:", err);
 
@@ -128,9 +107,7 @@ const Payment = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-white p-8 rounded-2xl shadow text-center max-w-sm">
-          <p className="text-red-500 font-semibold">
-            {error || "Ride not found"}
-          </p>
+          <p className="text-red-500 font-semibold">{error || "Ride not found"}</p>
 
           <button
             onClick={() => navigate("/")}
@@ -148,10 +125,9 @@ const Payment = () => {
   // ======================================================
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
-
       <div className="bg-white dark:bg-gray-800 p-10 rounded-3xl shadow-xl w-[420px]">
 
-        <h1 className="text-3xl font-bold mb-2 text-gray-800 dark:text-white text-center">
+        <h1 className="text-3xl font-bold mb-2 text-center text-gray-800 dark:text-white">
           Complete Payment
         </h1>
 
@@ -159,9 +135,7 @@ const Payment = () => {
           Secure checkout powered by Stripe
         </p>
 
-        {/* RIDE DETAILS */}
         <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-xl mb-6 space-y-3">
-
           <Row label="Pickup" value={ride.pickupLocation?.address} />
           <Row label="Drop" value={ride.dropLocation?.address} />
           <Row label="Vehicle" value={ride.vehicleType} />
@@ -174,7 +148,6 @@ const Payment = () => {
               ₹{ride.fare}
             </span>
           </div>
-
         </div>
 
         <button
@@ -194,12 +167,13 @@ const Payment = () => {
   );
 };
 
+// ======================================================
+// ROW COMPONENT
+// ======================================================
 const Row = ({ label, value }) => (
   <div className="flex justify-between">
     <span className="text-gray-600 dark:text-gray-300">{label}</span>
-    <span className="font-semibold capitalize text-right">
-      {value || "-"}
-    </span>
+    <span className="font-semibold capitalize">{value || "-"}</span>
   </div>
 );
 
