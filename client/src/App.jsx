@@ -11,6 +11,7 @@ import DriverDashboard from "./pages/DriverDashboard";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Payment from "./pages/Payment";
+import RideTracking from "./pages/RideTracking";
 
 /* ================= ADMIN ================= */
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -49,7 +50,6 @@ function BackendWakeup() {
     called.current = true;
 
     const url = import.meta.env.VITE_API_URL;
-
     if (!url) return;
 
     fetch(`${url}/api/ride/health`).catch(() => {});
@@ -60,39 +60,53 @@ function BackendWakeup() {
 
 
 // ======================================================
-// 404 PAGE
-// ======================================================
-function NotFound() {
-  return (
-    <div className="h-screen flex flex-col items-center justify-center text-center">
-      <h1 className="text-6xl font-bold text-indigo-600">404</h1>
-      <p className="text-xl mt-4">Page not found</p>
-
-      {/* SPA navigation instead of reload */}
-      <Navigate to="/" replace />
-    </div>
-  );
-}
-
-
-// ======================================================
 // CONDITIONAL NAVBAR
-// hides navbar on login/register pages
 // ======================================================
 function Layout({ children }) {
   const { pathname } = useLocation();
 
   const hideNavbar =
-    pathname === "/login" ||
-    pathname === "/register";
+    pathname.includes("/login") ||
+    pathname.includes("/register") ||
+    pathname.includes("/payment");
 
   return (
     <>
       {!hideNavbar && <Navbar />}
-      <div className={!hideNavbar ? "pt-16" : ""}>
-        {children}
-      </div>
+      <div className={!hideNavbar ? "pt-16" : ""}>{children}</div>
     </>
+  );
+}
+
+
+// ======================================================
+// 404 PAGE
+// ======================================================
+function NotFound() {
+  return <Navigate to="/" replace />;
+}
+
+
+// ======================================================
+// PAYMENT FAILED PAGE
+// ======================================================
+function PaymentFailed() {
+  return (
+    <div className="h-screen flex flex-col items-center justify-center text-center">
+      <div className="bg-white p-10 rounded-3xl shadow-xl">
+        <h1 className="text-4xl font-bold text-red-500 mb-3">Payment Failed</h1>
+        <p className="text-gray-500 mb-6">
+          Something went wrong while processing payment.
+        </p>
+
+        <a
+          href="/book"
+          className="px-6 py-3 bg-indigo-600 text-white rounded-xl"
+        >
+          Try Again
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -128,21 +142,23 @@ function App() {
             }
           />
 
+          {/* SUCCESS → TRACK DRIVER PAGE */}
           <Route
             path="/payment-success/:rideId"
             element={
-              <div className="h-screen flex items-center justify-center text-3xl font-bold text-green-600">
-                ✅ Payment Successful
-              </div>
+              <ProtectedRoute allowedRoles={["user"]}>
+                <RideTracking />
+              </ProtectedRoute>
             }
           />
 
+          {/* FAILED */}
           <Route
             path="/payment-failed/:rideId"
             element={
-              <div className="h-screen flex items-center justify-center text-3xl font-bold text-red-600">
-                ❌ Payment Failed
-              </div>
+              <ProtectedRoute allowedRoles={["user"]}>
+                <PaymentFailed />
+              </ProtectedRoute>
             }
           />
 
@@ -158,7 +174,7 @@ function App() {
           />
 
 
-          
+          {/* ================= DRIVER ================= */}
           <Route
             path="/driver"
             element={
@@ -187,7 +203,7 @@ function App() {
           </Route>
 
 
-       
+          {/* ================= 404 ================= */}
           <Route path="*" element={<NotFound />} />
 
         </Routes>
