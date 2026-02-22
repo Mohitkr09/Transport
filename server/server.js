@@ -1,6 +1,4 @@
-
 require("dotenv").config();
-
 
 const express = require("express");
 const cors = require("cors");
@@ -10,12 +8,15 @@ const dns = require("dns");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
+const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 
 // absolute root
 const root = __dirname;
 
-
+// ======================================================
+// ROUTES
+// ======================================================
 const authRoutes = require(path.join(root,"routes","authRoutes.js"));
 const driverRoutes = require(path.join(root,"routes","driverRoutes.js"));
 const adminRoutes = require(path.join(root,"routes","adminRoutes.js"));
@@ -28,7 +29,7 @@ const webhookRoutes = require(path.join(root,"routes","webhookRoutes.js"));
 const connectDB = require(path.join(root,"config","db.js"));
 
 // ======================================================
-// ENV VALIDATION
+// ENV CHECK
 // ======================================================
 ["MONGO_URI","JWT_SECRET"].forEach(key=>{
   if(!process.env[key]){
@@ -40,12 +41,12 @@ const connectDB = require(path.join(root,"config","db.js"));
 console.log("✅ ENV Loaded");
 
 // ======================================================
-// DNS FIX (Mongo Atlas IPv6 bug)
+// DNS FIX
 // ======================================================
 dns.setDefaultResultOrder("ipv4first");
 
 // ======================================================
-// CONNECT DB
+// DB CONNECT
 // ======================================================
 connectDB()
 .then(()=>console.log("✅ MongoDB Connected"))
@@ -55,32 +56,16 @@ connectDB()
 });
 
 // ======================================================
-// INIT APP
+// EXPRESS INIT
 // ======================================================
 const app = express();
-
-// ======================================================
-// TRUST PROXY (Required for Render / Heroku / Vercel)
-// ======================================================
 app.set("trust proxy",1);
 
 // ======================================================
 // SECURITY
 // ======================================================
-app.use(
-  helmet({
-    crossOriginResourcePolicy:false
-  })
-);
-
-// ======================================================
-// COMPRESSION
-// ======================================================
+app.use(helmet({ crossOriginResourcePolicy:false }));
 app.use(compression());
-
-// ======================================================
-// BODY LIMITS
-// ======================================================
 app.use(express.json({limit:"10mb"}));
 app.use(express.urlencoded({extended:true,limit:"10mb"}));
 
@@ -97,9 +82,8 @@ app.use(cors({
   origin:(origin,cb)=>{
     if(!origin) return cb(null,true);
     if(allowedOrigins.includes(origin)) return cb(null,true);
-
-    console.warn("⚠️ Blocked CORS:",origin);
-    return cb(null,true); // allow temporarily
+    console.warn("⚠️ Blocked:",origin);
+    return cb(null,true);
   },
   credentials:true
 }));
@@ -115,7 +99,7 @@ app.use((req,res,next)=>{
 });
 
 // ======================================================
-// STRIPE WEBHOOK (RAW BODY ONLY HERE)
+// WEBHOOK
 // ======================================================
 app.use(
   "/api/webhook",
@@ -124,7 +108,7 @@ app.use(
 );
 
 // ======================================================
-// STATIC FILES
+// STATIC
 // ======================================================
 app.use("/uploads",express.static(path.join(root,"uploads")));
 
@@ -141,15 +125,9 @@ app.use("/api/location",locationRoutes);
 
 console.log("✅ Routes mounted");
 
-// ======================================================
-// HEALTH CHECK ROUTE
-// ======================================================
+
 app.get("/health",(req,res)=>{
-  res.json({
-    success:true,
-    server:"running",
-    time:new Date()
-  });
+  res.json({ success:true, server:"running", time:new Date() });
 });
 
 // ======================================================
@@ -170,11 +148,10 @@ app.use((req,res)=>{
 });
 
 // ======================================================
-// GLOBAL ERROR HANDLER
+// GLOBAL ERROR
 // ======================================================
 app.use((err,req,res,next)=>{
   console.error("🔥 SERVER ERROR:",err);
-
   res.status(err.status||500).json({
     success:false,
     message:err.message || "Internal Server Error"
@@ -182,24 +159,74 @@ app.use((err,req,res,next)=>{
 });
 
 // ======================================================
-// SERVER + SOCKET
+// HTTP SERVER
 // ======================================================
 const server=http.createServer(app);
 
+// ======================================================
+// SOCKET SERVER
+// ======================================================
 const io=new Server(server,{
-  cors:{
-    origin:true,
-    methods:["GET","POST"]
-  },
-  transports:["websocket","polling"], // IMPORTANT FIX
+  cors:{ origin:true },
+  transports:["websocket","polling"],
   pingTimeout:60000
 });
 
-io.on("connection",socket=>{
-  console.log("🟢 Socket Connected:",socket.id);
+// make globally accessible
+global.io = io;
 
-  socket.on("sendLocation",data=>{
-    io.emit("receiveLocation",data);
+// ======================================================
+// SOCKET AUTH MIDDLEWARE
+// ======================================================
+io.use((socket,next)=>{
+  try{
+    const token = socket.handshake.auth?.token;
+    if(!token) return next(new Error("No token"));
+
+    const decoded = jwt.verify(token,process.env.JWT_SECRET);
+    socket.user = decoded;
+    next();
+  }catch(err){
+    next(new Error("Unauthorized socket"));
+  }
+});
+
+// ======================================================
+// SOCKET CONNECTION
+// ======================================================
+io.on("connection",socket=>{
+  console.log("🟢 Socket Connected:",socket.id,"User:",socket.user?.id);
+
+  // join ride room
+  socket.on("joinRide",rideId=>{
+    socket.join(rideId);
+    console.log(`📦 ${socket.id} joined ride ${rideId}`);
+  });
+
+  // driver sends location
+  socket.on("driverLocation",data=>{
+    /*
+      data = {
+        rideId,
+        lat,
+        lng,
+        heading
+      }
+    */
+
+    if(!data?.rideId) return;
+
+    io.to(data.rideId).emit("driverMoved",{
+      lat:data.lat,
+      lng:data.lng,
+      heading:data.heading,
+      updatedAt:new Date()
+    });
+  });
+
+  // ride status updates
+  socket.on("rideStatus",({rideId,status})=>{
+    io.to(rideId).emit("rideStatusUpdate",status);
   });
 
   socket.on("disconnect",()=>{
@@ -208,7 +235,7 @@ io.on("connection",socket=>{
 });
 
 // ======================================================
-// GRACEFUL SHUTDOWN
+// SHUTDOWN
 // ======================================================
 process.on("SIGINT",()=>{
   console.log("🛑 Server shutting down...");

@@ -26,7 +26,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 
 // ======================================================
-// SCROLL TO TOP
+// SCROLL TO TOP ON ROUTE CHANGE
 // ======================================================
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -40,7 +40,7 @@ function ScrollToTop() {
 
 
 // ======================================================
-// BACKEND WAKEUP (Render Cold Start Fix)
+// BACKEND WAKEUP (Fix Render Cold Start)
 // ======================================================
 function BackendWakeup() {
   const called = useRef(false);
@@ -60,15 +60,15 @@ function BackendWakeup() {
 
 
 // ======================================================
-// CONDITIONAL NAVBAR
+// LAYOUT WRAPPER
 // ======================================================
 function Layout({ children }) {
   const { pathname } = useLocation();
 
   const hideNavbar =
-    pathname.includes("/login") ||
-    pathname.includes("/register") ||
-    pathname.includes("/payment");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/payment");
 
   return (
     <>
@@ -80,10 +80,32 @@ function Layout({ children }) {
 
 
 // ======================================================
-// 404 PAGE
+// PAYMENT SUCCESS SCREEN (ANIMATED)
 // ======================================================
-function NotFound() {
-  return <Navigate to="/" replace />;
+function PaymentSuccess() {
+  const { pathname } = useLocation();
+  const rideId = pathname.split("/").pop();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.location.href = `/track/${rideId}`;
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [rideId]);
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100">
+      <div className="bg-white p-10 rounded-3xl shadow-2xl text-center">
+        <h1 className="text-4xl font-bold text-green-600 mb-2">
+          Payment Successful 🎉
+        </h1>
+        <p className="text-gray-500">
+          Redirecting to live ride tracking...
+        </p>
+      </div>
+    </div>
+  );
 }
 
 
@@ -92,9 +114,12 @@ function NotFound() {
 // ======================================================
 function PaymentFailed() {
   return (
-    <div className="h-screen flex flex-col items-center justify-center text-center">
-      <div className="bg-white p-10 rounded-3xl shadow-xl">
-        <h1 className="text-4xl font-bold text-red-500 mb-3">Payment Failed</h1>
+    <div className="h-screen flex items-center justify-center">
+      <div className="bg-white p-10 rounded-3xl shadow-xl text-center">
+        <h1 className="text-4xl font-bold text-red-500 mb-3">
+          Payment Failed
+        </h1>
+
         <p className="text-gray-500 mb-6">
           Something went wrong while processing payment.
         </p>
@@ -112,7 +137,15 @@ function PaymentFailed() {
 
 
 // ======================================================
-// APP
+// 404 FALLBACK
+// ======================================================
+function NotFound() {
+  return <Navigate to="/" replace />;
+}
+
+
+// ======================================================
+// MAIN APP
 // ======================================================
 function App() {
   return (
@@ -132,7 +165,9 @@ function App() {
           <Route path="/contact" element={<Contact />} />
 
 
-          {/* ================= PAYMENT ================= */}
+          {/* ================= PAYMENT FLOW ================= */}
+
+          {/* ENTER CARD PAGE */}
           <Route
             path="/payment/:rideId"
             element={
@@ -142,22 +177,32 @@ function App() {
             }
           />
 
-          {/* SUCCESS → TRACK DRIVER PAGE */}
+          {/* AFTER STRIPE SUCCESS */}
           <Route
             path="/payment-success/:rideId"
             element={
               <ProtectedRoute allowedRoles={["user"]}>
-                <RideTracking />
+                <PaymentSuccess />
               </ProtectedRoute>
             }
           />
 
-          {/* FAILED */}
+          {/* STRIPE FAIL */}
           <Route
             path="/payment-failed/:rideId"
             element={
               <ProtectedRoute allowedRoles={["user"]}>
                 <PaymentFailed />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* LIVE TRACKING */}
+          <Route
+            path="/track/:rideId"
+            element={
+              <ProtectedRoute allowedRoles={["user"]}>
+                <RideTracking />
               </ProtectedRoute>
             }
           />

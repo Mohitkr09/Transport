@@ -22,15 +22,18 @@ const Payment = () => {
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(120);
-  const [paid, setPaid] = useState(false);
+  const [stage, setStage] = useState("payment"); 
+  // stages → payment | processing | success | redirecting
 
-  // ================= FETCH RIDE =================
+  // ======================================================
+  // FETCH RIDE
+  // ======================================================
   useEffect(() => {
     const fetchRide = async () => {
       try {
         const res = await api.get(`/api/ride/${rideId}`);
         setRide(res.data.ride);
-      } catch (err) {
+      } catch {
         setError("Ride not found");
       } finally {
         setLoading(false);
@@ -39,9 +42,11 @@ const Payment = () => {
     fetchRide();
   }, [rideId]);
 
-  // ================= COUNTDOWN =================
+  // ======================================================
+  // COUNTDOWN
+  // ======================================================
   useEffect(() => {
-    if (!ride || paid) return;
+    if (!ride || stage !== "payment") return;
 
     if (secondsLeft <= 0) {
       alert("Payment session expired");
@@ -54,43 +59,67 @@ const Payment = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [ride, secondsLeft, paid]);
+  }, [ride, secondsLeft, stage]);
 
-  // ================= PAYMENT =================
+  // ======================================================
+  // PAYMENT
+  // ======================================================
   const handlePayment = async () => {
     if (!ride || paying) return;
 
     try {
       setPaying(true);
+      setStage("processing");
 
       const res = await api.post("/api/payment/create-checkout-session", {
         rideId,
         amount: ride.fare
       });
 
-      if (!res.data?.url) throw new Error("Payment failed");
+      if (!res.data?.url) throw new Error();
 
-      setPaid(true);
-
-      // 🎉 Confetti
-      confetti({
-        particleCount: 150,
-        spread: 80,
-        origin: { y: 0.6 }
-      });
-
+      // animation delay before redirect
       setTimeout(() => {
         window.location.href = res.data.url;
       }, 1500);
 
-    } catch (err) {
+    } catch {
+      setStage("payment");
       alert("Payment failed");
     } finally {
       setPaying(false);
     }
   };
 
-  // ================= LOADING =================
+  // ======================================================
+  // AFTER STRIPE RETURN SUCCESS
+  // ======================================================
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("paid") === "true") {
+      setStage("success");
+
+      confetti({
+        particleCount: 200,
+        spread: 90,
+        origin: { y: 0.6 }
+      });
+
+      // verify payment with backend
+      api.post(`/api/payment/verify/${rideId}`).catch(()=>{});
+
+      // redirect to tracking
+      setTimeout(() => {
+        setStage("redirecting");
+        navigate(`/track/${rideId}`);
+      }, 3000);
+    }
+  }, []);
+
+  // ======================================================
+  // LOADING
+  // ======================================================
   if (loading) {
     return (
       <Center>
@@ -99,7 +128,9 @@ const Payment = () => {
     );
   }
 
-  // ================= ERROR =================
+  // ======================================================
+  // ERROR
+  // ======================================================
   if (error || !ride) {
     return (
       <Center>
@@ -111,8 +142,10 @@ const Payment = () => {
     );
   }
 
-  // ================= SUCCESS SCREEN =================
-  if (paid) {
+  // ======================================================
+  // SUCCESS SCREEN
+  // ======================================================
+  if (stage === "success" || stage === "redirecting") {
     return (
       <Center>
         <motion.div
@@ -121,14 +154,40 @@ const Payment = () => {
           className="bg-white p-10 rounded-3xl shadow-xl text-center"
         >
           <CheckCircle className="mx-auto text-green-500 mb-4" size={70}/>
-          <h1 className="text-2xl font-bold">Payment Successful 🎉</h1>
-          <p className="text-gray-500 mt-2">Redirecting to gateway...</p>
+          <h1 className="text-2xl font-bold">Payment Confirmed 🎉</h1>
+          <p className="text-gray-500 mt-2">
+            {stage === "redirecting"
+              ? "Opening live tracking..."
+              : "Verifying payment..."}
+          </p>
         </motion.div>
       </Center>
     );
   }
 
-  // ================= UI =================
+  // ======================================================
+  // PROCESSING SCREEN
+  // ======================================================
+  if (stage === "processing") {
+    return (
+      <Center>
+        <motion.div
+          initial={{ opacity:0 }}
+          animate={{ opacity:1 }}
+          className="text-center"
+        >
+          <Loader2 className="animate-spin mx-auto text-indigo-600 mb-4" size={60}/>
+          <p className="font-semibold text-lg">
+            Securing your payment session...
+          </p>
+        </motion.div>
+      </Center>
+    );
+  }
+
+  // ======================================================
+  // PAYMENT UI
+  // ======================================================
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
 
@@ -145,15 +204,15 @@ const Payment = () => {
           <Timer seconds={secondsLeft}/>
         </div>
 
-        {/* PROGRESS TRACKER */}
+        {/* PROGRESS */}
         <Progress status={ride.status}/>
 
-        {/* RIDE INFO */}
+        {/* DETAILS */}
         <Info icon={<MapPin size={18}/>} label="Pickup" value={ride.pickupLocation?.address}/>
         <Info icon={<MapPin size={18}/>} label="Drop" value={ride.dropLocation?.address}/>
         <Info icon={<Car size={18}/>} label="Vehicle" value={ride.vehicleType}/>
 
-        {/* DRIVER CARD */}
+        {/* DRIVER */}
         {ride.driver && (
           <div className="bg-indigo-50 dark:bg-gray-700 p-4 rounded-xl mt-5">
             <div className="flex items-center gap-3">
@@ -192,7 +251,7 @@ const Payment = () => {
 
 export default Payment;
 
-/* ================= COMPONENTS ================= */
+/* ================= SMALL COMPONENTS ================= */
 
 const Center = ({ children }) => (
   <div className="min-h-screen flex items-center justify-center">{children}</div>
