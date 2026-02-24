@@ -2,12 +2,18 @@ const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
 const Ride = require("../models/Ride");
+const Driver = require("../models/Driver");
 const { protect } = require("../middleware/authMiddleware");
 
 /* ======================================================
-STRIPE INIT (FIXED)
+STRIPE INIT
 ====================================================== */
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+/* ======================================================
+CONFIG
+====================================================== */
+const SESSION_EXPIRY_MINUTES = 45; // production safe value
 
 
 /* ======================================================
@@ -38,7 +44,7 @@ router.post("/create-checkout-session", protect, async (req, res) => {
         message: "Unauthorized ride access"
       });
 
-    /* ================= PREVENT DOUBLE PAYMENT ================= */
+    /* ================= ALREADY PAID ================= */
     if (ride.paymentStatus === "paid")
       return res.status(400).json({
         success: false,
@@ -54,7 +60,7 @@ router.post("/create-checkout-session", protect, async (req, res) => {
         message: "Invalid ride fare"
       });
 
-    /* ================= REUSE EXISTING SESSION ================= */
+    /* ================= REUSE SESSION ================= */
     if (ride.paymentStatus === "pending" && ride.paymentSessionId) {
       return res.json({
         success: true,
@@ -65,6 +71,7 @@ router.post("/create-checkout-session", protect, async (req, res) => {
     /* ================= CREATE SESSION ================= */
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+
       payment_method_types: ["card"],
 
       line_items: [
@@ -89,7 +96,9 @@ router.post("/create-checkout-session", protect, async (req, res) => {
       success_url: `${process.env.CLIENT_URL}/payment-success/${ride._id}`,
       cancel_url: `${process.env.CLIENT_URL}/payment-failed/${ride._id}`,
 
-      expires_at: Math.floor(Date.now() / 1000) + (15 * 60)
+      expires_at:
+        Math.floor(Date.now() / 1000) +
+        SESSION_EXPIRY_MINUTES * 60
     });
 
     /* ================= SAVE SESSION ================= */
@@ -107,18 +116,18 @@ router.post("/create-checkout-session", protect, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ STRIPE SESSION ERROR:", err.message);
+    console.error("❌ STRIPE SESSION ERROR:", err);
 
     res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message || "Payment session failed"
     });
   }
 });
 
 
 /* ======================================================
-WEBHOOK
+STRIPE WEBHOOK
 ====================================================== */
 router.post(
   "/webhook",
@@ -128,6 +137,7 @@ router.post(
     const sig = req.headers["stripe-signature"];
     let event;
 
+    /* ================= VERIFY SIGNATURE ================= */
     try {
       event = stripe.webhooks.constructEvent(
         req.body,
@@ -135,9 +145,11 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.error("Webhook signature error:", err.message);
+      console.error("❌ Invalid webhook signature:", err.message);
       return res.status(400).send("Webhook Error");
     }
+
+    console.log("📩 Stripe Event:", event.type);
 
     try {
       const obj = event.data.object;
@@ -148,15 +160,21 @@ router.post(
       const ride = await Ride.findById(rideId);
       if (!ride) return res.json({ received: true });
 
+      /* ======================================================
+      HANDLE EVENTS
+      ====================================================== */
       switch (event.type) {
 
+        /* ================= SUCCESS ================= */
         case "checkout.session.completed":
 
           if (ride.paymentStatus !== "paid") {
             ride.paymentStatus = "paid";
             ride.status = "confirmed";
             ride.paidAt = new Date();
-            ride.paymentMethod = obj.payment_method_types?.[0] || "card";
+            ride.paymentMethod =
+              obj.payment_method_types?.[0] || "card";
+
             await ride.save();
           }
 
@@ -164,6 +182,7 @@ router.post(
           break;
 
 
+        /* ================= FAILED ================= */
         case "payment_intent.payment_failed":
 
           ride.paymentStatus = "failed";
@@ -172,22 +191,34 @@ router.post(
             obj.last_payment_error?.message || "Unknown";
 
           await ride.save();
+
+          // release driver if assigned
+          if (ride.driver) {
+            await Driver.findByIdAndUpdate(
+              ride.driver,
+              { isAvailable: true }
+            );
+          }
+
           console.log("❌ Payment failed:", rideId);
           break;
 
 
+        /* ================= SESSION EXPIRED ================= */
         case "checkout.session.expired":
 
           ride.paymentStatus = "expired";
           await ride.save();
+
           console.log("⌛ Session expired:", rideId);
           break;
       }
 
     } catch (err) {
-      console.error("Webhook processing error:", err);
+      console.error("🔥 Webhook processing error:", err);
     }
 
+    /* ALWAYS RETURN 200 */
     res.json({ received: true });
   }
 );
