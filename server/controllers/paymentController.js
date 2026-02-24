@@ -15,9 +15,6 @@ exports.createPaymentIntent = async (req, res) => {
         message: "Ride ID required"
       });
 
-    // ==================================================
-    // FIND RIDE
-    // ==================================================
     const ride = await Ride.findById(rideId);
 
     if (!ride)
@@ -26,45 +23,54 @@ exports.createPaymentIntent = async (req, res) => {
         message: "Ride not found"
       });
 
-    // ==================================================
-    // OWNER CHECK
-    // ==================================================
+    // ================= OWNER CHECK =================
     if (ride.user.toString() !== req.user._id.toString())
       return res.status(403).json({
         success: false,
         message: "Unauthorized payment attempt"
       });
 
-    // ==================================================
-    // PREVENT DOUBLE PAYMENT
-    // ==================================================
+    // ================= PREVENT DOUBLE PAYMENT =================
     if (ride.paymentStatus === "paid")
       return res.status(400).json({
         success: false,
         message: "Ride already paid"
       });
 
+    // ================= VALIDATE FARE =================
+    const amount = Number(ride.fare);
+
+    if (!amount || amount <= 0 || isNaN(amount))
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ride amount"
+      });
+
     // ==================================================
     // CREATE INTENT
     // ==================================================
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(ride.fare * 100), // rupees → paisa
+      amount: Math.round(amount * 100),
       currency: "inr",
       description: `Ride Payment #${ride._id}`,
       metadata: {
         rideId: ride._id.toString(),
         userId: req.user._id.toString()
       },
-      automatic_payment_methods: { enabled: true }
+      automatic_payment_methods: {
+        enabled: true
+      }
     });
 
     // ==================================================
-    // SAVE INTENT
+    // SAVE INTENT INFO
     // ==================================================
     ride.paymentIntentId = paymentIntent.id;
     ride.paymentStatus = "pending";
     ride.paymentStartedAt = new Date();
     await ride.save();
+
+    console.log("💳 PaymentIntent created:", paymentIntent.id);
 
     res.json({
       success: true,
@@ -73,11 +79,11 @@ exports.createPaymentIntent = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("PAYMENT INTENT ERROR:", err);
+    console.error("❌ PAYMENT INTENT ERROR:", err);
 
     res.status(500).json({
       success: false,
-      message: "Payment initialization failed"
+      message: err.message || "Payment initialization failed"
     });
   }
 };
@@ -85,50 +91,54 @@ exports.createPaymentIntent = async (req, res) => {
 
 
 // ======================================================
-// VERIFY PAYMENT (FRONTEND CONFIRMATION)
+// VERIFY PAYMENT (CLIENT FALLBACK CHECK)
 // ======================================================
 exports.verifyPayment = async (req, res) => {
   try {
     const { paymentIntentId } = req.body;
 
     if (!paymentIntentId)
-      return res.status(400).json({ success:false, message:"PaymentIntent ID required" });
+      return res.status(400).json({
+        success:false,
+        message:"PaymentIntent ID required"
+      });
 
     const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
     if (!intent)
-      return res.status(404).json({ success:false, message:"Intent not found" });
+      return res.status(404).json({
+        success:false,
+        message:"Intent not found"
+      });
 
-    // ==================================================
-    // IF NOT SUCCESS
-    // ==================================================
+    // ================= NOT SUCCESS =================
     if (intent.status !== "succeeded") {
       return res.json({
-        success: false,
-        status: intent.status
+        success:false,
+        status:intent.status
       });
     }
 
-    // ==================================================
-    // FIND RIDE
-    // ==================================================
-    const ride = await Ride.findById(intent.metadata.rideId);
+    const rideId = intent.metadata?.rideId;
+    if (!rideId)
+      return res.json({ success:false });
 
+    const ride = await Ride.findById(rideId);
     if (!ride)
-      return res.status(404).json({ success:false, message:"Ride missing" });
+      return res.status(404).json({ success:false });
 
-    // already updated by webhook
+    // already updated via webhook
     if (ride.paymentStatus === "paid")
       return res.json({ success:true, alreadyUpdated:true });
 
-    // ==================================================
-    // UPDATE RIDE
-    // ==================================================
+    // ================= UPDATE =================
     ride.paymentStatus = "paid";
     ride.status = "confirmed";
     ride.paidAt = new Date();
 
     await ride.save();
+
+    console.log("✅ Payment verified:", rideId);
 
     res.json({ success:true });
 
@@ -141,89 +151,84 @@ exports.verifyPayment = async (req, res) => {
 
 
 // ======================================================
-// STRIPE WEBHOOK (PRIMARY SOURCE OF TRUTH)
+// STRIPE WEBHOOK (SOURCE OF TRUTH)
 // ======================================================
 exports.stripeWebhook = async (req, res) => {
-  const sig = req.headers["stripe-signature"];
 
+  const sig = req.headers["stripe-signature"];
   let event;
 
   try {
     event = stripe.webhooks.constructEvent(
-      req.rawBody,
+      req.body, // IMPORTANT → must be raw body
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.error("Webhook signature failed:", err.message);
+    console.error("❌ Webhook signature failed:", err.message);
     return res.status(400).send("Webhook Error");
   }
 
-  // ======================================================
-  // HANDLE EVENTS
-  // ======================================================
   try {
 
-    // ================= SUCCESS =================
+    const intent = event.data.object;
+    const rideId = intent.metadata?.rideId;
+
+    if (!rideId)
+      return res.json({ received:true });
+
+    const ride = await Ride.findById(rideId);
+    if (!ride)
+      return res.json({ received:true });
+
+
+    // ==================================================
+    // PAYMENT SUCCESS
+    // ==================================================
     if (event.type === "payment_intent.succeeded") {
-      const intent = event.data.object;
-
-      const rideId = intent.metadata?.rideId;
-
-      if (!rideId) return res.json({ received:true });
-
-      const ride = await Ride.findById(rideId);
-
-      if (!ride) return res.json({ received:true });
 
       if (ride.paymentStatus !== "paid") {
         ride.paymentStatus = "paid";
         ride.status = "confirmed";
         ride.paidAt = new Date();
-        ride.paymentMethod = intent.payment_method_types?.[0];
+        ride.paymentMethod = intent.payment_method_types?.[0] || "card";
 
         await ride.save();
-
-        console.log("✅ Payment success for ride:", rideId);
       }
+
+      console.log("✅ Payment success:", rideId);
     }
 
 
-    // ================= FAILED =================
+    // ==================================================
+    // PAYMENT FAILED
+    // ==================================================
     if (event.type === "payment_intent.payment_failed") {
-      const intent = event.data.object;
-      const rideId = intent.metadata?.rideId;
 
-      if (!rideId) return res.json({ received:true });
+      ride.paymentStatus = "failed";
+      ride.paymentFailedAt = new Date();
+      ride.failureReason =
+        intent.last_payment_error?.message || "Unknown";
 
-      const ride = await Ride.findById(rideId);
+      await ride.save();
 
-      if (ride) {
-        ride.paymentStatus = "failed";
-        ride.paymentFailedAt = new Date();
-        ride.failureReason =
-          intent.last_payment_error?.message || "Unknown";
-
-        await ride.save();
-
-        console.log("❌ Payment failed:", rideId);
-      }
+      console.log("❌ Payment failed:", rideId);
     }
 
 
-    // ================= CANCELED =================
+    // ==================================================
+    // PAYMENT CANCELED
+    // ==================================================
     if (event.type === "payment_intent.canceled") {
-      const intent = event.data.object;
-      const ride = await Ride.findById(intent.metadata?.rideId);
 
-      if (ride) {
-        ride.paymentStatus = "cancelled";
-        await ride.save();
-      }
+      ride.paymentStatus = "cancelled";
+      await ride.save();
+
+      console.log("⚠️ Payment cancelled:", rideId);
     }
 
   } catch (err) {
-    console.error("Webhook handler error:", err);
+    console.error("Webhook processing error:", err);
   }
 
   res.json({ received:true });

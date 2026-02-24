@@ -11,12 +11,11 @@ const compression = require("compression");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 
-// absolute root
 const root = __dirname;
 
-// ======================================================
-// ROUTES
-// ======================================================
+/* ======================================================
+ROUTES
+====================================================== */
 const authRoutes = require(path.join(root,"routes","authRoutes.js"));
 const driverRoutes = require(path.join(root,"routes","driverRoutes.js"));
 const adminRoutes = require(path.join(root,"routes","adminRoutes.js"));
@@ -28,10 +27,15 @@ const webhookRoutes = require(path.join(root,"routes","webhookRoutes.js"));
 
 const connectDB = require(path.join(root,"config","db.js"));
 
-// ======================================================
-// ENV CHECK
-// ======================================================
-["MONGO_URI","JWT_SECRET"].forEach(key=>{
+/* ======================================================
+ENV VALIDATION
+====================================================== */
+[
+  "MONGO_URI",
+  "JWT_SECRET",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET"
+].forEach(key=>{
   if(!process.env[key]){
     console.error("❌ Missing ENV:",key);
     process.exit(1);
@@ -40,14 +44,14 @@ const connectDB = require(path.join(root,"config","db.js"));
 
 console.log("✅ ENV Loaded");
 
-// ======================================================
-// DNS FIX
-// ======================================================
+/* ======================================================
+DNS FIX (Render + Node18 bug fix)
+====================================================== */
 dns.setDefaultResultOrder("ipv4first");
 
-// ======================================================
-// DB CONNECT
-// ======================================================
+/* ======================================================
+DB CONNECT
+====================================================== */
 connectDB()
 .then(()=>console.log("✅ MongoDB Connected"))
 .catch(err=>{
@@ -55,25 +59,39 @@ connectDB()
   process.exit(1);
 });
 
-// ======================================================
-// EXPRESS INIT
-// ======================================================
+/* ======================================================
+APP INIT
+====================================================== */
 const app = express();
 app.set("trust proxy",1);
 
-// ======================================================
-// SECURITY
-// ======================================================
+/* ======================================================
+SECURITY
+====================================================== */
 app.use(helmet({ crossOriginResourcePolicy:false }));
 app.use(compression());
-app.use(express.json({limit:"10mb"}));
-app.use(express.urlencoded({extended:true,limit:"10mb"}));
 
-// ======================================================
-// CORS
-// ======================================================
-const allowedOrigins=[
+/* ======================================================
+STRIPE WEBHOOK (MUST BE BEFORE JSON PARSER)
+====================================================== */
+app.use(
+  "/api/webhook",
+  express.raw({ type:"application/json" }),
+  webhookRoutes
+);
+
+/* ======================================================
+BODY PARSER
+====================================================== */
+app.use(express.json({ limit:"10mb" }));
+app.use(express.urlencoded({ extended:true, limit:"10mb" }));
+
+/* ======================================================
+CORS
+====================================================== */
+const allowedOrigins = [
   "http://localhost:5173",
+  "https://localhost:5173",
   "http://localhost:3000",
   process.env.FRONTEND_URL
 ].filter(Boolean);
@@ -81,40 +99,29 @@ const allowedOrigins=[
 app.use(cors({
   origin:(origin,cb)=>{
     if(!origin) return cb(null,true);
-    if(allowedOrigins.includes(origin)) return cb(null,true);
-    console.warn("⚠️ Blocked:",origin);
-    return cb(null,true);
+
+    if(allowedOrigins.includes(origin))
+      return cb(null,true);
+
+    console.warn("⚠️ Blocked Origin:",origin);
+    return cb(null,false);
   },
   credentials:true
 }));
 
-// ======================================================
-// LOGGER
-// ======================================================
+/* ======================================================
+LOGGER
+====================================================== */
 app.use(morgan("dev"));
 
-app.use((req,res,next)=>{
-  console.log("➡️",req.method,req.originalUrl);
-  next();
-});
-
-// ======================================================
-// WEBHOOK
-// ======================================================
-app.use(
-  "/api/webhook",
-  express.raw({type:"application/json"}),
-  webhookRoutes
-);
-
-// ======================================================
-// STATIC
-// ======================================================
+/* ======================================================
+STATIC FILES
+====================================================== */
 app.use("/uploads",express.static(path.join(root,"uploads")));
 
-// ======================================================
-// ROUTES
-// ======================================================
+/* ======================================================
+API ROUTES
+====================================================== */
 app.use("/api/auth",authRoutes);
 app.use("/api/driver",driverRoutes);
 app.use("/api/admin",adminRoutes);
@@ -125,21 +132,23 @@ app.use("/api/location",locationRoutes);
 
 console.log("✅ Routes mounted");
 
-
+/* ======================================================
+HEALTH CHECK
+====================================================== */
 app.get("/health",(req,res)=>{
   res.json({ success:true, server:"running", time:new Date() });
 });
 
-// ======================================================
-// ROOT
-// ======================================================
+/* ======================================================
+ROOT
+====================================================== */
 app.get("/",(req,res)=>{
   res.send("🚀 TransportX API running...");
 });
 
-// ======================================================
-// GLOBAL 404
-// ======================================================
+/* ======================================================
+404 HANDLER
+====================================================== */
 app.use((req,res)=>{
   res.status(404).json({
     success:false,
@@ -147,9 +156,9 @@ app.use((req,res)=>{
   });
 });
 
-// ======================================================
-// GLOBAL ERROR
-// ======================================================
+/* ======================================================
+GLOBAL ERROR HANDLER
+====================================================== */
 app.use((err,req,res,next)=>{
   console.error("🔥 SERVER ERROR:",err);
   res.status(err.status||500).json({
@@ -158,26 +167,25 @@ app.use((err,req,res,next)=>{
   });
 });
 
-// ======================================================
-// HTTP SERVER
-// ======================================================
-const server=http.createServer(app);
+/* ======================================================
+HTTP SERVER
+====================================================== */
+const server = http.createServer(app);
 
-// ======================================================
-// SOCKET SERVER
-// ======================================================
-const io=new Server(server,{
+/* ======================================================
+SOCKET.IO SERVER
+====================================================== */
+const io = new Server(server,{
   cors:{ origin:true },
   transports:["websocket","polling"],
   pingTimeout:60000
 });
 
-// make globally accessible
 global.io = io;
 
-// ======================================================
-// SOCKET AUTH MIDDLEWARE
-// ======================================================
+/* ======================================================
+SOCKET AUTH
+====================================================== */
 io.use((socket,next)=>{
   try{
     const token = socket.handshake.auth?.token;
@@ -191,29 +199,18 @@ io.use((socket,next)=>{
   }
 });
 
-// ======================================================
-// SOCKET CONNECTION
-// ======================================================
+/* ======================================================
+SOCKET CONNECTION
+====================================================== */
 io.on("connection",socket=>{
-  console.log("🟢 Socket Connected:",socket.id,"User:",socket.user?.id);
 
-  // join ride room
+  console.log("🟢 Socket:",socket.id,"User:",socket.user?.id);
+
   socket.on("joinRide",rideId=>{
     socket.join(rideId);
-    console.log(`📦 ${socket.id} joined ride ${rideId}`);
   });
 
-  // driver sends location
   socket.on("driverLocation",data=>{
-    /*
-      data = {
-        rideId,
-        lat,
-        lng,
-        heading
-      }
-    */
-
     if(!data?.rideId) return;
 
     io.to(data.rideId).emit("driverMoved",{
@@ -224,22 +221,21 @@ io.on("connection",socket=>{
     });
   });
 
-  // ride status updates
   socket.on("rideStatus",({rideId,status})=>{
     io.to(rideId).emit("rideStatusUpdate",status);
   });
 
   socket.on("disconnect",()=>{
-    console.log("🔴 Socket Disconnected:",socket.id);
+    console.log("🔴 Socket disconnected:",socket.id);
   });
 });
 
-// ======================================================
-// SHUTDOWN
-// ======================================================
+/* ======================================================
+PROCESS SAFETY
+====================================================== */
 process.on("SIGINT",()=>{
-  console.log("🛑 Server shutting down...");
-  process.exit(0);
+  console.log("🛑 Graceful shutdown");
+  server.close(()=>process.exit(0));
 });
 
 process.on("uncaughtException",err=>{
@@ -250,8 +246,10 @@ process.on("unhandledRejection",err=>{
   console.error("PROMISE ERROR:",err);
 });
 
-
-const PORT=process.env.PORT || 5000;
+/* ======================================================
+START SERVER
+====================================================== */
+const PORT = process.env.PORT || 5000;
 
 server.listen(PORT,()=>{
   console.log(`🚀 Server running on port ${PORT}`);

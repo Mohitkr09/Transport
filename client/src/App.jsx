@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 
 /* ================= PAGES ================= */
 import Home from "./pages/Home";
@@ -65,22 +66,26 @@ function BackendWakeup() {
 function Layout({ children }) {
   const { pathname } = useLocation();
 
-  const hideNavbar =
+  const hideLayout =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
     pathname.startsWith("/payment");
 
   return (
     <>
-      {!hideNavbar && <Navbar />}
-      <div className={!hideNavbar ? "pt-16" : ""}>{children}</div>
+      {!hideLayout && <Navbar />}
+
+      <div className={!hideLayout ? "pt-16 min-h-screen flex flex-col" : ""}>
+        <div className="flex-grow">{children}</div>
+        {!hideLayout && <Footer />}
+      </div>
     </>
   );
 }
 
 
 // ======================================================
-// PAYMENT SUCCESS SCREEN (ANIMATED)
+// PAYMENT SUCCESS SCREEN
 // ======================================================
 function PaymentSuccess() {
   const { pathname } = useLocation();
@@ -149,7 +154,7 @@ function NotFound() {
 // ======================================================
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+    <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
 
       <ScrollToTop />
       <BackendWakeup />
@@ -167,7 +172,6 @@ function App() {
 
           {/* ================= PAYMENT FLOW ================= */}
 
-          {/* ENTER CARD PAGE */}
           <Route
             path="/payment/:rideId"
             element={
@@ -177,7 +181,6 @@ function App() {
             }
           />
 
-          {/* AFTER STRIPE SUCCESS */}
           <Route
             path="/payment-success/:rideId"
             element={
@@ -187,7 +190,6 @@ function App() {
             }
           />
 
-          {/* STRIPE FAIL */}
           <Route
             path="/payment-failed/:rideId"
             element={
@@ -197,7 +199,6 @@ function App() {
             }
           />
 
-          {/* LIVE TRACKING */}
           <Route
             path="/track/:rideId"
             element={

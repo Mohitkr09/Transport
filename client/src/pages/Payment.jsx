@@ -22,19 +22,19 @@ const Payment = () => {
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(120);
-  const [stage, setStage] = useState("payment"); 
-  // stages → payment | processing | success | redirecting
+  const [stage, setStage] = useState("payment");
 
-  // ======================================================
-  // FETCH RIDE
-  // ======================================================
+  /* ======================================================
+  FETCH RIDE
+  ====================================================== */
   useEffect(() => {
     const fetchRide = async () => {
       try {
         const res = await api.get(`/api/ride/${rideId}`);
+        if (!res.data?.ride) throw new Error();
         setRide(res.data.ride);
       } catch {
-        setError("Ride not found");
+        setError("Ride not found or expired");
       } finally {
         setLoading(false);
       }
@@ -42,9 +42,9 @@ const Payment = () => {
     fetchRide();
   }, [rideId]);
 
-  // ======================================================
-  // COUNTDOWN
-  // ======================================================
+  /* ======================================================
+  COUNTDOWN
+  ====================================================== */
   useEffect(() => {
     if (!ride || stage !== "payment") return;
 
@@ -59,41 +59,45 @@ const Payment = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [ride, secondsLeft, stage]);
+  }, [ride, secondsLeft, stage, navigate]);
 
-  // ======================================================
-  // PAYMENT
-  // ======================================================
+  /* ======================================================
+  PAYMENT
+  ====================================================== */
   const handlePayment = async () => {
     if (!ride || paying) return;
+
+    if (!ride.fare || ride.fare <= 0) {
+      alert("Invalid ride amount");
+      return;
+    }
 
     try {
       setPaying(true);
       setStage("processing");
 
       const res = await api.post("/api/payment/create-checkout-session", {
-        rideId,
-        amount: ride.fare
+        rideId
       });
 
-      if (!res.data?.url) throw new Error();
+      if (!res.data?.url) throw new Error("No checkout URL");
 
-      // animation delay before redirect
       setTimeout(() => {
         window.location.href = res.data.url;
-      }, 1500);
+      }, 1200);
 
-    } catch {
+    } catch (err) {
+      console.error("Payment error:", err?.response?.data || err);
+      alert(err?.response?.data?.message || "Payment failed");
       setStage("payment");
-      alert("Payment failed");
     } finally {
       setPaying(false);
     }
   };
 
-  // ======================================================
-  // AFTER STRIPE RETURN SUCCESS
-  // ======================================================
+  /* ======================================================
+  SUCCESS DETECTION (STRIPE REDIRECT)
+  ====================================================== */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
@@ -102,35 +106,34 @@ const Payment = () => {
 
       confetti({
         particleCount: 200,
-        spread: 90,
+        spread: 100,
         origin: { y: 0.6 }
       });
 
-      // verify payment with backend
+      // backend verification
       api.post(`/api/payment/verify/${rideId}`).catch(()=>{});
 
-      // redirect to tracking
       setTimeout(() => {
         setStage("redirecting");
         navigate(`/track/${rideId}`);
       }, 3000);
     }
-  }, []);
+  }, [navigate, rideId]);
 
-  // ======================================================
-  // LOADING
-  // ======================================================
+  /* ======================================================
+  LOADING
+  ====================================================== */
   if (loading) {
     return (
       <Center>
-        <Loader2 className="animate-spin text-indigo-600" size={48} />
+        <Loader2 className="animate-spin text-indigo-600" size={50} />
       </Center>
     );
   }
 
-  // ======================================================
-  // ERROR
-  // ======================================================
+  /* ======================================================
+  ERROR
+  ====================================================== */
   if (error || !ride) {
     return (
       <Center>
@@ -142,9 +145,9 @@ const Payment = () => {
     );
   }
 
-  // ======================================================
-  // SUCCESS SCREEN
-  // ======================================================
+  /* ======================================================
+  SUCCESS SCREEN
+  ====================================================== */
   if (stage === "success" || stage === "redirecting") {
     return (
       <Center>
@@ -165,9 +168,9 @@ const Payment = () => {
     );
   }
 
-  // ======================================================
-  // PROCESSING SCREEN
-  // ======================================================
+  /* ======================================================
+  PROCESSING
+  ====================================================== */
   if (stage === "processing") {
     return (
       <Center>
@@ -178,16 +181,16 @@ const Payment = () => {
         >
           <Loader2 className="animate-spin mx-auto text-indigo-600 mb-4" size={60}/>
           <p className="font-semibold text-lg">
-            Securing your payment session...
+            Securing payment session...
           </p>
         </motion.div>
       </Center>
     );
   }
 
-  // ======================================================
-  // PAYMENT UI
-  // ======================================================
+  /* ======================================================
+  PAYMENT UI
+  ====================================================== */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-950">
 
@@ -250,6 +253,7 @@ const Payment = () => {
 };
 
 export default Payment;
+
 
 /* ================= SMALL COMPONENTS ================= */
 

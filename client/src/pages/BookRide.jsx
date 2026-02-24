@@ -71,7 +71,7 @@ export default function BookRide() {
   const [driverPosition, setDriverPosition] = useState(null);
 
   /* ======================================================
-  WAKE BACKEND (RENDER SLEEP FIX)
+  WAKE BACKEND
   ====================================================== */
   useEffect(() => {
     fetch(`${BASE}/api/ride/health`).catch(() => {});
@@ -88,10 +88,6 @@ export default function BookRide() {
       reconnectionDelay: 1500
     });
 
-    socketRef.current.on("connect", () =>
-      console.log("🟢 socket connected")
-    );
-
     socketRef.current.on("receiveLocation", data => {
       if (data?.lat && data?.lng)
         setDriverPosition([data.lat, data.lng]);
@@ -101,7 +97,7 @@ export default function BookRide() {
   }, []);
 
   /* ======================================================
-  SEARCH SUGGESTIONS
+  SEARCH SUGGESTIONS (FIXED)
   ====================================================== */
   const fetchSuggestions = (query, setter) => {
 
@@ -111,7 +107,6 @@ export default function BookRide() {
 
     debounceRef.current = setTimeout(async () => {
       try {
-
         abortRef.current?.abort();
         abortRef.current = new AbortController();
 
@@ -119,7 +114,8 @@ export default function BookRide() {
           signal: abortRef.current.signal
         });
 
-        setter(res.data || []);
+        const results = res.data?.results;
+        setter(Array.isArray(results) ? results : []);
 
       } catch {
         setter([]);
@@ -151,7 +147,6 @@ export default function BookRide() {
       setFare(Math.round(km * 15));
 
       return km;
-
     } catch {
       return null;
     }
@@ -190,7 +185,6 @@ export default function BookRide() {
         return setMessage(res.data?.message || "Ride failed");
 
       const rideId = res.data.ride?._id;
-
       if (!rideId)
         return setMessage("Ride creation failed");
 
@@ -199,13 +193,10 @@ export default function BookRide() {
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
 
     } catch (err) {
-
       if (err.response?.status === 404)
         setMessage("No drivers nearby. Retrying...");
-
       else
         setMessage(err.response?.data?.message || "Server busy");
-
     } finally {
       setLoading(false);
     }
@@ -218,7 +209,7 @@ export default function BookRide() {
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-100">
 
       {/* LEFT PANEL */}
-      <div className="w-full md:w-1/2 p-6 bg-white shadow">
+      <div className="w-full md:w-1/2 p-6 bg-white shadow relative">
 
         <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
 
@@ -233,17 +224,21 @@ export default function BookRide() {
           }}
         />
 
-        {pickupSuggestions.map(p=>(
-          <div key={p.place_id}
-            className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={()=>{
-              setPickup(p.display_name);
-              setPickupCoords({lat:+p.lat,lng:+p.lon});
-              setPickupSuggestions([]);
-            }}>
-            {p.display_name}
+        {Array.isArray(pickupSuggestions) && pickupSuggestions.length > 0 && (
+          <div className="absolute z-50 bg-white border w-[90%] max-h-52 overflow-y-auto shadow rounded mt-1">
+            {pickupSuggestions.map((p,i)=>(
+              <div key={i}
+                className="p-2 cursor-pointer hover:bg-gray-100 text-sm"
+                onClick={()=>{
+                  setPickup(p.display);
+                  setPickupCoords({lat:p.lat,lng:p.lng});
+                  setPickupSuggestions([]);
+                }}>
+                {p.display}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
 
         {/* DROP */}
         <input
@@ -256,17 +251,21 @@ export default function BookRide() {
           }}
         />
 
-        {dropSuggestions.map(p=>(
-          <div key={p.place_id}
-            className="p-2 cursor-pointer hover:bg-gray-100"
-            onClick={()=>{
-              setDrop(p.display_name);
-              setDropCoords({lat:+p.lat,lng:+p.lon});
-              setDropSuggestions([]);
-            }}>
-            {p.display_name}
+        {Array.isArray(dropSuggestions) && dropSuggestions.length > 0 && (
+          <div className="absolute z-40 bg-white border w-[90%] max-h-52 overflow-y-auto shadow rounded mt-1">
+            {dropSuggestions.map((p,i)=>(
+              <div key={i}
+                className="p-2 cursor-pointer hover:bg-gray-100 text-sm"
+                onClick={()=>{
+                  setDrop(p.display);
+                  setDropCoords({lat:p.lat,lng:p.lng});
+                  setDropSuggestions([]);
+                }}>
+                {p.display}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
 
         {/* VEHICLES */}
         <h4 className="mt-4 mb-3 font-semibold">Select Vehicle</h4>
@@ -275,7 +274,7 @@ export default function BookRide() {
           {vehicles.map(v=>(
             <div key={v.id}
               onClick={()=>setVehicleType(v.id)}
-              className={`cursor-pointer rounded-xl p-3 border text-center ${
+              className={`cursor-pointer rounded-xl p-3 border text-center transition ${
                 vehicleType===v.id
                   ?"border-indigo-600 bg-indigo-50"
                   :"bg-gray-50"
@@ -290,7 +289,7 @@ export default function BookRide() {
         <button
           onClick={handleBookRide}
           disabled={loading}
-          className="w-full mt-6 bg-indigo-600 text-white py-3 rounded-xl"
+          className="w-full mt-6 bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 transition"
         >
           {loading ? "Processing..." : "Book Ride & Pay"}
         </button>
