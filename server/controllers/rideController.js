@@ -414,3 +414,17 @@ exports.adminCancelRide = async (req,res)=>{
     res.status(500).json({message:"Admin cancel failed"});
   }
 };
+
+
+module.exports = {
+  createRide: exports.createRide,
+  getUserRides: exports.getUserRides,
+  getRideById: exports.getRideById,
+  acceptRide: exports.acceptRide,
+  startRide: exports.startRide,
+  completeRide: exports.completeRide,
+  cancelRide: exports.cancelRide,
+  rateRide: exports.rateRide,
+  getAllRides: exports.getAllRides,
+  adminCancelRide: exports.adminCancelRide
+};
