@@ -2,9 +2,9 @@ const stripe = require("../config/stripe");
 const Ride = require("../models/Ride");
 
 
-// ======================================================
-// CREATE PAYMENT INTENT
-// ======================================================
+/* ======================================================
+CREATE PAYMENT INTENT
+====================================================== */
 exports.createPaymentIntent = async (req, res) => {
   try {
     const { rideId } = req.body;
@@ -23,21 +23,21 @@ exports.createPaymentIntent = async (req, res) => {
         message: "Ride not found"
       });
 
-    // ================= OWNER CHECK =================
+    /* ================= OWNER CHECK ================= */
     if (ride.user.toString() !== req.user._id.toString())
       return res.status(403).json({
         success: false,
         message: "Unauthorized payment attempt"
       });
 
-    // ================= PREVENT DOUBLE PAYMENT =================
+    /* ================= PREVENT DOUBLE PAYMENT ================= */
     if (ride.paymentStatus === "paid")
       return res.status(400).json({
         success: false,
         message: "Ride already paid"
       });
 
-    // ================= VALIDATE FARE =================
+    /* ================= VALIDATE AMOUNT ================= */
     const amount = Number(ride.fare);
 
     if (!amount || amount <= 0 || isNaN(amount))
@@ -46,9 +46,25 @@ exports.createPaymentIntent = async (req, res) => {
         message: "Invalid ride amount"
       });
 
-    // ==================================================
-    // CREATE INTENT
-    // ==================================================
+    /* ================= REUSE EXISTING INTENT ================= */
+    if (ride.paymentStatus === "pending" && ride.paymentIntentId) {
+      const existing = await stripe.paymentIntents.retrieve(
+        ride.paymentIntentId
+      );
+
+      if (existing && existing.client_secret) {
+        return res.json({
+          success: true,
+          clientSecret: existing.client_secret,
+          paymentIntentId: existing.id,
+          reused: true
+        });
+      }
+    }
+
+    /* ======================================================
+    CREATE INTENT
+    ====================================================== */
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency: "inr",
@@ -57,20 +73,18 @@ exports.createPaymentIntent = async (req, res) => {
         rideId: ride._id.toString(),
         userId: req.user._id.toString()
       },
-      automatic_payment_methods: {
-        enabled: true
-      }
+      automatic_payment_methods: { enabled: true }
     });
 
-    // ==================================================
-    // SAVE INTENT INFO
-    // ==================================================
+    /* ======================================================
+    SAVE INTENT
+    ====================================================== */
     ride.paymentIntentId = paymentIntent.id;
     ride.paymentStatus = "pending";
     ride.paymentStartedAt = new Date();
     await ride.save();
 
-    console.log("💳 PaymentIntent created:", paymentIntent.id);
+    console.log("💳 Intent created:", paymentIntent.id);
 
     res.json({
       success: true,
@@ -90,9 +104,9 @@ exports.createPaymentIntent = async (req, res) => {
 
 
 
-// ======================================================
-// VERIFY PAYMENT (CLIENT FALLBACK CHECK)
-// ======================================================
+/* ======================================================
+VERIFY PAYMENT (CLIENT FALLBACK)
+====================================================== */
 exports.verifyPayment = async (req, res) => {
   try {
     const { paymentIntentId } = req.body;
@@ -111,7 +125,7 @@ exports.verifyPayment = async (req, res) => {
         message:"Intent not found"
       });
 
-    // ================= NOT SUCCESS =================
+    /* ================= NOT SUCCESS ================= */
     if (intent.status !== "succeeded") {
       return res.json({
         success:false,
@@ -127,11 +141,10 @@ exports.verifyPayment = async (req, res) => {
     if (!ride)
       return res.status(404).json({ success:false });
 
-    // already updated via webhook
+    /* already updated via webhook */
     if (ride.paymentStatus === "paid")
       return res.json({ success:true, alreadyUpdated:true });
 
-    // ================= UPDATE =================
     ride.paymentStatus = "paid";
     ride.status = "confirmed";
     ride.paidAt = new Date();
@@ -150,9 +163,9 @@ exports.verifyPayment = async (req, res) => {
 
 
 
-// ======================================================
-// STRIPE WEBHOOK (SOURCE OF TRUTH)
-// ======================================================
+/* ======================================================
+STRIPE WEBHOOK (PRIMARY SOURCE OF TRUTH)
+====================================================== */
 exports.stripeWebhook = async (req, res) => {
 
   const sig = req.headers["stripe-signature"];
@@ -160,7 +173,7 @@ exports.stripeWebhook = async (req, res) => {
 
   try {
     event = stripe.webhooks.constructEvent(
-      req.body, // IMPORTANT → must be raw body
+      req.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
@@ -181,50 +194,51 @@ exports.stripeWebhook = async (req, res) => {
     if (!ride)
       return res.json({ received:true });
 
+    switch (event.type) {
 
-    // ==================================================
-    // PAYMENT SUCCESS
-    // ==================================================
-    if (event.type === "payment_intent.succeeded") {
+      /* ================= SUCCESS ================= */
+      case "payment_intent.succeeded":
 
-      if (ride.paymentStatus !== "paid") {
-        ride.paymentStatus = "paid";
-        ride.status = "confirmed";
-        ride.paidAt = new Date();
-        ride.paymentMethod = intent.payment_method_types?.[0] || "card";
+        if (ride.paymentStatus !== "paid") {
+          ride.paymentStatus = "paid";
+          ride.status = "confirmed";
+          ride.paidAt = new Date();
+          ride.paymentMethod =
+            intent.payment_method_types?.[0] || "card";
+
+          await ride.save();
+        }
+
+        console.log("✅ Payment success:", rideId);
+        break;
+
+
+      /* ================= FAILED ================= */
+      case "payment_intent.payment_failed":
+
+        ride.paymentStatus = "failed";
+        ride.paymentFailedAt = new Date();
+        ride.failureReason =
+          intent.last_payment_error?.message || "Unknown";
 
         await ride.save();
-      }
 
-      console.log("✅ Payment success:", rideId);
-    }
-
-
-    // ==================================================
-    // PAYMENT FAILED
-    // ==================================================
-    if (event.type === "payment_intent.payment_failed") {
-
-      ride.paymentStatus = "failed";
-      ride.paymentFailedAt = new Date();
-      ride.failureReason =
-        intent.last_payment_error?.message || "Unknown";
-
-      await ride.save();
-
-      console.log("❌ Payment failed:", rideId);
-    }
+        console.log("❌ Payment failed:", rideId);
+        break;
 
 
-    // ==================================================
-    // PAYMENT CANCELED
-    // ==================================================
-    if (event.type === "payment_intent.canceled") {
+      /* ================= CANCELED ================= */
+      case "payment_intent.canceled":
 
-      ride.paymentStatus = "cancelled";
-      await ride.save();
+        ride.paymentStatus = "cancelled";
+        await ride.save();
 
-      console.log("⚠️ Payment cancelled:", rideId);
+        console.log("⚠️ Payment cancelled:", rideId);
+        break;
+
+
+      default:
+        console.log("Unhandled event:", event.type);
     }
 
   } catch (err) {
