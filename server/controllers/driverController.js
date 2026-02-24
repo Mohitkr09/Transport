@@ -3,31 +3,50 @@ const Ride = require("../models/Ride");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-// =====================================================
-// TOKEN GENERATOR
-// =====================================================
-const generateToken = id =>
-  jwt.sign({ id, role: "driver" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+/* =====================================================
+HELPERS
+===================================================== */
 
-// =====================================================
-// REGISTER DRIVER
-// =====================================================
+// token
+const generateToken = id =>
+  jwt.sign({ id, role: "driver" }, process.env.JWT_SECRET, {
+    expiresIn: "7d"
+  });
+
+// socket notify
+const notify = (room, event, payload) => {
+  if (!global.io) return;
+  global.io.to(room.toString()).emit(event, {
+    ...payload,
+    time: new Date()
+  });
+};
+
+// safe response
+const send = (res, success, data = {}, code = 200) =>
+  res.status(code).json({ success, ...data });
+
+
+
+/* =====================================================
+REGISTER DRIVER
+===================================================== */
 exports.registerDriver = async (req,res)=>{
   try{
     const { name,email,password,vehicleType } = req.body;
 
     if(!name || !email || !password || !vehicleType)
-      return res.status(400).json({success:false,message:"All fields required"});
+      return send(res,false,{message:"All fields required"},400);
 
     if(password.length < 6)
-      return res.status(400).json({success:false,message:"Password must be 6+ chars"});
+      return send(res,false,{message:"Password must be 6+ chars"},400);
 
     if(!req.files?.license || !req.files?.vehicleRC)
-      return res.status(400).json({success:false,message:"License & RC required"});
+      return send(res,false,{message:"License & RC required"},400);
 
     const exists = await Driver.findOne({email});
     if(exists)
-      return res.status(409).json({success:false,message:"Driver already exists"});
+      return send(res,false,{message:"Driver already exists"},409);
 
     const hashed = await bcrypt.hash(password,12);
 
@@ -41,12 +60,10 @@ exports.registerDriver = async (req,res)=>{
         vehicleRC:req.files.vehicleRC[0].filename
       },
       isOnline:false,
-      isAvailable:false,
-      lastLocationUpdate:null
+      isAvailable:false
     });
 
-    res.status(201).json({
-      success:true,
+    send(res,true,{
       message:"Registered. Awaiting admin approval.",
       driver:{
         id:driver._id,
@@ -55,40 +72,42 @@ exports.registerDriver = async (req,res)=>{
         vehicle:driver.vehicle,
         isApproved:driver.isApproved
       }
-    });
+    },201);
 
   }catch(err){
     console.error("REGISTER DRIVER ERROR:",err);
-    res.status(500).json({success:false,message:"Registration failed"});
+    send(res,false,{message:"Registration failed"},500);
   }
 };
 
 
-// =====================================================
-// LOGIN DRIVER
-// =====================================================
+
+/* =====================================================
+LOGIN DRIVER
+===================================================== */
 exports.loginDriver = async (req,res)=>{
   try{
     const { email,password } = req.body;
 
     const driver = await Driver.findOne({email}).select("+password");
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
     const match = await bcrypt.compare(password,driver.password);
     if(!match)
-      return res.status(401).json({success:false,message:"Invalid credentials"});
+      return send(res,false,{message:"Invalid credentials"},401);
 
     if(!driver.isApproved)
-      return res.status(403).json({success:false,message:"Driver not approved yet"});
+      return send(res,false,{message:"Driver not approved yet"},403);
 
     driver.isOnline=true;
     driver.isAvailable=true;
     driver.lastLogin=new Date();
     await driver.save();
 
-    res.json({
-      success:true,
+    notify(driver._id,"driverOnline",{});
+
+    send(res,true,{
       token:generateToken(driver._id),
       driver:{
         id:driver._id,
@@ -102,80 +121,79 @@ exports.loginDriver = async (req,res)=>{
 
   }catch(err){
     console.error("LOGIN ERROR:",err);
-    res.status(500).json({success:false,message:"Login failed"});
+    send(res,false,{message:"Login failed"},500);
   }
 };
 
 
-// =====================================================
-// PROFILE
-// =====================================================
+
+/* =====================================================
+PROFILE
+===================================================== */
 exports.getDriverProfile = async (req,res)=>{
   try{
     const driver = await Driver.findById(req.user._id).select("-password");
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
-    res.json({success:true,driver});
+    send(res,true,{driver});
 
   }catch(err){
     console.error("PROFILE ERROR:",err);
-    res.status(500).json({success:false,message:"Failed to fetch profile"});
+    send(res,false,{message:"Failed to fetch profile"},500);
   }
 };
 
 
-// =====================================================
-// TOGGLE ONLINE STATUS
-// =====================================================
+
+/* =====================================================
+ONLINE STATUS
+===================================================== */
 exports.toggleOnlineStatus = async (req,res)=>{
   try{
     const driver = await Driver.findById(req.user._id);
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
-    driver.isOnline=!driver.isOnline;
-    driver.isAvailable=driver.isOnline;
-
+    driver.isOnline = !driver.isOnline;
+    driver.isAvailable = driver.isOnline;
     await driver.save();
 
-    // 🔥 notify frontend realtime
-    global.io.emit("driverStatusChanged",{
+    notify("admins","driverStatusChanged",{
       driverId:driver._id,
       isOnline:driver.isOnline
     });
 
-    res.json({
-      success:true,
+    send(res,true,{
       isOnline:driver.isOnline,
       isAvailable:driver.isAvailable
     });
 
   }catch(err){
     console.error("STATUS ERROR:",err);
-    res.status(500).json({success:false,message:"Status update failed"});
+    send(res,false,{message:"Status update failed"},500);
   }
 };
 
 
-// =====================================================
-// UPDATE LOCATION (REALTIME)
-// =====================================================
+
+/* =====================================================
+LOCATION UPDATE
+===================================================== */
 exports.updateLocation = async (req,res)=>{
   try{
     const { lat,lng,rideId } = req.body;
 
-    if(typeof lat !== "number" || typeof lng !== "number")
-      return res.status(400).json({success:false,message:"Valid lat/lng required"});
+    if(typeof lat!=="number" || typeof lng!=="number")
+      return send(res,false,{message:"Valid lat/lng required"},400);
 
     if(lat<-90 || lat>90 || lng<-180 || lng>180)
-      return res.status(400).json({success:false,message:"Invalid coordinate range"});
+      return send(res,false,{message:"Invalid coordinate range"},400);
 
     const driver = await Driver.findById(req.user._id);
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
-    // save to DB
     driver.location={
       type:"Point",
       coordinates:[lng,lat]
@@ -183,30 +201,27 @@ exports.updateLocation = async (req,res)=>{
     driver.lastLocationUpdate=new Date();
     await driver.save();
 
-    // ==================================================
-    // REALTIME EMIT TO RIDE ROOM
-    // ==================================================
+    // emit to ride room
     if(rideId){
-      global.io.to(rideId).emit("driverMoved",{
-        lat,
-        lng,
-        driverId:driver._id,
-        updatedAt:new Date()
+      notify(rideId,"driverMoved",{
+        lat,lng,
+        driverId:driver._id
       });
     }
 
-    res.json({success:true});
+    send(res,true);
 
   }catch(err){
     console.error("LOCATION ERROR:",err);
-    res.status(500).json({success:false,message:"Location update failed"});
+    send(res,false,{message:"Location update failed"},500);
   }
 };
 
 
-// =====================================================
-// ADMIN APPROVE
-// =====================================================
+
+/* =====================================================
+ADMIN APPROVE
+===================================================== */
 exports.approveDriver = async (req,res)=>{
   try{
     const driver = await Driver.findByIdAndUpdate(
@@ -216,65 +231,69 @@ exports.approveDriver = async (req,res)=>{
     );
 
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
-    res.json({success:true,message:"Driver approved"});
+    notify(driver._id,"approved",{});
+
+    send(res,true,{message:"Driver approved"});
 
   }catch(err){
     console.error("APPROVE ERROR:",err);
-    res.status(500).json({success:false,message:"Approval failed"});
+    send(res,false,{message:"Approval failed"},500);
   }
 };
 
 
-// =====================================================
-// ADMIN REJECT
-// =====================================================
+
+/* =====================================================
+ADMIN REJECT
+===================================================== */
 exports.rejectDriver = async (req,res)=>{
   try{
     const driver = await Driver.findByIdAndDelete(req.params.id);
 
     if(!driver)
-      return res.status(404).json({success:false,message:"Driver not found"});
+      return send(res,false,{message:"Driver not found"},404);
 
-    res.json({success:true,message:"Driver removed"});
+    send(res,true,{message:"Driver removed"});
 
   }catch(err){
     console.error("REJECT ERROR:",err);
-    res.status(500).json({success:false,message:"Reject failed"});
+    send(res,false,{message:"Reject failed"},500);
   }
 };
 
 
-// =====================================================
-// ADMIN LIST
-// =====================================================
+
+/* =====================================================
+ADMIN LIST
+===================================================== */
 exports.getAllDrivers = async (req,res)=>{
   try{
     const drivers = await Driver.find().select("-password");
 
-    res.json({
-      success:true,
+    send(res,true,{
       count:drivers.length,
       drivers
     });
 
   }catch(err){
     console.error("GET DRIVERS ERROR:",err);
-    res.status(500).json({success:false,message:"Failed to fetch drivers"});
+    send(res,false,{message:"Failed to fetch drivers"},500);
   }
 };
 
 
-// =====================================================
-// FIND NEARBY DRIVERS (FAST GEO SEARCH)
-// =====================================================
+
+/* =====================================================
+NEARBY DRIVERS
+===================================================== */
 exports.findNearbyDrivers = async (req,res)=>{
   try{
     const { lat,lng,radius=5000,vehicleType } = req.query;
 
     if(!lat || !lng)
-      return res.status(400).json({success:false,message:"lat & lng required"});
+      return send(res,false,{message:"lat & lng required"},400);
 
     const staleLimit=new Date(Date.now()-5*60*1000);
 
@@ -297,14 +316,13 @@ exports.findNearbyDrivers = async (req,res)=>{
       .limit(20)
       .select("name rating vehicle location");
 
-    res.json({
-      success:true,
+    send(res,true,{
       count:drivers.length,
       drivers
     });
 
   }catch(err){
     console.error("NEARBY ERROR:",err);
-    res.status(500).json({success:false,message:"Driver search failed"});
+    send(res,false,{message:"Driver search failed"},500);
   }
 };

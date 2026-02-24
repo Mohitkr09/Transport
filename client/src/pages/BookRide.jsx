@@ -31,7 +31,7 @@ const vehicles = [
 ];
 
 /* ======================================================
-MAP FIT
+MAP FIT BOUNDS
 ====================================================== */
 const FitBounds = ({ route }) => {
   const map = useMap();
@@ -45,12 +45,12 @@ const FitBounds = ({ route }) => {
 COMPONENT
 ====================================================== */
 export default function BookRide() {
-
   const navigate = useNavigate();
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
+  /* ================= STATE ================= */
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
   const [vehicleType, setVehicleType] = useState("auto");
@@ -71,14 +71,14 @@ export default function BookRide() {
   const [driverPosition, setDriverPosition] = useState(null);
 
   /* ======================================================
-  WAKE BACKEND
+  WAKE SERVER (RENDER FIX)
   ====================================================== */
   useEffect(() => {
     fetch(`${BASE}/api/ride/health`).catch(() => {});
   }, []);
 
   /* ======================================================
-  SOCKET
+  SOCKET CONNECTION
   ====================================================== */
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
@@ -97,11 +97,10 @@ export default function BookRide() {
   }, []);
 
   /* ======================================================
-  SEARCH SUGGESTIONS (FIXED)
+  LOCATION SEARCH (SAFE + DEBOUNCED)
   ====================================================== */
   const fetchSuggestions = (query, setter) => {
-
-    if (query.length < 3) return setter([]);
+    if (!query || query.length < 3) return setter([]);
 
     clearTimeout(debounceRef.current);
 
@@ -114,13 +113,11 @@ export default function BookRide() {
           signal: abortRef.current.signal
         });
 
-        const results = res.data?.results;
-        setter(Array.isArray(results) ? results : []);
-
+        setter(Array.isArray(res.data?.results) ? res.data.results : []);
       } catch {
         setter([]);
       }
-    }, 350);
+    }, 400);
   };
 
   /* ======================================================
@@ -156,7 +153,6 @@ export default function BookRide() {
   BOOK RIDE
   ====================================================== */
   const handleBookRide = async () => {
-
     if (loading) return;
 
     if (!localStorage.getItem("token"))
@@ -191,12 +187,13 @@ export default function BookRide() {
       setMessage("Driver assigned 🚖");
 
       setTimeout(() => navigate(`/payment/${rideId}`), 1200);
-
     } catch (err) {
-      if (err.response?.status === 404)
-        setMessage("No drivers nearby. Retrying...");
-      else
-        setMessage(err.response?.data?.message || "Server busy");
+      setMessage(
+        err.response?.data?.message ||
+        (err.response?.status === 404
+          ? "No drivers nearby"
+          : "Server busy")
+      );
     } finally {
       setLoading(false);
     }
@@ -206,123 +203,178 @@ export default function BookRide() {
   UI
   ====================================================== */
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-100">
+    <div className="h-screen w-full relative overflow-hidden">
 
-      {/* LEFT PANEL */}
-      <div className="w-full md:w-1/2 p-6 bg-white shadow relative">
+      {/* ================= MAP ================= */}
+      <MapContainer
+        center={[23.0225,72.5714]}
+        zoom={6}
+        className="absolute inset-0 z-0"
+      >
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        <h2 className="text-2xl font-bold mb-5">Book a Ride</h2>
+        {pickupCoords && <Marker position={[pickupCoords.lat,pickupCoords.lng]} />}
+        {dropCoords && <Marker position={[dropCoords.lat,dropCoords.lng]} />}
+        {driverPosition && <Marker position={driverPosition} />}
 
-        {/* PICKUP */}
-        <input
-          className="w-full p-3 rounded border"
-          placeholder="Pickup location"
-          value={pickup}
-          onChange={e=>{
-            setPickup(e.target.value);
-            fetchSuggestions(e.target.value,setPickupSuggestions);
-          }}
-        />
+        {route.length>0 &&
+          <Polyline positions={route} pathOptions={{color:"#4f46e5",weight:5}}/>
+        }
 
-        {Array.isArray(pickupSuggestions) && pickupSuggestions.length > 0 && (
-          <div className="absolute z-50 bg-white border w-[90%] max-h-52 overflow-y-auto shadow rounded mt-1">
-            {pickupSuggestions.map((p,i)=>(
-              <div key={i}
-                className="p-2 cursor-pointer hover:bg-gray-100 text-sm"
-                onClick={()=>{
-                  setPickup(p.display);
-                  setPickupCoords({lat:p.lat,lng:p.lng});
-                  setPickupSuggestions([]);
-                }}>
-                {p.display}
+        <FitBounds route={route}/>
+      </MapContainer>
+
+
+      {/* ================= BOOKING CARD ================= */}
+      <div className="absolute left-6 top-6 z-10 w-[360px] max-w-[92%]">
+
+        <div className="bg-white/90 backdrop-blur-xl shadow-2xl rounded-3xl p-6 border">
+
+          <h2 className="text-2xl font-bold mb-6">Book Ride</h2>
+
+          {/* PICKUP */}
+          <LocationInput
+            label="Pickup location"
+            value={pickup}
+            setValue={setPickup}
+            suggestions={pickupSuggestions}
+            setSuggestions={setPickupSuggestions}
+            setCoords={setPickupCoords}
+            fetchSuggestions={fetchSuggestions}
+          />
+
+          {/* DROP */}
+          <LocationInput
+            label="Drop location"
+            value={drop}
+            setValue={setDrop}
+            suggestions={dropSuggestions}
+            setSuggestions={setDropSuggestions}
+            setCoords={setDropCoords}
+            fetchSuggestions={fetchSuggestions}
+          />
+
+          {/* VEHICLES */}
+          <h4 className="mt-6 mb-3 font-semibold text-gray-700">
+            Choose Vehicle
+          </h4>
+
+          <div className="grid grid-cols-3 gap-3">
+            {vehicles.map(v=>(
+              <div
+                key={v.id}
+                onClick={()=>setVehicleType(v.id)}
+                className={`cursor-pointer rounded-xl p-3 text-center border transition-all
+                ${vehicleType===v.id
+                  ? "border-indigo-600 bg-indigo-50 scale-105 shadow"
+                  : "bg-gray-50 hover:scale-105"}`}
+              >
+                <img src={v.img} className="h-14 mx-auto mb-2"/>
+                <p className="text-sm font-semibold">{v.label}</p>
               </div>
             ))}
           </div>
-        )}
 
-        {/* DROP */}
-        <input
-          className="w-full p-3 mt-4 rounded border"
-          placeholder="Drop location"
-          value={drop}
-          onChange={e=>{
-            setDrop(e.target.value);
-            fetchSuggestions(e.target.value,setDropSuggestions);
-          }}
-        />
+          {/* BUTTON */}
+          <button
+            onClick={handleBookRide}
+            disabled={loading}
+            className="mt-6 w-full py-4 rounded-xl font-semibold text-white
+              bg-gradient-to-r from-indigo-600 to-blue-600
+              hover:scale-[1.02] transition disabled:opacity-50"
+          >
+            {loading ? "Finding Driver..." : "Book Ride"}
+          </button>
 
-        {Array.isArray(dropSuggestions) && dropSuggestions.length > 0 && (
-          <div className="absolute z-40 bg-white border w-[90%] max-h-52 overflow-y-auto shadow rounded mt-1">
-            {dropSuggestions.map((p,i)=>(
-              <div key={i}
-                className="p-2 cursor-pointer hover:bg-gray-100 text-sm"
-                onClick={()=>{
-                  setDrop(p.display);
-                  setDropCoords({lat:p.lat,lng:p.lng});
-                  setDropSuggestions([]);
-                }}>
-                {p.display}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* VEHICLES */}
-        <h4 className="mt-4 mb-3 font-semibold">Select Vehicle</h4>
-
-        <div className="grid grid-cols-3 gap-4">
-          {vehicles.map(v=>(
-            <div key={v.id}
-              onClick={()=>setVehicleType(v.id)}
-              className={`cursor-pointer rounded-xl p-3 border text-center transition ${
-                vehicleType===v.id
-                  ?"border-indigo-600 bg-indigo-50"
-                  :"bg-gray-50"
-              }`}>
-              <img src={v.img} className="h-16 mx-auto mb-2"/>
-              <p className="text-sm font-semibold">{v.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* BUTTON */}
-        <button
-          onClick={handleBookRide}
-          disabled={loading}
-          className="w-full mt-6 bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 transition"
-        >
-          {loading ? "Processing..." : "Book Ride & Pay"}
-        </button>
-
-        {/* INFO */}
-        {distance && (
-          <div className="mt-4 p-4 bg-gray-100 rounded-lg">
-            <p>Distance: {distance} km</p>
-            <p>Duration: {duration} mins</p>
-            <p className="font-bold text-indigo-600">Fare: ₹{fare}</p>
-          </div>
-        )}
-
-        {message && <p className="mt-3 font-semibold">{message}</p>}
-      </div>
-
-      {/* MAP */}
-      <div className="w-full md:w-1/2 h-[400px] md:h-auto">
-        <MapContainer center={[23.0225,72.5714]} zoom={6} className="h-full w-full">
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-
-          {pickupCoords && <Marker position={[pickupCoords.lat,pickupCoords.lng]}/>}
-          {dropCoords && <Marker position={[dropCoords.lat,dropCoords.lng]}/>}
-          {driverPosition && <Marker position={driverPosition}/>}
-
-          {route.length>0 &&
-            <Polyline positions={route} pathOptions={{color:"#4f46e5",weight:5}}/>
+          {/* MESSAGE */}
+          {message &&
+            <p className="mt-4 text-sm text-center font-medium text-indigo-600">
+              {message}
+            </p>
           }
-
-          <FitBounds route={route}/>
-        </MapContainer>
+        </div>
       </div>
 
+
+      {/* ================= FARE PANEL ================= */}
+      {distance &&
+        <div className="absolute bottom-0 left-0 right-0 z-20 mb-6">
+          <div className="mx-auto max-w-3xl">
+
+            <div className="bg-white shadow-2xl rounded-3xl p-6 flex justify-between">
+
+              <Stat label="Distance" value={`${distance} km`} />
+              <Stat label="Duration" value={`${duration} min`} />
+              <Stat label="Fare" value={`₹${fare}`} highlight />
+
+            </div>
+
+          </div>
+        </div>
+      }
     </div>
   );
 }
+
+/* ======================================================
+SUB COMPONENTS
+====================================================== */
+
+const Stat = ({label,value,highlight})=>(
+<div>
+<p className="text-gray-500 text-sm">{label}</p>
+<p className={`font-bold text-lg ${highlight?"text-indigo-600":""}`}>
+{value}
+</p>
+</div>
+);
+
+
+const LocationInput = ({
+label,
+value,
+setValue,
+suggestions,
+setSuggestions,
+setCoords,
+fetchSuggestions
+}) => (
+<div className="relative mt-3">
+
+<input
+className="peer w-full p-4 rounded-xl border outline-none focus:ring-2 focus:ring-indigo-500"
+placeholder=" "
+value={value}
+onChange={e=>{
+setValue(e.target.value);
+fetchSuggestions(e.target.value,setSuggestions);
+}}
+/>
+
+<label className="absolute left-3 top-1 text-sm text-gray-500 transition-all
+peer-placeholder-shown:top-4 peer-placeholder-shown:text-base
+peer-focus:-top-2 peer-focus:text-xs peer-focus:text-indigo-600
+bg-white px-1">
+{label}
+</label>
+
+{suggestions.length>0 &&
+<div className="absolute z-50 bg-white border w-full max-h-52 overflow-y-auto shadow rounded mt-2">
+
+{suggestions.map((p,i)=>(
+<div
+key={i}
+className="p-3 hover:bg-indigo-50 cursor-pointer text-sm"
+onClick={()=>{
+setValue(p.display);
+setCoords({lat:p.lat,lng:p.lng});
+setSuggestions([]);
+}}
+>
+📍 {p.display}
+</div>
+))}
+
+</div>}
+</div>
+);

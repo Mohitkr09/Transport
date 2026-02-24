@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
+
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 
@@ -13,6 +14,7 @@ import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Payment from "./pages/Payment";
 import RideTracking from "./pages/RideTracking";
+import Notifications from "./pages/Notifications";
 
 /* ================= ADMIN ================= */
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -26,23 +28,23 @@ import SupportMessages from "./pages/admin/SupportMessages";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 
-// ======================================================
-// SCROLL TO TOP ON ROUTE CHANGE
-// ======================================================
+/* ======================================================
+SCROLL RESTORE
+====================================================== */
 function ScrollToTop() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [pathname]);
 
   return null;
 }
 
 
-// ======================================================
-// BACKEND WAKEUP (Fix Render Cold Start)
-// ======================================================
+/* ======================================================
+BACKEND WAKEUP (Render Cold Start Fix)
+====================================================== */
 function BackendWakeup() {
   const called = useRef(false);
 
@@ -53,16 +55,16 @@ function BackendWakeup() {
     const url = import.meta.env.VITE_API_URL;
     if (!url) return;
 
-    fetch(`${url}/api/ride/health`).catch(() => {});
+    fetch(`${url}/health`).catch(() => {});
   }, []);
 
   return null;
 }
 
 
-// ======================================================
-// LAYOUT WRAPPER
-// ======================================================
+/* ======================================================
+LAYOUT WRAPPER
+====================================================== */
 function Layout({ children }) {
   const { pathname } = useLocation();
 
@@ -84,9 +86,9 @@ function Layout({ children }) {
 }
 
 
-// ======================================================
-// PAYMENT SUCCESS SCREEN
-// ======================================================
+/* ======================================================
+PAYMENT SUCCESS
+====================================================== */
 function PaymentSuccess() {
   const { pathname } = useLocation();
   const rideId = pathname.split("/").pop();
@@ -94,7 +96,7 @@ function PaymentSuccess() {
   useEffect(() => {
     const timer = setTimeout(() => {
       window.location.href = `/track/${rideId}`;
-    }, 3000);
+    }, 2500);
 
     return () => clearTimeout(timer);
   }, [rideId]);
@@ -114,9 +116,9 @@ function PaymentSuccess() {
 }
 
 
-// ======================================================
-// PAYMENT FAILED PAGE
-// ======================================================
+/* ======================================================
+PAYMENT FAILED
+====================================================== */
 function PaymentFailed() {
   return (
     <div className="h-screen flex items-center justify-center">
@@ -129,29 +131,29 @@ function PaymentFailed() {
           Something went wrong while processing payment.
         </p>
 
-        <a
-          href="/book"
+        <button
+          onClick={() => window.location.replace("/book")}
           className="px-6 py-3 bg-indigo-600 text-white rounded-xl"
         >
           Try Again
-        </a>
+        </button>
       </div>
     </div>
   );
 }
 
 
-// ======================================================
-// 404 FALLBACK
-// ======================================================
+/* ======================================================
+404 FALLBACK
+====================================================== */
 function NotFound() {
   return <Navigate to="/" replace />;
 }
 
 
-// ======================================================
-// MAIN APP
-// ======================================================
+/* ======================================================
+APP ROOT
+====================================================== */
 function App() {
   return (
     <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
@@ -162,15 +164,51 @@ function App() {
       <Layout>
         <Routes>
 
-          {/* ================= PUBLIC ================= */}
+          {/* ======================================================
+          PUBLIC ROUTES
+          ====================================================== */}
           <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
 
-          {/* ================= PAYMENT FLOW ================= */}
+          {/* ======================================================
+          USER ROUTES
+          ====================================================== */}
+
+          <Route
+            path="/book"
+            element={
+              <ProtectedRoute allowedRoles={["user"]}>
+                <BookRide />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute allowedRoles={["user"]}>
+                <Notifications />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/track/:rideId"
+            element={
+              <ProtectedRoute allowedRoles={["user"]}>
+                <RideTracking />
+              </ProtectedRoute>
+            }
+          />
+
+
+          {/* ======================================================
+          PAYMENT FLOW
+          ====================================================== */}
 
           <Route
             path="/payment/:rideId"
@@ -199,28 +237,11 @@ function App() {
             }
           />
 
-          <Route
-            path="/track/:rideId"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <RideTracking />
-              </ProtectedRoute>
-            }
-          />
 
+          {/* ======================================================
+          DRIVER ROUTES
+          ====================================================== */}
 
-          {/* ================= USER ================= */}
-          <Route
-            path="/book"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <BookRide />
-              </ProtectedRoute>
-            }
-          />
-
-
-          {/* ================= DRIVER ================= */}
           <Route
             path="/driver"
             element={
@@ -231,7 +252,10 @@ function App() {
           />
 
 
-          {/* ================= ADMIN ================= */}
+          {/* ======================================================
+          ADMIN ROUTES
+          ====================================================== */}
+
           <Route
             path="/admin"
             element={
@@ -249,12 +273,13 @@ function App() {
           </Route>
 
 
-          {/* ================= 404 ================= */}
+          {/* ======================================================
+          FALLBACK
+          ====================================================== */}
           <Route path="*" element={<NotFound />} />
 
         </Routes>
       </Layout>
-
     </div>
   );
 }

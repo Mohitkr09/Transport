@@ -4,9 +4,9 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
-// ======================================================
-// SAFE ASYNC WRAPPER (CRASH SAFE)
-// ======================================================
+/* ======================================================
+SAFE ASYNC WRAPPER (CRASH SAFE)
+====================================================== */
 const asyncHandler = fn => {
   if (typeof fn !== "function") {
     throw new Error("Route handler is not a function");
@@ -15,19 +15,17 @@ const asyncHandler = fn => {
     Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-
-// ======================================================
-// DEBUG LOGGER
-// ======================================================
+/* ======================================================
+DEBUG LOGGER
+====================================================== */
 router.use((req, res, next) => {
   console.log(`🚗 RIDE ROUTE → ${req.method} ${req.originalUrl}`);
   next();
 });
 
-
-// ======================================================
-// HEALTH CHECK
-// ======================================================
+/* ======================================================
+HEALTH CHECK
+====================================================== */
 router.get("/health", (req, res) => {
   res.json({
     success: true,
@@ -35,41 +33,42 @@ router.get("/health", (req, res) => {
   });
 });
 
+/* ======================================================
+USER ROUTES
+====================================================== */
 
-// ======================================================
-// USER ROUTES
-// ======================================================
-
-// CREATE RIDE
+/* ---------- CREATE RIDE ---------- */
 router.post("/", protect, asyncHandler(rideController.createRide));
 
-// GET USER RIDES
-router.get("/", protect, asyncHandler(rideController.getUserRides));
+/* ---------- GET MY RIDES (FIXED ROUTE) ---------- */
+/* IMPORTANT: must come BEFORE "/:id" */
+router.get("/my", protect, asyncHandler(rideController.getUserRides));
 
-// GET SINGLE RIDE
+/* ---------- GET SINGLE RIDE ---------- */
 router.get("/:id", protect, asyncHandler(rideController.getRideById));
 
-// ACCEPT RIDE
+/* ---------- ACCEPT RIDE ---------- */
 router.put("/:id/accept", protect, asyncHandler(rideController.acceptRide));
 
-// START RIDE
+/* ---------- START RIDE ---------- */
 router.put("/:id/start", protect, asyncHandler(rideController.startRide));
 
-// COMPLETE RIDE
+/* ---------- COMPLETE RIDE ---------- */
 router.put("/:id/complete", protect, asyncHandler(rideController.completeRide));
 
-// CANCEL RIDE
+/* ---------- CANCEL RIDE ---------- */
 router.put("/:id/cancel", protect, asyncHandler(rideController.cancelRide));
 
-// RATE RIDE
+/* ---------- RATE RIDE ---------- */
 router.post("/:id/rate", protect, asyncHandler(rideController.rateRide));
 
 
-// ======================================================
-// ADMIN ROUTES (IMPORTANT → ABOVE FALLBACK)
-// ======================================================
 
-// GET ALL RIDES
+/* ======================================================
+ADMIN ROUTES (MUST BE ABOVE FALLBACK)
+====================================================== */
+
+/* ---------- GET ALL RIDES ---------- */
 router.get(
   "/admin/all",
   protect,
@@ -77,7 +76,7 @@ router.get(
   asyncHandler(rideController.getAllRides)
 );
 
-// FORCE CANCEL
+/* ---------- FORCE CANCEL ---------- */
 router.put(
   "/admin/:id/cancel",
   protect,
@@ -86,9 +85,10 @@ router.put(
 );
 
 
-// ======================================================
-// FALLBACK (MUST BE LAST)
-// ======================================================
+
+/* ======================================================
+FALLBACK (MUST BE LAST)
+====================================================== */
 router.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -96,6 +96,5 @@ router.use((req, res) => {
   });
 });
 
-
-// ======================================================
+/* ====================================================== */
 module.exports = router;
