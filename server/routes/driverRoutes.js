@@ -1,145 +1,141 @@
 const express = require("express");
 const router = express.Router();
 
-// =================================================
-// IMPORTS
-// =================================================
-const upload = require("../middleware/upload");
+/* =================================================
+IMPORTS
+================================================= */
+
 const driverController = require("../controllers/driverController");
-const { protect, adminOnly } = require("../middleware/authMiddleware");
+const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
 const Driver = require("../models/Driver");
 
-// =================================================
-// SAFE ASYNC WRAPPER
-// =================================================
+/* =================================================
+ASYNC HANDLER
+================================================= */
+
 const asyncHandler = fn => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
-// =================================================
-// DEBUG LOGGER
-// =================================================
-router.use((req, res, next) => {
-  console.log("🚚 DRIVER ROUTE:", req.method, req.originalUrl);
-  next();
-});
+/* =================================================
+HEALTH CHECK
+================================================= */
 
-// =================================================
-// HEALTH CHECK
-// =================================================
 router.get("/health", (req, res) => {
   res.json({
     success: true,
-    message: "Driver routes working ✅"
+    message: "Driver API working"
   });
 });
 
-// =================================================
-// REGISTER DRIVER
-// POST /api/driver/register
-// =================================================
-router.post(
-  "/register",
-  upload.fields([
-    { name: "license", maxCount: 1 },
-    { name: "vehicleRC", maxCount: 1 }
-  ]),
-  asyncHandler(driverController.registerDriver)
-);
+/* =================================================
+AUTH ROUTES
+================================================= */
 
-// =================================================
-// LOGIN DRIVER
-// POST /api/driver/login
-// =================================================
 router.post("/login", asyncHandler(driverController.loginDriver));
 
-// =================================================
-// LOGOUT DRIVER
-// POST /api/driver/logout
-// =================================================
 router.post(
   "/logout",
   protect,
+  driverOnly,
   asyncHandler(async (req, res) => {
-    await Driver.findByIdAndUpdate(req.user._id, {
+
+    await Driver.findByIdAndUpdate(req.user.id, {
       isOnline: false,
       isAvailable: false
     });
 
     res.json({
       success: true,
-      message: "Logged out successfully"
+      message: "Driver logged out"
     });
+
   })
 );
 
-// =================================================
-// DRIVER PROFILE
-// GET /api/driver/me
-// =================================================
+/* =================================================
+PROFILE
+================================================= */
+
 router.get(
   "/me",
   protect,
+  driverOnly,
   asyncHandler(driverController.getDriverProfile)
 );
 
-// =================================================
-// TOGGLE ONLINE STATUS
-// PUT /api/driver/online
-// =================================================
+/* =================================================
+STATUS + LOCATION
+================================================= */
+
 router.put(
   "/online",
   protect,
-  asyncHandler(driverController.toggleOnlineStatus)
+  driverOnly,
+  asyncHandler(driverController.updateDriverStatus)
 );
 
-// =================================================
-// UPDATE LOCATION
-// PUT /api/driver/location
-// =================================================
 router.put(
   "/location",
   protect,
-  asyncHandler(driverController.updateLocation)
+  driverOnly,
+  asyncHandler(driverController.updateDriverLocation)
 );
 
-// =================================================
-// FIND NEARBY DRIVERS
-// GET /api/driver/nearby?lat=&lng=&radius=&vehicleType=
-// =================================================
+/* =================================================
+RIDES (IMPORTANT FIX)
+================================================= */
+
+/* GET NEARBY RIDES */
 router.get(
-  "/nearby",
+  "/rides/nearby",
   protect,
-  asyncHandler(driverController.findNearbyDrivers)
+  driverOnly,
+  asyncHandler(driverController.getNearbyRides)
 );
 
-// =================================================
-// 🧪 DEBUG ROUTE — FORCE DRIVER AVAILABLE
-// (REMOVE IN PRODUCTION)
-// =================================================
-router.put("/force-available/:id", asyncHandler(async (req, res) => {
-  const driver = await Driver.findByIdAndUpdate(
-    req.params.id,
-    { isAvailable: true },
-    { new: true }
-  );
+/* ACCEPT RIDE */
+router.put(
+  "/ride/:id/accept",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.acceptRide)
+);
 
-  if (!driver)
-    return res.status(404).json({
-      success: false,
-      message: "Driver not found"
-    });
+/* REJECT RIDE */
+router.put(
+  "/ride/:id/reject",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.rejectRide)
+);
 
-  res.json({
-    success: true,
-    message: "Driver availability reset",
-    driver
-  });
-}));
+/* START RIDE */
+router.put(
+  "/ride/:id/start",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.startRide)
+);
 
-// =================================================
-// ADMIN APPROVE DRIVER
-// PUT /api/driver/:id/approve
-// =================================================
+/* COMPLETE RIDE */
+router.put(
+  "/ride/:id/complete",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.completeRide)
+);
+
+/* =================================================
+ADMIN ROUTES
+================================================= */
+
+router.get(
+  "/all",
+  protect,
+  adminOnly,
+  asyncHandler(driverController.getAllDrivers)
+);
+
 router.put(
   "/:id/approve",
   protect,
@@ -147,31 +143,100 @@ router.put(
   asyncHandler(driverController.approveDriver)
 );
 
-// =================================================
-// ADMIN REJECT DRIVER
-// PUT /api/driver/:id/reject
-// =================================================
-router.put(
-  "/:id/reject",
+router.delete(
+  "/:id",
   protect,
   adminOnly,
   asyncHandler(driverController.rejectDriver)
 );
 
-// =================================================
-// ADMIN GET ALL DRIVERS
-// GET /api/driver
-// =================================================
-router.get(
-  "/",
+/* =================================================
+ADMIN SET DRIVER LOCATION
+================================================= */
+
+router.put(
+  "/:id/set-location",
   protect,
   adminOnly,
-  asyncHandler(driverController.getAllDrivers)
+  asyncHandler(async (req, res) => {
+
+    const { lat, lng } = req.body;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "lat and lng required"
+      });
+    }
+
+    const driver = await Driver.findById(req.params.id);
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found"
+      });
+    }
+
+    driver.location = {
+      type: "Point",
+      coordinates: [Number(lng), Number(lat)]
+    };
+
+    driver.lastLocationUpdate = new Date();
+    driver.isOnline = true;
+    driver.isAvailable = true;
+
+    await driver.save();
+
+    res.json({
+      success: true,
+      message: "Driver location updated",
+      driver
+    });
+
+  })
 );
 
-// =================================================
-// FALLBACK ROUTE (MUST BE LAST)
-// =================================================
+/* =================================================
+DEV TOOL
+================================================= */
+
+router.put(
+  "/force-available/:id",
+  protect,
+  adminOnly,
+  asyncHandler(async (req, res) => {
+
+    const driver = await Driver.findByIdAndUpdate(
+      req.params.id,
+      {
+        isAvailable: true,
+        isOnline: true
+      },
+      { new: true }
+    );
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Driver forced available",
+      driver
+    });
+
+  })
+);
+
+/* =================================================
+FALLBACK
+================================================= */
+
 router.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -179,5 +244,4 @@ router.use((req, res) => {
   });
 });
 
-// =================================================
 module.exports = router;

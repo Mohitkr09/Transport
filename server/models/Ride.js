@@ -1,8 +1,9 @@
 const mongoose = require("mongoose");
 
-// ======================================================
-// GEO POINT SCHEMA (Reusable)
-// ======================================================
+/* ======================================================
+GEO POINT
+====================================================== */
+
 const pointSchema = new mongoose.Schema(
   {
     type: {
@@ -11,26 +12,28 @@ const pointSchema = new mongoose.Schema(
       default: "Point"
     },
     coordinates: {
-      type: [Number], // [lng, lat]
+      type: [Number],
       validate: {
         validator: arr =>
           !arr ||
-          (Array.isArray(arr) &&
-            arr.length === 2 &&
-            arr.every(n => typeof n === "number")),
-        message: "Coordinates must be [lng, lat]"
+          (arr.length === 2 &&
+            arr[0] >= -180 &&
+            arr[0] <= 180 &&
+            arr[1] >= -90 &&
+            arr[1] <= 90),
+        message: "Invalid coordinates"
       }
     }
   },
   { _id: false }
 );
 
-// ======================================================
-// RIDE SCHEMA
-// ======================================================
+/* ======================================================
+RIDE SCHEMA
+====================================================== */
+
 const rideSchema = new mongoose.Schema(
   {
-    // ================= USER =================
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -38,7 +41,6 @@ const rideSchema = new mongoose.Schema(
       index: true
     },
 
-    // ================= DRIVER =================
     driver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Driver",
@@ -46,40 +48,25 @@ const rideSchema = new mongoose.Schema(
       index: true
     },
 
-    // ================= LOCATIONS =================
     pickupLocation: {
       address: String,
-      location: {
-        type: pointSchema,
-        required: true
-      }
+      location: { type: pointSchema, required: true }
     },
 
     dropLocation: {
       address: String,
-      location: {
-        type: pointSchema,
-        required: true
-      }
+      location: { type: pointSchema, required: true }
     },
 
-    // ================= VEHICLE =================
     vehicleType: {
       type: String,
       enum: ["bike", "auto", "car"],
-      required: true,
-      index: true
+      required: true
     },
 
-    // ================= DISTANCE =================
-    distanceKm: {
-      type: Number,
-      default: 0
-    },
-
+    distanceKm: Number,
     durationMin: Number,
 
-    // ================= FARE =================
     fare: {
       type: Number,
       required: true,
@@ -91,24 +78,17 @@ const rideSchema = new mongoose.Schema(
       default: 1
     },
 
-    // ================= PAYMENT =================
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed", "refunded"],
-      default: "pending",
-      index: true
+      default: "pending"
     },
 
-    paymentIntentId: {
-      type: String,
-      select: false
-    },
-
-    // ================= STATUS =================
     status: {
       type: String,
       enum: [
         "requested",
+        "searching_driver",
         "driver_assigned",
         "accepted",
         "ongoing",
@@ -120,9 +100,6 @@ const rideSchema = new mongoose.Schema(
       index: true
     },
 
-    // ================= DRIVER RESPONSE TIMER =================
-    driverResponseDeadline: Date,
-
     rejectedDrivers: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -130,14 +107,14 @@ const rideSchema = new mongoose.Schema(
       }
     ],
 
-    // ================= TIMESTAMPS =================
+    driverResponseDeadline: Date,
+
     requestedAt: { type: Date, default: Date.now },
     acceptedAt: Date,
     startedAt: Date,
     completedAt: Date,
     cancelledAt: Date,
 
-    // ================= LIVE DRIVER LOCATION =================
     driverLocation: {
       type: pointSchema,
       default: null
@@ -145,7 +122,6 @@ const rideSchema = new mongoose.Schema(
 
     driverLocationUpdatedAt: Date,
 
-    // ================= CANCELLATION =================
     cancelledBy: {
       type: String,
       enum: ["user", "driver", "admin", null],
@@ -154,86 +130,45 @@ const rideSchema = new mongoose.Schema(
 
     cancelReason: String,
 
-    // ================= FEEDBACK =================
-    rating: {
-      type: Number,
-      min: 1,
-      max: 5
-    },
-
+    rating: { type: Number, min: 1, max: 5 },
     feedback: String,
 
-    // ================= OTP =================
     otp: {
       type: Number,
       min: 1000,
       max: 9999
     },
 
-    // ================= ETA =================
-    estimatedArrivalMin: Number,
-
-    // ================= SOFT DELETE =================
     isDeleted: {
       type: Boolean,
-      default: false,
-      index: true
+      default: false
     }
   },
   { timestamps: true }
 );
 
-// ======================================================
-// INDEXES (IMPORTANT)
-// ======================================================
-rideSchema.index({ user: 1, createdAt: -1 });
-rideSchema.index({ driver: 1, status: 1 });
-rideSchema.index({ status: 1, requestedAt: -1 });
-rideSchema.index({ paymentStatus: 1 });
+/* ======================================================
+INDEXES
+====================================================== */
+
 rideSchema.index({ "pickupLocation.location": "2dsphere" });
-rideSchema.index({ driverResponseDeadline: 1 });
+rideSchema.index({ status: 1, createdAt: -1 });
+rideSchema.index({ driver: 1, status: 1 });
+rideSchema.index({ rejectedDrivers: 1 });
 
-// ======================================================
-// VIRTUALS
-// ======================================================
+/* ======================================================
+VIRTUALS
+====================================================== */
+
 rideSchema.virtual("isActive").get(function () {
-  return ["requested", "driver_assigned", "accepted", "ongoing"].includes(
-    this.status
-  );
+  return ["searching_driver", "accepted", "ongoing"].includes(this.status);
 });
 
-rideSchema.virtual("isCompleted").get(function () {
-  return this.status === "completed";
-});
+/* ======================================================
+METHODS
+====================================================== */
 
-// ======================================================
-// METHODS
-// ======================================================
-
-// start ride
-rideSchema.methods.startRide = function () {
-  this.status = "ongoing";
-  this.startedAt = new Date();
-  return this.save();
-};
-
-// complete ride
-rideSchema.methods.completeRide = function () {
-  this.status = "completed";
-  this.completedAt = new Date();
-  return this.save();
-};
-
-// cancel ride
-rideSchema.methods.cancelRide = function (by, reason) {
-  this.status = "cancelled";
-  this.cancelledAt = new Date();
-  this.cancelledBy = by;
-  this.cancelReason = reason;
-  return this.save();
-};
-
-// assign driver
+/* ASSIGN DRIVER */
 rideSchema.methods.assignDriver = function (driverId) {
   this.driver = driverId;
   this.status = "driver_assigned";
@@ -241,9 +176,108 @@ rideSchema.methods.assignDriver = function (driverId) {
   return this.save();
 };
 
-// ======================================================
-// JSON CLEANUP
-// ======================================================
+/* ACCEPT RIDE */
+rideSchema.methods.acceptRide = function () {
+  if (this.status !== "driver_assigned") throw new Error("Invalid state");
+
+  this.status = "accepted";
+  this.acceptedAt = new Date();
+  return this.save();
+};
+
+/* START RIDE */
+rideSchema.methods.startRide = function (otpInput) {
+  if (this.status !== "accepted") throw new Error("Invalid state");
+
+  if (this.otp && otpInput !== this.otp) {
+    throw new Error("Invalid OTP");
+  }
+
+  this.status = "ongoing";
+  this.startedAt = new Date();
+  return this.save();
+};
+
+/* COMPLETE RIDE */
+rideSchema.methods.completeRide = function () {
+  if (this.status !== "ongoing") throw new Error("Invalid state");
+
+  this.status = "completed";
+  this.completedAt = new Date();
+  return this.save();
+};
+
+/* CANCEL RIDE */
+rideSchema.methods.cancelRide = function (by, reason) {
+  if (["completed"].includes(this.status)) {
+    throw new Error("Cannot cancel completed ride");
+  }
+
+  this.status = "cancelled";
+  this.cancelledBy = by;
+  this.cancelReason = reason;
+  this.cancelledAt = new Date();
+  return this.save();
+};
+
+/* REJECT DRIVER */
+rideSchema.methods.rejectDriver = function (driverId) {
+  this.rejectedDrivers.push(driverId);
+  this.driver = null;
+  this.status = "searching_driver";
+  return this.save();
+};
+
+/* UPDATE DRIVER LOCATION */
+rideSchema.methods.updateDriverLocation = function (lat, lng) {
+  this.driverLocation = {
+    type: "Point",
+    coordinates: [Number(lng), Number(lat)]
+  };
+
+  this.driverLocationUpdatedAt = new Date();
+  return this.save();
+};
+
+/* ======================================================
+STATIC METHODS
+====================================================== */
+
+/* FIND RIDES FOR DRIVER */
+rideSchema.statics.findAvailableRides = function (lat, lng, vehicleType) {
+  return this.find({
+    status: "searching_driver",
+    vehicleType,
+    "pickupLocation.location": {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: [lng, lat]
+        },
+        $maxDistance: 5000
+      }
+    }
+  });
+};
+
+/* HANDLE TIMEOUT */
+rideSchema.statics.handleDriverTimeouts = async function () {
+  const expired = await this.find({
+    status: "driver_assigned",
+    driverResponseDeadline: { $lt: new Date() }
+  });
+
+  for (const ride of expired) {
+    ride.status = "searching_driver";
+    ride.driver = null;
+    await ride.save();
+  }
+};
+
+/* ======================================================
+JSON CLEANUP
+====================================================== */
+
 rideSchema.set("toJSON", {
   virtuals: true,
   transform: (_, ret) => {
@@ -252,7 +286,4 @@ rideSchema.set("toJSON", {
   }
 });
 
-// ======================================================
-// EXPORT
-// ======================================================
 module.exports = mongoose.model("Ride", rideSchema);

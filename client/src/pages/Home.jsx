@@ -1,219 +1,300 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { MapPin, Navigation } from "lucide-react";
+
+/* DESTINATION IMAGES */
+import airport from "../assets/services/airport.jpg";
+import railway from "../assets/services/railway.jpg";
+import busStand from "../assets/services/bus_stand.jpg";
+import mall from "../assets/services/mall.jpg";
+import hospital from "../assets/services/hospital.jpg";
 
 const fadeUp = {
-  hidden:{opacity:0,y:40},
-  show:{opacity:1,y:0,transition:{duration:0.7}}
+  hidden: { opacity: 0, y: 40 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7 } }
 };
 
+const services = [
+  { name: "Parcel", icon: "📦" },
+  { name: "Auto", icon: "🛺" },
+  { name: "Cab Economy", icon: "🚕" },
+  { name: "Bike", icon: "🏍️" }
+];
+
+const destinations = [
+  { name: "Airport", image: airport },
+  { name: "Railway Station", image: railway },
+  { name: "Bus Stand", image: busStand },
+  { name: "Shopping Mall", image: mall },
+  { name: "Hospital", image: hospital }
+];
+
 const Home = () => {
+
   const navigate = useNavigate();
+  const [count, setCount] = useState([0,0,0,0]);
 
-  return (
-    <div className="bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-white overflow-hidden">
+  /* ======================================================
+  ROLE BASED REDIRECT (FINAL FIX)
+  ====================================================== */
 
-      {/* ================================================= HERO */}
-      <section className="relative h-[95vh] flex items-center justify-center text-center">
+  useEffect(() => {
 
-        <img
-          src="https://images.unsplash.com/photo-1502877338535-766e1452684a"
-          className="absolute w-full h-full object-cover scale-110"
-          alt=""
-        />
+    try {
+      const token = localStorage.getItem("token");
+      const user = JSON.parse(localStorage.getItem("user") || "null");
 
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/90 via-blue-900/80 to-black/90"/>
+      if (!token || !user) return;
 
-        <motion.div
-          initial="hidden"
-          animate="show"
-          variants={fadeUp}
-          className="relative z-10 max-w-4xl px-6"
-        >
-          <h1 className="text-5xl md:text-7xl font-extrabold leading-tight mb-6">
-            Smart Transport for{" "}
-            <span className="bg-gradient-to-r from-indigo-400 to-blue-400 text-transparent bg-clip-text">
-              Modern Cities
-            </span>
-          </h1>
+      if (user.role === "driver") {
+        navigate("/driver/dashboard", { replace: true });
+      }
 
-          <p className="text-lg md:text-xl text-gray-200 mb-10">
-            Book rides instantly with real-time tracking, verified drivers
-            and AI-powered safety monitoring.
-          </p>
+      else if (user.role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      }
 
-          <div className="flex justify-center gap-6 flex-wrap">
-            <button
-              onClick={() => navigate("/book")}
-              className="px-10 py-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xl hover:scale-105 transition"
-            >
-              Book Ride
-            </button>
+      // ✅ user stays on home
 
-            <button
-              onClick={() => navigate("/register")}
-              className="px-10 py-4 rounded-xl border border-white text-white hover:bg-white hover:text-indigo-600 font-semibold transition hover:scale-105"
-            >
-              Become Driver
-            </button>
-          </div>
-        </motion.div>
-      </section>
+    } catch (err) {
+      console.error("User parse error:", err);
+    }
+
+  }, [navigate]);
 
 
-      {/* ================================================= STATS */}
-      <section className="py-20 bg-white dark:bg-gray-900">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-4 gap-10 text-center">
 
-          {[
-            ["10K+", "Happy Riders"],
-            ["500+", "Verified Drivers"],
-            ["99.9%", "Safe Rides"],
-            ["24/7", "Live Support"]
-          ].map((item,i)=>(
-            <motion.div
-              key={i}
-              whileHover={{scale:1.07}}
-              className="p-6 rounded-2xl bg-gray-50 dark:bg-gray-800 shadow"
-            >
-              <h3 className="text-4xl font-bold text-indigo-600 mb-2">
-                {item[0]}
-              </h3>
-              <p className="text-gray-500">{item[1]}</p>
-            </motion.div>
-          ))}
+  /* ======================================================
+  COUNTER ANIMATION
+  ====================================================== */
 
-        </div>
-      </section>
+  useEffect(()=>{
+    const interval = setInterval(()=>{
+      setCount(prev=>[
+        Math.min(prev[0]+200,10000),
+        Math.min(prev[1]+10,500),
+        Math.min(prev[2]+2,99),
+        Math.min(prev[3]+1,24)
+      ])
+    },40)
+
+    return ()=>clearInterval(interval)
+  },[])
 
 
-      {/* ================================================= RIDES */}
-      <section className="py-24 max-w-7xl mx-auto px-6">
-        <h2 className="text-4xl font-bold text-center mb-16">
-          Choose Your Ride
-        </h2>
 
-        <div className="grid md:grid-cols-3 gap-10">
+  return(
 
-          {[
-            {
-              name:"Bike",
-              img:"https://images.unsplash.com/photo-1558981806-ec527fa84c39",
-              desc:"Fastest way to beat traffic"
-            },
-            {
-              name:"Auto",
-              img:"https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2",
-              desc:"Best for short distance rides"
-            },
-            {
-              name:"Car",
-              img:"https://images.unsplash.com/photo-1549924231-f129b911e442",
-              desc:"Comfortable premium rides"
-            }
-          ].map((ride,i)=>(
-            <motion.div
-              key={i}
-              whileHover={{y:-10}}
-              className="rounded-3xl overflow-hidden shadow-xl group bg-white dark:bg-gray-900"
-            >
-              <img
-                src={ride.img}
-                className="h-56 w-full object-cover group-hover:scale-110 transition duration-500"
-                alt=""
-              />
+<div className="bg-gray-50 dark:bg-black text-gray-800 dark:text-white overflow-hidden relative">
 
-              <div className="p-6 text-center">
-                <h3 className="text-2xl font-bold mb-2">{ride.name}</h3>
-                <p className="text-gray-500">{ride.desc}</p>
-              </div>
-            </motion.div>
-          ))}
-
-        </div>
-      </section>
+{/* BACKGROUND BLOBS */}
+<div className="absolute top-20 left-10 w-72 h-72 bg-indigo-400 rounded-full blur-[120px] opacity-20"/>
+<div className="absolute top-40 right-10 w-72 h-72 bg-blue-400 rounded-full blur-[120px] opacity-20"/>
 
 
-      {/* ================================================= FEATURES */}
-      <section className="py-24 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-gray-900 dark:to-gray-950">
-        <h2 className="text-4xl font-bold text-center mb-16">
-          Why Riders Love TransportX
-        </h2>
+{/* HERO */}
+<section className="pt-28 md:pt-32 pb-20 px-6 relative">
 
-        <div className="max-w-6xl mx-auto grid md:grid-cols-4 gap-10 px-6">
-
-          {[
-            ["📍","Real-time Tracking"],
-            ["🛡️","Verified Drivers"],
-            ["💳","Secure Payments"],
-            ["⚡","Instant Booking"]
-          ].map((f,i)=>(
-            <motion.div
-              key={i}
-              whileHover={{scale:1.08}}
-              className="bg-white dark:bg-gray-800 rounded-2xl p-10 shadow text-center"
-            >
-              <div className="text-5xl mb-4">{f[0]}</div>
-              <h3 className="font-bold text-lg">{f[1]}</h3>
-            </motion.div>
-          ))}
-
-        </div>
-      </section>
+<div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
 
 
-      {/* ================================================= TESTIMONIALS */}
-      <section className="py-24 max-w-6xl mx-auto px-6">
-        <h2 className="text-4xl font-bold text-center mb-16">
-          What Users Say
-        </h2>
+{/* LEFT */}
+<motion.div initial="hidden" animate="show" variants={fadeUp}>
 
-        <div className="grid md:grid-cols-3 gap-10">
+<h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6">
+Smart Transport for
+<span className="block bg-gradient-to-r from-indigo-500 to-blue-500 text-transparent bg-clip-text">
+Modern Cities
+</span>
+</h1>
 
-          {[
-            ["Rohan","Best ride service I've used. Fast & reliable."],
-            ["Amit","Drivers are polite and verified. Loved it!"],
-            ["Sneha","Affordable and super safe rides."]
-          ].map((t,i)=>(
-            <motion.div
-              key={i}
-              whileHover={{scale:1.05}}
-              className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow"
-            >
-              <p className="mb-6 text-gray-500">"{t[1]}"</p>
-              <h4 className="font-bold text-indigo-600">{t[0]}</h4>
-            </motion.div>
-          ))}
+<p className="text-base md:text-lg text-gray-500 dark:text-gray-400 mb-8 max-w-lg">
+Book rides instantly with real-time tracking, verified drivers and safe digital payments.
+</p>
 
-        </div>
-      </section>
+<div className="flex flex-wrap gap-4">
 
+{/* BOOK RIDE */}
+<button
+onClick={()=>navigate("/book")}
+className="px-6 md:px-8 py-3 md:py-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg hover:scale-105 transition"
+>
+Book Ride
+</button>
 
-      {/* ================================================= CTA */}
-      <section className="py-28 text-center bg-gradient-to-r from-indigo-600 to-blue-600 text-white">
-        <h2 className="text-5xl font-bold mb-6">
-          Start Riding in Seconds
-        </h2>
+{/* DRIVER LOGIN */}
+<button
+onClick={()=>navigate("/login?role=driver")}
+className="px-6 md:px-8 py-3 md:py-4 rounded-xl border border-indigo-500 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-gray-800 font-semibold"
+>
+Become Driver
+</button>
 
-        <p className="mb-10 text-lg opacity-90">
-          Book your first ride now and experience smarter transport.
-        </p>
+</div>
 
-        <button
-          onClick={()=>navigate("/book")}
-          className="bg-white text-indigo-600 px-12 py-4 rounded-xl font-bold hover:scale-105 transition shadow-xl"
-        >
-          Book Ride Now
-        </button>
-      </section>
+</motion.div>
 
 
-      {/* ================================================= FOOTER */}
-      <footer className="py-10 text-center text-gray-500 dark:text-gray-400">
-        © 2026 TransportX — Smart Mobility Platform
-      </footer>
+{/* BOOKING CARD */}
+<motion.div
+initial={{opacity:0,y:40}}
+animate={{opacity:1,y:0}}
+transition={{duration:0.7}}
+className="backdrop-blur-xl bg-white/70 dark:bg-gray-900/60 border border-white/30 rounded-3xl shadow-2xl p-6 md:p-8"
+>
 
-    </div>
+<h3 className="text-lg md:text-xl font-bold mb-6">
+Quick Ride
+</h3>
+
+<div className="space-y-4">
+
+<div className="flex items-center gap-3 p-3 md:p-4 rounded-xl bg-gray-100 dark:bg-gray-800">
+<MapPin size={18}/>
+<input placeholder="Pickup location" className="bg-transparent outline-none w-full"/>
+</div>
+
+<div className="flex items-center gap-3 p-3 md:p-4 rounded-xl bg-gray-100 dark:bg-gray-800">
+<Navigation size={18}/>
+<input placeholder="Drop location" className="bg-transparent outline-none w-full"/>
+</div>
+
+<button
+onClick={()=>navigate("/book")}
+className="w-full py-3 md:py-4 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 shadow-lg hover:scale-[1.02] transition"
+>
+Find Ride
+</button>
+
+</div>
+
+</motion.div>
+
+</div>
+
+</section>
+
+
+{/* SERVICES */}
+<section className="py-16 md:py-20 px-6 max-w-6xl mx-auto">
+
+<h2 className="text-2xl md:text-3xl font-bold text-center mb-12">
+Our Services
+</h2>
+
+<div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
+
+{services.map((service,i)=>(
+
+<motion.div
+key={i}
+whileHover={{scale:1.08}}
+className="bg-white dark:bg-gray-900 p-6 md:p-8 rounded-2xl shadow-md hover:shadow-indigo-500/20 transition text-center cursor-pointer"
+>
+
+<div className="text-4xl md:text-5xl mb-3">{service.icon}</div>
+<p className="font-semibold text-base md:text-lg">{service.name}</p>
+
+</motion.div>
+
+))}
+
+</div>
+
+</section>
+
+
+{/* DESTINATIONS */}
+<section className="px-6 max-w-7xl mx-auto mb-20">
+
+<h2 className="text-2xl md:text-3xl font-bold mb-8 md:mb-10">
+Popular Destinations
+</h2>
+
+<div className="flex md:grid md:grid-cols-3 lg:grid-cols-5 gap-6 overflow-x-auto md:overflow-visible pb-4">
+
+{destinations.map((place,i)=>(
+
+<motion.div
+key={i}
+whileHover={{scale:1.05}}
+className="relative min-w-[220px] md:min-w-0 h-[200px] md:h-[220px] rounded-2xl overflow-hidden cursor-pointer group shadow-lg"
+>
+
+<img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-500"/>
+
+<div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"/>
+
+<div className="absolute bottom-4 left-4 text-white">
+<p className="text-lg font-semibold">{place.name}</p>
+<p className="text-sm opacity-80">Quick rides available</p>
+</div>
+
+</motion.div>
+
+))}
+
+</div>
+
+</section>
+
+
+{/* STATS */}
+<section className="py-20 bg-white dark:bg-gray-900">
+
+<div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10 text-center px-6">
+
+{[
+[`${count[0]}+`,"Happy Riders"],
+[`${count[1]}+`,"Drivers"],
+[`${count[2]}%`,"Safety"],
+["24/7","Support"]
+].map((item,i)=>(
+
+<motion.div key={i} whileHover={{scale:1.08}}
+className="p-6 md:p-8 rounded-2xl bg-gray-50 dark:bg-gray-800 shadow-md">
+
+<h3 className="text-3xl md:text-4xl font-bold text-indigo-600">{item[0]}</h3>
+<p className="text-gray-500 mt-2">{item[1]}</p>
+
+</motion.div>
+
+))}
+
+</div>
+
+</section>
+
+
+{/* CTA */}
+<section className="py-20 md:py-28 text-center px-6">
+
+<h2 className="text-3xl md:text-4xl font-bold mb-6">
+Start Riding Today
+</h2>
+
+<p className="text-gray-500 mb-8">
+Book your ride in seconds with TransportX
+</p>
+
+<button
+onClick={()=>navigate("/book")}
+className="px-8 md:px-12 py-4 md:py-5 bg-indigo-600 text-white rounded-xl shadow-xl hover:scale-105 transition"
+>
+Book Your Ride
+</button>
+
+</section>
+
+
+{/* FOOTER */}
+<footer className="py-8 text-center border-t dark:border-gray-800 text-gray-500 dark:text-gray-400 text-sm">
+© 2026 TransportX — Smart Mobility Platform
+</footer>
+
+</div>
+
   );
 };
 

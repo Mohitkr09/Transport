@@ -55,12 +55,11 @@ export default function Register() {
       setError("");
       setSuccess("");
 
-      const res = await api.post("/auth/register", {
-        name: form.name.trim(),
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-        role: "user"
-      });
+     const res = await api.post("/auth/register", {
+  name: form.name.trim(),
+  email: form.email.trim().toLowerCase(),
+  password: form.password
+});
 
       if (!res.data?.success)
         throw new Error(res.data?.message || "Registration failed");

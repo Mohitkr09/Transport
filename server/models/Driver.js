@@ -1,162 +1,180 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
-// ======================================================
-// DRIVER SCHEMA
-// ======================================================
-const driverSchema = new mongoose.Schema(
-  {
-    // ========================
-    // BASIC INFO
-    // ========================
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    },
+/* ======================================================
+DRIVER SCHEMA
+====================================================== */
 
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-      index: true
-    },
+const driverSchema = new mongoose.Schema({
 
-    password: {
-      type: String,
-      required: true,
-      minlength: 6,
-      select: false
-    },
+/* ================= BASIC INFO ================= */
 
-    // ========================
-    // DOCUMENTS
-    // ========================
-    documents: {
-      license: {
-        type: String,
-        default: null
-      },
-      vehicleRC: {
-        type: String,
-        default: null
-      }
-    },
+name: {
+  type: String,
+  required: [true, "Driver name required"],
+  trim: true
+},
 
-    // ========================
-    // VEHICLE DETAILS
-    // ========================
-    vehicle: {
-      type: {
-        type: String,
-        enum: ["bike", "auto", "car"],
-        required: true
-      },
-      number: {
-        type: String,
-        trim: true,
-        uppercase: true
-      },
-      model: {
-        type: String,
-        trim: true
-      },
-      color: {
-        type: String,
-        trim: true
-      }
-    },
+email: {
+  type: String,
+  required: [true, "Email required"],
+  unique: true,
+  lowercase: true,
+  trim: true,
+  index: true,
+  match: [/^\S+@\S+\.\S+$/, "Invalid email"]
+},
 
-    // ========================
-    // ADMIN APPROVAL
-    // ========================
-    isApproved: {
-      type: Boolean,
-      default: false,
-      index: true
-    },
+phone: {
+  type: String,
+  required: [true, "Phone required"],
+  trim: true,
+  match: [/^[0-9]{10,15}$/, "Invalid phone number"]
+},
 
-    // ========================
-    // DRIVER STATUS
-    // ========================
-    isOnline: {
-      type: Boolean,
-      default: false,
-      index: true
-    },
+password: {
+  type: String,
+  required: [true, "Password required"],
+  minlength: 6,
+  select: false
+},
 
-    isAvailable: {
-      type: Boolean,
-      default: false,
-      index: true
-    },
+role: {
+  type: String,
+  default: "driver"
+},
 
-    // ========================
-    // LIVE LOCATION (GeoJSON)
-    // ========================
-    location: {
-      type: {
-        type: String,
-        enum: ["Point"],
-        default: "Point"
-      },
-      coordinates: {
-        type: [Number], // [lng, lat]
-        default: undefined,
-        validate: {
-          validator: arr =>
-            !arr ||
-            (
-              arr.length === 2 &&
-              arr[0] >= -180 &&
-              arr[0] <= 180 &&
-              arr[1] >= -90 &&
-              arr[1] <= 90
-            ),
-          message: "Invalid coordinates"
-        }
-      }
-    },
+/* ================= DOCUMENTS ================= */
 
-    lastLocationUpdate: {
-      type: Date,
-      default: null
-    },
+documents: {
+  license: { type: String, default: null },
+  vehicleRC: { type: String, default: null }
+},
 
-    // ========================
-    // PERFORMANCE METRICS
-    // ========================
-    rating: {
-      type: Number,
-      default: 5,
-      min: 1,
-      max: 5
-    },
+/* ================= VEHICLE ================= */
 
-    totalRides: {
-      type: Number,
-      default: 0
-    },
-
-    cancelledRides: {
-      type: Number,
-      default: 0
-    }
+vehicle: {
+  type: {
+    type: String,
+    enum: ["bike", "auto", "car"],
+    required: true
   },
-  {
-    timestamps: true
+  number: {
+    type: String,
+    trim: true,
+    uppercase: true
+  },
+  model: String,
+  color: String
+},
+
+/* ================= ADMIN CONTROL ================= */
+
+isApproved: {
+  type: Boolean,
+  default: false,
+  index: true
+},
+
+addedByAdmin: {
+  type: Boolean,
+  default: false
+},
+
+/* ================= STATUS ================= */
+
+isOnline: {
+  type: Boolean,
+  default: false,
+  index: true
+},
+
+isAvailable: {
+  type: Boolean,
+  default: false,
+  index: true
+},
+
+currentRide: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Ride",
+  default: null,
+  index: true
+},
+
+/* ================= REALTIME ================= */
+
+socketId: {
+  type: String,
+  default: null,
+  index: true
+},
+
+lastActive: {
+  type: Date,
+  default: Date.now
+},
+
+/* ================= LOCATION ================= */
+
+location: {
+  type: {
+    type: String,
+    enum: ["Point"],
+    default: "Point"
+  },
+  coordinates: {
+    type: [Number],
+    validate: {
+      validator: function (val) {
+        return !val || (val.length === 2 &&
+          val[0] >= -180 && val[0] <= 180 &&
+          val[1] >= -90 && val[1] <= 90);
+      },
+      message: "Invalid coordinates"
+    }
   }
-);
+},
 
-// ======================================================
-// INDEXES (CRITICAL FOR SPEED)
-// ======================================================
+lastLocationUpdate: {
+  type: Date,
+  default: null
+},
 
-// geo search index
+/* ================= PERFORMANCE ================= */
+
+rating: {
+  type: Number,
+  default: 5,
+  min: 1,
+  max: 5
+},
+
+totalRides: {
+  type: Number,
+  default: 0
+},
+
+cancelledRides: {
+  type: Number,
+  default: 0
+},
+
+earnings: {
+  type: Number,
+  default: 0
+}
+
+}, {
+  timestamps: true
+});
+
+/* ======================================================
+INDEXES
+====================================================== */
+
 driverSchema.index({ location: "2dsphere" });
 
-// matching optimization index
 driverSchema.index({
   isApproved: 1,
   isOnline: 1,
@@ -164,51 +182,93 @@ driverSchema.index({
   "vehicle.type": 1
 });
 
-// performance ranking index
-driverSchema.index({
-  rating: -1,
-  totalRides: -1
+driverSchema.index({ rating: -1, totalRides: -1 });
+
+/* ======================================================
+PASSWORD HASH
+====================================================== */
+
+driverSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
+
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
-// ======================================================
-// PRE-SAVE HOOKS
-// ======================================================
-driverSchema.pre("save", function (next) {
-  // offline driver can't be available
+/* ======================================================
+STATUS CONTROL
+====================================================== */
+
+driverSchema.pre("save", function () {
   if (!this.isOnline) {
     this.isAvailable = false;
   }
-  next();
 });
 
-// ======================================================
-// INSTANCE METHODS
-// ======================================================
+/* ======================================================
+METHODS
+====================================================== */
 
-// update driver location safely
+driverSchema.methods.matchPassword = async function (password) {
+  return bcrypt.compare(password, this.password);
+};
+
+/* LOCATION */
+
 driverSchema.methods.updateLocation = function (lat, lng) {
+  if (!lat || !lng) return;
+
   this.location = {
     type: "Point",
-    coordinates: [lng, lat]
+    coordinates: [Number(lng), Number(lat)]
   };
+
   this.lastLocationUpdate = new Date();
+  this.lastActive = new Date();
 };
 
-// mark driver busy
-driverSchema.methods.markBusy = function () {
+/* STATUS */
+
+driverSchema.methods.goOnline = function () {
+  this.isOnline = true;
+  this.isAvailable = true;
+  this.lastActive = new Date();
+};
+
+driverSchema.methods.goOffline = function () {
+  this.isOnline = false;
   this.isAvailable = false;
+  this.socketId = null;
 };
 
-// mark driver free
+driverSchema.methods.markBusy = function (rideId) {
+  this.isAvailable = false;
+  this.currentRide = rideId;
+};
+
 driverSchema.methods.markAvailable = function () {
-  if (this.isOnline) {
-    this.isAvailable = true;
-  }
+  this.currentRide = null;
+  if (this.isOnline) this.isAvailable = true;
 };
 
-// ======================================================
-// STATIC METHODS (SMART MATCHING)
-// ======================================================
+/* RIDE */
+
+driverSchema.methods.completeRide = function (fare = 0) {
+  this.totalRides += 1;
+  this.earnings += Number(fare || 0);
+  this.currentRide = null;
+  this.isAvailable = true;
+};
+
+driverSchema.methods.cancelRide = function () {
+  this.cancelledRides += 1;
+  this.currentRide = null;
+  this.isAvailable = true;
+};
+
+/* ======================================================
+NEARBY DRIVER SEARCH
+====================================================== */
 
 driverSchema.statics.findNearbyDrivers = async function ({
   lat,
@@ -221,12 +281,12 @@ driverSchema.statics.findNearbyDrivers = async function ({
     isApproved: true,
     isOnline: true,
     isAvailable: true,
-    "vehicle.type": vehicleType,
+    ...(vehicleType && { "vehicle.type": vehicleType }),
     location: {
       $near: {
         $geometry: {
           type: "Point",
-          coordinates: [lng, lat]
+          coordinates: [Number(lng), Number(lat)]
         },
         $maxDistance: radius
       }
@@ -236,16 +296,14 @@ driverSchema.statics.findNearbyDrivers = async function ({
     .limit(limit);
 };
 
-// ======================================================
-// VIRTUAL FIELDS
-// ======================================================
+/* ======================================================
+VIRTUALS
+====================================================== */
 
-// driver busy status
 driverSchema.virtual("isBusy").get(function () {
   return !this.isAvailable;
 });
 
-// experience level
 driverSchema.virtual("experienceLevel").get(function () {
   if (this.totalRides > 1000) return "expert";
   if (this.totalRides > 200) return "pro";
@@ -253,9 +311,10 @@ driverSchema.virtual("experienceLevel").get(function () {
   return "new";
 });
 
-// ======================================================
-// JSON CLEANUP
-// ======================================================
+/* ======================================================
+JSON CLEANUP
+====================================================== */
+
 driverSchema.set("toJSON", {
   virtuals: true,
   transform: (_, ret) => {
@@ -265,5 +324,4 @@ driverSchema.set("toJSON", {
   }
 });
 
-// ======================================================
 module.exports = mongoose.model("Driver", driverSchema);

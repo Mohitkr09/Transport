@@ -1,8 +1,9 @@
 import axios from "axios";
 
-// ======================================================
-// ENV
-// ======================================================
+/* ======================================================
+ENV CONFIG
+====================================================== */
+
 const BASE = import.meta.env.VITE_API_URL;
 
 if (!BASE) {
@@ -11,9 +12,11 @@ if (!BASE) {
 
 const BASE_URL = BASE.replace(/\/$/, "");
 
-// ======================================================
-// AXIOS INSTANCE
-// ======================================================
+
+/* ======================================================
+AXIOS INSTANCE
+====================================================== */
+
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 20000,
@@ -22,15 +25,17 @@ const api = axios.create({
   }
 });
 
-// ======================================================
-// SAFE DUPLICATE CONTROL (ONLY SEARCH REQUESTS)
-// ======================================================
+
+/* ======================================================
+DUPLICATE REQUEST CONTROL
+====================================================== */
+
 const pendingRequests = new Map();
 
 const shouldCancel = url => {
+
   if (!url) return false;
 
-  // ❌ NEVER cancel these critical APIs
   const whitelist = [
     "/ride/",
     "/payment",
@@ -40,30 +45,35 @@ const shouldCancel = url => {
   ];
 
   return !whitelist.some(route => url.includes(route));
+
 };
 
 const generateKey = config =>
   `${config.method}-${config.url}-${JSON.stringify(config.params || {})}`;
 
 const addPending = config => {
+
   if (!config || config.method !== "get") return;
   if (!shouldCancel(config.url)) return;
 
   const key = generateKey(config);
 
-  // cancel previous duplicate
   if (pendingRequests.has(key)) {
+
     const cancel = pendingRequests.get(key);
     cancel("Canceled previous duplicate request");
+
     pendingRequests.delete(key);
   }
 
   config.cancelToken = new axios.CancelToken(cancel => {
     pendingRequests.set(key, cancel);
   });
+
 };
 
 const removePending = config => {
+
   if (!config || config.method !== "get") return;
 
   const key = generateKey(config);
@@ -71,17 +81,25 @@ const removePending = config => {
   if (pendingRequests.has(key)) {
     pendingRequests.delete(key);
   }
+
 };
 
-// ======================================================
-// REQUEST INTERCEPTOR
-// ======================================================
+
+/* ======================================================
+REQUEST INTERCEPTOR
+====================================================== */
+
 api.interceptors.request.use(
+
   config => {
+
     addPending(config);
 
     const token = localStorage.getItem("token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
 
     console.log(
       `%cAPI → ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`,
@@ -89,15 +107,22 @@ api.interceptors.request.use(
     );
 
     return config;
+
   },
+
   error => Promise.reject(error)
+
 );
 
-// ======================================================
-// RESPONSE INTERCEPTOR
-// ======================================================
+
+/* ======================================================
+RESPONSE INTERCEPTOR
+====================================================== */
+
 api.interceptors.response.use(
+
   response => {
+
     removePending(response.config);
 
     console.log(
@@ -106,16 +131,19 @@ api.interceptors.response.use(
     );
 
     return response;
+
   },
 
   async error => {
+
     const original = error?.config;
 
     if (original) removePending(original);
 
-    // ==================================================
-    // IGNORE CANCELLED REQUESTS
-    // ==================================================
+    /* ==============================================
+    IGNORE CANCELLED REQUESTS
+    ============================================== */
+
     if (axios.isCancel(error) || error.message?.includes("Canceled")) {
       console.log("🟡 Request cancelled:", error.message);
       return Promise.reject(error);
@@ -127,11 +155,18 @@ api.interceptors.response.use(
       error?.response?.data || error.message
     );
 
-    // ==================================================
-    // AUTH EXPIRED
-    // ==================================================
+
+    /* ==============================================
+    AUTH EXPIRED
+    ============================================== */
+
     if (error.response?.status === 401) {
+
+      console.warn("🔐 Token expired or unauthorized");
+
       localStorage.removeItem("token");
+      localStorage.removeItem("role");
+      localStorage.removeItem("user");
 
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
@@ -140,53 +175,82 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // ==================================================
-    // NETWORK RETRY
-    // ==================================================
+
+    /* ==============================================
+    NETWORK RETRY
+    ============================================== */
+
     if (!error.response && original && !original._retryNetwork) {
+
       original._retryNetwork = true;
 
       console.warn("🌐 Network issue → retrying once...");
+
       await new Promise(r => setTimeout(r, 1200));
 
       return api(original);
     }
 
-    // ==================================================
-    // RENDER WAKEUP FIX (Render sleep issue)
-    // ==================================================
+
+    /* ==============================================
+    RENDER WAKEUP FIX (Render sleep)
+    ============================================== */
+
     if (error.response?.status === 404 && original && !original._retryWake) {
+
       original._retryWake = true;
 
       try {
-        await fetch(`${BASE_URL}/api/ride/health`);
+        await fetch(`${BASE_URL}/api/health`);
       } catch {}
 
       await new Promise(r => setTimeout(r, 1200));
+
       return api(original);
     }
 
-    // ==================================================
-    // TIMEOUT RETRY
-    // ==================================================
+
+    /* ==============================================
+    TIMEOUT RETRY
+    ============================================== */
+
     if (error.code === "ECONNABORTED" && original && !original._retryTimeout) {
+
       original._retryTimeout = true;
 
       console.warn("⏱ Timeout → retrying once...");
+
       return api(original);
     }
 
     return Promise.reject(error);
+
   }
+
 );
+
+
+/* ======================================================
+AUTH HELPERS
+====================================================== */
 
 export const setToken = token => {
   localStorage.setItem("token", token);
 };
 
+export const setUser = user => {
+  localStorage.setItem("user", JSON.stringify(user));
+  localStorage.setItem("role", user.role);
+};
+
 export const logout = () => {
+
   localStorage.removeItem("token");
+  localStorage.removeItem("role");
+  localStorage.removeItem("user");
+
   window.location.href = "/login";
+
 };
 
 export default api;

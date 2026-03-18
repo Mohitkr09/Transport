@@ -1,66 +1,90 @@
 const express = require("express");
 
-const {
-  createDriver,
-  getPendingDrivers,
-  getApprovedDrivers,
-  approveDriver,
-  rejectDriver,
-  getDriverGrowth
-} = require("../controllers/adminController");
-
-const { protect, adminOnly } = require("../middleware/authMiddleware");
+const adminController = require("../controllers/adminController");
+const { protect } = require("../middleware/authMiddleware");
+const { authorize } = require("../middleware/roleMiddleware");
 
 const router = express.Router();
 
+/* =================================================
+GLOBAL ADMIN PROTECTION
+================================================= */
 
-// =======================================================
-// 🛡️ APPLY GLOBAL ADMIN PROTECTION
-// All routes below require:
-// 1️⃣ Valid JWT
-// 2️⃣ Admin role
-// =======================================================
 router.use(protect);
-router.use(adminOnly);
+router.use(authorize("admin")); // ✅ better than adminOnly
 
+/* =================================================
+DEBUG LOGGER
+================================================= */
 
-// =======================================================
-// ➕ CREATE NEW DRIVER (Admin Only)
-// POST /api/admin/drivers
-// =======================================================
-router.post("/drivers", createDriver);
+router.use((req, res, next) => {
+  console.log(`🛠 ADMIN API → ${req.method} ${req.originalUrl} | user: ${req.user?.role}`);
+  next();
+});
 
+/* =================================================
+DRIVER MANAGEMENT
+================================================= */
 
-// =======================================================
-// 📌 GET PENDING DRIVERS
-// GET /api/admin/drivers/pending
-// =======================================================
-router.get("/drivers/pending", getPendingDrivers);
+const driverRouter = express.Router();
 
+/* CREATE DRIVER */
+driverRouter.post("/", adminController.createDriver);
 
-// =======================================================
-// 📌 GET APPROVED DRIVERS
-// GET /api/admin/drivers/approved
-// =======================================================
-router.get("/drivers/approved", getApprovedDrivers);
+/* GET ALL DRIVERS */
+driverRouter.get("/", adminController.getAllDrivers);
 
+/* GET PENDING DRIVERS */
+driverRouter.get("/pending", adminController.getPendingDrivers);
 
-// =======================================================
-// 📊 DRIVER GROWTH ANALYTICS
-// GET /api/admin/analytics/driver-growth
-// =======================================================
-router.get("/analytics/driver-growth", getDriverGrowth);
+/* GET APPROVED DRIVERS */
+driverRouter.get("/approved", adminController.getApprovedDrivers);
 
+/* APPROVE DRIVER */
+driverRouter.put("/:id/approve", adminController.approveDriver);
 
-// =======================================================
-// ✅ APPROVE DRIVER
-// PUT /api/admin/drivers/:id/approve
-// =======================================================
-router.put("/drivers/:id/approve", approveDriver);
+/* DELETE / REJECT DRIVER */
+driverRouter.delete("/:id", adminController.rejectDriver);
 
+/* MOUNT DRIVER ROUTES */
+router.use("/drivers", driverRouter);
 
+/* =================================================
+ANALYTICS
+================================================= */
 
-router.delete("/drivers/:id", rejectDriver);
+const analyticsRouter = express.Router();
 
+/* DRIVER GROWTH */
+analyticsRouter.get("/driver-growth", adminController.getDriverGrowth);
+
+/* FUTURE FEATURES */
+// analyticsRouter.get("/revenue", adminController.getRevenue);
+// analyticsRouter.get("/rides", adminController.getAllRides);
+
+router.use("/analytics", analyticsRouter);
+
+/* =================================================
+ADMIN HEALTH CHECK
+================================================= */
+
+router.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Admin API working",
+    role: req.user?.role
+  });
+});
+
+/* =================================================
+404 FALLBACK
+================================================= */
+
+router.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Admin route not found → ${req.method} ${req.originalUrl}`
+  });
+});
 
 module.exports = router;

@@ -1,50 +1,47 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, Suspense, lazy } from "react";
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
-
-/* ================= PAGES ================= */
-import Home from "./pages/Home";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import BookRide from "./pages/BookRide";
-import DriverDashboard from "./pages/DriverDashboard";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Payment from "./pages/Payment";
-import RideTracking from "./pages/RideTracking";
-import Notifications from "./pages/Notifications";
-
-/* ================= ADMIN ================= */
-import AdminLayout from "./pages/admin/AdminLayout";
-import Dashboard from "./pages/admin/Dashboard";
-import Drivers from "./pages/admin/Drivers";
-import Analytics from "./pages/admin/Analytics";
-import Settings from "./pages/admin/Settings";
-import SupportMessages from "./pages/admin/SupportMessages";
-
-/* ================= AUTH ================= */
 import ProtectedRoute from "./components/ProtectedRoute";
 
+/* ================= LAZY PAGES ================= */
+
+const Home = lazy(() => import("./pages/Home"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const BookRide = lazy(() => import("./pages/BookRide"));
+const DriverDashboard = lazy(() => import("./pages/DriverDashboard"));
+const DriverRequests = lazy(() => import("./pages/DriverRequests")); // ✅ NEW
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Payment = lazy(() => import("./pages/Payment"));
+const RideTracking = lazy(() => import("./pages/RideTracking"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+
+/* ADMIN */
+
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
+const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
+const Drivers = lazy(() => import("./pages/admin/Drivers"));
+const Analytics = lazy(() => import("./pages/admin/Analytics"));
+const Settings = lazy(() => import("./pages/admin/Settings"));
+const SupportMessages = lazy(() => import("./pages/admin/SupportMessages"));
 
 /* ======================================================
 SCROLL RESTORE
 ====================================================== */
+
 function ScrollToTop() {
   const { pathname } = useLocation();
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-  }, [pathname]);
-
+  useEffect(() => window.scrollTo(0, 0), [pathname]);
   return null;
 }
 
-
 /* ======================================================
-BACKEND WAKEUP (Render Cold Start Fix)
+BACKEND WAKEUP
 ====================================================== */
+
 function BackendWakeup() {
   const called = useRef(false);
 
@@ -61,227 +58,221 @@ function BackendWakeup() {
   return null;
 }
 
+/* ======================================================
+ROLE REDIRECT
+====================================================== */
+
+function RoleRedirect() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("role");
+
+    if (!token || !role) return;
+
+    if (role === "driver") {
+      if (!pathname.startsWith("/driver")) {
+        window.location.replace("/driver/dashboard");
+      }
+    }
+
+    else if (role === "admin") {
+      if (!pathname.startsWith("/admin")) {
+        window.location.replace("/admin/dashboard");
+      }
+    }
+
+    else if (role === "user") {
+      if (pathname.startsWith("/driver") || pathname.startsWith("/admin")) {
+        window.location.replace("/");
+      }
+    }
+
+  }, [pathname]);
+
+  return null;
+}
 
 /* ======================================================
-LAYOUT WRAPPER
+PAGE TITLE
 ====================================================== */
+
+function TitleManager() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const map = {
+      "/": "Home",
+      "/book": "Book Ride",
+      "/driver/dashboard": "Driver Dashboard",
+      "/driver/requests": "Ride Requests", // ✅ NEW
+      "/admin/dashboard": "Admin Panel",
+      "/notifications": "Notifications"
+    };
+
+    document.title = (map[pathname] || "TransportX") + " • TransportX";
+  }, [pathname]);
+
+  return null;
+}
+
+/* ======================================================
+LOADER
+====================================================== */
+
+function PageLoader() {
+  return (
+    <div className="h-screen flex items-center justify-center">
+      <div className="h-14 w-14 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+/* ======================================================
+LAYOUT
+====================================================== */
+
 function Layout({ children }) {
   const { pathname } = useLocation();
+  const role = localStorage.getItem("role");
+
+  const isAdmin = role === "admin";
 
   const hideLayout =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
-    pathname.startsWith("/payment");
+    pathname.startsWith("/payment") ||
+    pathname.startsWith("/admin");
 
   return (
     <>
-      {!hideLayout && <Navbar />}
+      {/* ✅ SHOW NAVBAR FOR DRIVER NOW */}
+      {!hideLayout && !isAdmin && <Navbar />}
 
       <div className={!hideLayout ? "pt-16 min-h-screen flex flex-col" : ""}>
         <div className="flex-grow">{children}</div>
-        {!hideLayout && <Footer />}
+        {!hideLayout && !isAdmin && <Footer />}
       </div>
     </>
   );
 }
 
-
 /* ======================================================
-PAYMENT SUCCESS
+404
 ====================================================== */
-function PaymentSuccess() {
-  const { pathname } = useLocation();
-  const rideId = pathname.split("/").pop();
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      window.location.href = `/track/${rideId}`;
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [rideId]);
-
-  return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100">
-      <div className="bg-white p-10 rounded-3xl shadow-2xl text-center">
-        <h1 className="text-4xl font-bold text-green-600 mb-2">
-          Payment Successful 🎉
-        </h1>
-        <p className="text-gray-500">
-          Redirecting to live ride tracking...
-        </p>
-      </div>
-    </div>
-  );
-}
-
-
-/* ======================================================
-PAYMENT FAILED
-====================================================== */
-function PaymentFailed() {
-  return (
-    <div className="h-screen flex items-center justify-center">
-      <div className="bg-white p-10 rounded-3xl shadow-xl text-center">
-        <h1 className="text-4xl font-bold text-red-500 mb-3">
-          Payment Failed
-        </h1>
-
-        <p className="text-gray-500 mb-6">
-          Something went wrong while processing payment.
-        </p>
-
-        <button
-          onClick={() => window.location.replace("/book")}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-xl"
-        >
-          Try Again
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
-/* ======================================================
-404 FALLBACK
-====================================================== */
 function NotFound() {
   return <Navigate to="/" replace />;
 }
 
-
 /* ======================================================
 APP ROOT
 ====================================================== */
-function App() {
+
+export default function App() {
+
   return (
     <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
 
       <ScrollToTop />
       <BackendWakeup />
+      <TitleManager />
+      <RoleRedirect />
 
       <Layout>
-        <Routes>
 
-          {/* ======================================================
-          PUBLIC ROUTES
-          ====================================================== */}
-          <Route path="/" element={<Home />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+        <Suspense fallback={<PageLoader />}>
 
+          <Routes>
 
-          {/* ======================================================
-          USER ROUTES
-          ====================================================== */}
+            {/* PUBLIC */}
 
-          <Route
-            path="/book"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <BookRide />
-              </ProtectedRoute>
-            }
-          />
+            <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-          <Route
-            path="/notifications"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <Notifications />
-              </ProtectedRoute>
-            }
-          />
+            {/* USER */}
 
-          <Route
-            path="/track/:rideId"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <RideTracking />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/book"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <BookRide />
+                </ProtectedRoute>
+              }
+            />
 
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <Notifications />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* ======================================================
-          PAYMENT FLOW
-          ====================================================== */}
+            <Route
+              path="/track/:rideId"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <RideTracking />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/payment/:rideId"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <Payment />
-              </ProtectedRoute>
-            }
-          />
+            {/* DRIVER */}
 
-          <Route
-            path="/payment-success/:rideId"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <PaymentSuccess />
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/driver/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["driver"]}>
+                  <DriverDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/payment-failed/:rideId"
-            element={
-              <ProtectedRoute allowedRoles={["user"]}>
-                <PaymentFailed />
-              </ProtectedRoute>
-            }
-          />
+            {/* ✅ NEW DRIVER REQUEST PAGE */}
+            <Route
+              path="/driver/requests"
+              element={
+                <ProtectedRoute allowedRoles={["driver"]}>
+                  <DriverRequests />
+                </ProtectedRoute>
+              }
+            />
 
+            {/* ADMIN */}
 
-          {/* ======================================================
-          DRIVER ROUTES
-          ====================================================== */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="drivers" element={<Drivers />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="support" element={<SupportMessages />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
 
-          <Route
-            path="/driver"
-            element={
-              <ProtectedRoute allowedRoles={["driver"]}>
-                <DriverDashboard />
-              </ProtectedRoute>
-            }
-          />
+            {/* FALLBACK */}
 
+            <Route path="*" element={<NotFound />} />
 
-          {/* ======================================================
-          ADMIN ROUTES
-          ====================================================== */}
+          </Routes>
 
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="drivers" element={<Drivers />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="support" element={<SupportMessages />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
+        </Suspense>
 
-
-          {/* ======================================================
-          FALLBACK
-          ====================================================== */}
-          <Route path="*" element={<NotFound />} />
-
-        </Routes>
       </Layout>
+
     </div>
   );
 }
-
-export default App;

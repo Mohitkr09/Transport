@@ -1,38 +1,79 @@
 // middleware/roleMiddleware.js
 
 exports.authorize = (...allowedRoles) => {
+
   return (req, res, next) => {
+
     try {
-      // must run AFTER protect middleware
+
+      /* =========================================
+      AUTH CHECK
+      ========================================= */
+
       if (!req.user) {
         return res.status(401).json({
           success: false,
-          message: "Unauthorized — user not authenticated"
+          message: "Unauthorized — please login"
         });
       }
 
-      if (!req.user.role) {
+      /* =========================================
+      ROLE NORMALIZATION
+      ========================================= */
+
+      const userRole = req.user.role?.toLowerCase();
+
+      if (!userRole) {
         return res.status(403).json({
           success: false,
           message: "User role missing"
         });
       }
 
-      if (!allowedRoles.includes(req.user.role)) {
+      /* =========================================
+      VALIDATE INPUT
+      ========================================= */
+
+      if (!allowedRoles.length) {
+        console.warn("⚠ authorize() called without roles");
+        return next();
+      }
+
+      const normalizedRoles = allowedRoles.map(r => r.toLowerCase());
+
+      /* =========================================
+      ACCESS CHECK
+      ========================================= */
+
+      if (!normalizedRoles.includes(userRole)) {
+
+        console.warn(
+          `🚫 Access denied → role: ${userRole}, allowed: ${normalizedRoles.join(", ")}`
+        );
+
         return res.status(403).json({
           success: false,
-          message: `Access denied for role: ${req.user.role}`
+          message: `Access denied: ${userRole} not allowed`
         });
       }
 
+      /* =========================================
+      ACCESS GRANTED
+      ========================================= */
+
       next();
+
     } catch (err) {
+
       console.error("ROLE MIDDLEWARE ERROR:", err);
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Role authorization failed"
       });
+
     }
+
   };
+
 };

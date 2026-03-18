@@ -2,251 +2,287 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ThemeToggle from "./ThemeToggle";
 import { Bell, Menu, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const Navbar = () => {
+
   const navigate = useNavigate();
   const location = useLocation();
   const dropdownRef = useRef(null);
+
+  /* ================= AUTH ================= */
+
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role") || "";
+  const user = JSON.parse(localStorage.getItem("user") || "null");
+
+  const isDriver = role === "driver";
+  const isUser = role === "user";
+  const isAdmin = role === "admin";
+
+  /* ================= STATE ================= */
 
   const [openProfile, setOpenProfile] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
+  const [visible, setVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
 
-  const token = localStorage.getItem("token");
-  const user = JSON.parse(localStorage.getItem("user"));
+  /* ================= NOTIFICATIONS ================= */
 
-  /* ======================================================
-  LOAD NOTIFICATIONS COUNT
-  ====================================================== */
   useEffect(() => {
-    if (!token) return;
+    if (!token || !isUser) return;
 
     const stored = localStorage.getItem("notifications");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      const unread = parsed.filter(n => !n.read).length;
+      const unread = JSON.parse(stored).filter(n => !n.read).length;
       setNotifCount(unread);
     }
-  }, [token]);
+  }, [token, isUser]);
 
-  /* ======================================================
-  SCROLL EFFECT
-  ====================================================== */
+  /* ================= SCROLL ================= */
+
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    const handleScroll = () => {
+      const current = window.scrollY;
 
-  /* ======================================================
-  CLOSE DROPDOWN ON OUTSIDE CLICK
-  ====================================================== */
+      setScrolled(current > 20);
+      setVisible(!(current > lastScrollY && current > 100));
+      setLastScrollY(current);
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [lastScrollY]);
+
+  /* ================= CLOSE DROPDOWN ================= */
+
   useEffect(() => {
     const close = e => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setOpenProfile(false);
+      }
     };
+
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  /* ======================================================
-  LOGOUT
-  ====================================================== */
+  /* ================= LOGOUT ================= */
+
   const handleLogout = () => {
     localStorage.clear();
-    navigate("/");
+    window.location.href = "/";
   };
 
-  /* ======================================================
-  NAV ACTIVE CHECK
-  ====================================================== */
+  /* ================= NAV ================= */
+
+  const go = path => {
+    navigate(path);
+    setMobileOpen(false);
+  };
+
   const isActive = path => location.pathname === path;
 
+  /* ================= UI ================= */
+
   return (
-    <nav
-      className={`
-        fixed top-0 w-full z-50 transition-all duration-300 backdrop-blur-xl border-b
-        ${
-          scrolled
-            ? "bg-gradient-to-r from-blue-700/80 via-indigo-900/80 to-blue-900/80 shadow-lg border-white/10"
-            : "bg-gradient-to-r from-blue-700/60 via-indigo-900/60 to-blue-900/60 border-transparent"
-        }
+    <motion.nav
+      initial={{ y: 0 }}
+      animate={{ y: visible ? 0 : -80 }}
+      className={`fixed top-0 w-full z-50 transition-all duration-300 backdrop-blur-xl border-b
+      ${scrolled
+        ? "bg-white/80 dark:bg-gray-900/80 shadow-lg"
+        : "bg-white/60 dark:bg-gray-900/60"}
       `}
     >
-      <div className="flex items-center h-16 px-6 md:px-10">
+
+      <div className="max-w-7xl mx-auto flex items-center h-16 px-4 md:px-6">
 
         {/* LOGO */}
         <div
-          onClick={() => navigate("/")}
-          className="text-2xl font-extrabold bg-gradient-to-r from-cyan-300 to-indigo-400 bg-clip-text text-transparent cursor-pointer select-none"
+          onClick={() => go("/")}
+          className="text-xl md:text-2xl font-extrabold cursor-pointer
+          bg-gradient-to-r from-indigo-500 via-cyan-500 to-blue-500
+          bg-clip-text text-transparent"
         >
           TransportX
         </div>
 
-        {/* DESKTOP LINKS */}
+        {/* ================= CENTER NAV ================= */}
+
         <div className="hidden md:flex flex-1 justify-center gap-10">
 
-          <NavItem label="Home" active={isActive("/")} onClick={() => navigate("/")} />
-          <NavItem label="About" active={isActive("/about")} onClick={() => navigate("/about")} />
-          <NavItem label="Contact" active={isActive("/contact")} onClick={() => navigate("/contact")} />
-
-          {token && user?.role === "user" && (
-            <NavItem label="Book Ride" active={isActive("/book")} onClick={() => navigate("/book")} />
+          {/* 🚗 DRIVER ONLY */}
+          {isDriver && (
+            <>
+              <NavItem label="Dashboard" active={isActive("/driver/dashboard")} go={() => go("/driver/dashboard")} />
+              <NavItem label="Ride Requests" active={isActive("/driver/requests")} go={() => go("/driver/requests")} />
+            </>
           )}
+
+          {/* 👤 USER ONLY */}
+          {!isDriver && (
+            <>
+              <NavItem label="Home" active={isActive("/")} go={() => go("/")} />
+              <NavItem label="About" active={isActive("/about")} go={() => go("/about")} />
+              <NavItem label="Contact" active={isActive("/contact")} go={() => go("/contact")} />
+
+              {isUser && (
+                <NavItem label="Book Ride" active={isActive("/book")} go={() => go("/book")} />
+              )}
+            </>
+          )}
+
         </div>
 
-        {/* RIGHT SIDE */}
-        <div className="flex items-center gap-4 ml-auto">
+        {/* ================= RIGHT ================= */}
+
+        <div className="flex items-center gap-3 ml-auto">
 
           <ThemeToggle />
 
-          {/* NOTIFICATIONS */}
-          {token && (
+          {/* 🔔 USER ONLY */}
+          {token && isUser && (
             <div
-              onClick={() => navigate("/notifications")}
-              className="relative cursor-pointer group"
+              onClick={() => go("/notifications")}
+              className="relative p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
             >
-              <Bell className="text-white hover:scale-110 transition" size={22}/>
-
+              <Bell size={20} />
               {notifCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
                   {notifCount}
                 </span>
               )}
-
-              <div className="absolute hidden group-hover:block right-0 mt-3 w-56 bg-white dark:bg-gray-800 shadow-xl rounded-xl p-3">
-                <p className="font-semibold text-sm mb-2">Notifications</p>
-                <p className="text-sm text-gray-500">
-                  {notifCount > 0
-                    ? `${notifCount} unread alerts`
-                    : "No new alerts"}
-                </p>
-              </div>
             </div>
           )}
 
-          {/* AUTH BUTTONS */}
-          {!token ? (
-            <>
-              <button
-                onClick={() => navigate("/login")}
-                className="font-medium text-white hover:text-cyan-300"
-              >
-                Login
-              </button>
+          {/* 🚗 DRIVER STATUS BADGE */}
+          {isDriver && (
+            <span className="hidden md:inline text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">
+              Driver Mode
+            </span>
+          )}
 
+          {/* AUTH */}
+          {!token ? (
+            <div className="hidden md:flex gap-3">
+              <button onClick={() => go("/login")}>Login</button>
               <button
-                onClick={() => navigate("/register")}
-                className="px-5 py-2 rounded-lg text-white font-semibold bg-gradient-to-r from-cyan-500 to-indigo-500 hover:scale-105 transition shadow-md"
+                onClick={() => go("/register")}
+                className="px-5 py-2 rounded-lg text-white bg-indigo-600"
               >
                 Register
               </button>
-            </>
+            </div>
           ) : (
-            <div ref={dropdownRef} className="relative">
+            <div ref={dropdownRef} className="relative hidden md:block">
 
-              {/* AVATAR */}
               <button
                 onClick={() => setOpenProfile(!openProfile)}
-                className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-indigo-500 text-white font-bold flex items-center justify-center shadow-lg hover:scale-110 transition"
+                className="w-10 h-10 rounded-full bg-indigo-600 text-white"
               >
-                {user?.name?.charAt(0).toUpperCase()}
+                {user?.name?.charAt(0)?.toUpperCase() || "U"}
               </button>
 
-              {/* PROFILE DROPDOWN */}
-              {openProfile && (
-                <div className="absolute right-0 mt-4 w-56 backdrop-blur-xl bg-white/90 dark:bg-gray-800/90 border border-white/20 rounded-xl shadow-xl p-3 animate-fadeIn">
-
-                  <p className="font-semibold">{user.name}</p>
-                  <p className="text-sm text-gray-500 capitalize">{user.role}</p>
-
-                  <hr className="my-2"/>
-
-                  {user.role === "admin" && (
-                    <DropdownItem label="Admin Panel" onClick={() => navigate("/admin")} />
-                  )}
-
-                  {user.role === "driver" && (
-                    <DropdownItem label="Driver Dashboard" onClick={() => navigate("/driver")} />
-                  )}
-
-                  {user.role === "user" && (
-                    <DropdownItem label="Book Ride" onClick={() => navigate("/book")} />
-                  )}
-
-                  <DropdownItem label="Notifications" onClick={() => navigate("/notifications")} />
-                  <DropdownItem label="Contact Support" onClick={() => navigate("/contact")} />
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-3 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-gray-700 rounded-lg mt-1"
+              <AnimatePresence>
+                {openProfile && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute right-0 mt-4 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl p-4"
                   >
-                    Logout
-                  </button>
-                </div>
-              )}
+                    <p className="font-semibold">{user?.name}</p>
+                    <p className="text-sm text-gray-500 capitalize">{role}</p>
+
+                    <hr className="my-2" />
+
+                    {isDriver && (
+                      <button onClick={() => go("/driver/dashboard")} className="w-full text-left hover:text-indigo-500">
+                        Dashboard
+                      </button>
+                    )}
+
+                    {isUser && (
+                      <button onClick={() => go("/book")} className="w-full text-left hover:text-indigo-500">
+                        Book Ride
+                      </button>
+                    )}
+
+                    <button onClick={handleLogout} className="w-full text-left text-red-500 mt-2">
+                      Logout
+                    </button>
+
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
             </div>
           )}
 
-          {/* MOBILE TOGGLE */}
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden text-white">
-            {mobileOpen ? <X/> : <Menu/>}
+          {/* MOBILE MENU */}
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden">
+            {mobileOpen ? <X /> : <Menu />}
           </button>
+
         </div>
+
       </div>
 
-      {/* MOBILE MENU */}
-      {mobileOpen && (
-        <div className="md:hidden bg-blue-950/95 backdrop-blur-xl p-4 space-y-4 text-white">
+      {/* ================= MOBILE ================= */}
 
-          <MobileItem label="Home" go={() => navigate("/")} />
-          <MobileItem label="About" go={() => navigate("/about")} />
-          <MobileItem label="Contact" go={() => navigate("/contact")} />
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div className="md:hidden bg-white dark:bg-gray-900 px-6 py-4 space-y-4">
 
-          {token && user?.role === "user" && (
-            <MobileItem label="Book Ride" go={() => navigate("/book")} />
-          )}
+            {isDriver && (
+              <>
+                <MobileItem label="Dashboard" go={() => go("/driver/dashboard")} />
+                <MobileItem label="Ride Requests" go={() => go("/driver/requests")} />
+              </>
+            )}
 
-          {token && (
-            <MobileItem label="Notifications" go={() => navigate("/notifications")} />
-          )}
-        </div>
-      )}
-    </nav>
+            {!isDriver && (
+              <>
+                <MobileItem label="Home" go={() => go("/")} />
+                <MobileItem label="About" go={() => go("/about")} />
+                <MobileItem label="Contact" go={() => go("/contact")} />
+                {isUser && <MobileItem label="Book Ride" go={() => go("/book")} />}
+              </>
+            )}
+
+            {!token ? (
+              <>
+                <MobileItem label="Login" go={() => go("/login")} />
+                <MobileItem label="Register" go={() => go("/register")} />
+              </>
+            ) : (
+              <MobileItem label="Logout" go={handleLogout} />
+            )}
+
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    </motion.nav>
   );
 };
 
+/* ================= COMPONENTS ================= */
 
-/* ================= NAV LINK ================= */
-const NavItem = ({ label, onClick, active }) => (
+const NavItem = ({ label, go, active }) => (
   <button
-    onClick={onClick}
-    className={`relative font-medium transition group
-      ${active ? "text-cyan-300" : "text-white hover:text-cyan-300"}`}
+    onClick={go}
+    className={`relative ${active ? "text-indigo-500 font-semibold" : "hover:text-indigo-400"}`}
   >
     {label}
-    <span className={`absolute left-0 -bottom-1 h-[2px] bg-cyan-400 transition-all
-      ${active ? "w-full" : "w-0 group-hover:w-full"}`}/>
   </button>
 );
 
-
-/* ================= MOBILE ITEM ================= */
 const MobileItem = ({ label, go }) => (
-  <button onClick={go} className="block w-full text-left font-medium">
-    {label}
-  </button>
-);
-
-
-/* ================= DROPDOWN ITEM ================= */
-const DropdownItem = ({ label, onClick }) => (
-  <button
-    onClick={onClick}
-    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-  >
+  <button onClick={go} className="block w-full text-left">
     {label}
   </button>
 );

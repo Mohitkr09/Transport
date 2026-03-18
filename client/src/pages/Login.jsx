@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
-// ======================================================
-// API CONFIG (AUTO ENV SUPPORT)
-// ======================================================
+/* ======================================================
+API CONFIG
+====================================================== */
+
 const BASE =
   import.meta.env.VITE_API_URL ||
   "https://transport-mpb5.onrender.com";
@@ -13,12 +14,13 @@ const API = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
 const api = axios.create({
   baseURL: API,
-  timeout: 15000
+  timeout: 15000,
 });
 
-// ======================================================
-// COMPONENT
-// ======================================================
+/* ======================================================
+LOGIN COMPONENT
+====================================================== */
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,31 +28,54 @@ export default function Login() {
   const [error, setError] = useState("");
 
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // ======================================================
-  // AUTO REDIRECT IF ALREADY LOGGED IN
-  // ======================================================
+  /* ======================================================
+  ✅ SAFE ROLE FROM URL (NO DEFAULT)
+  ====================================================== */
+
+  const params = new URLSearchParams(location.search);
+  const rawRole = params.get("role");
+  const safeRole = rawRole ? rawRole.toLowerCase() : null;
+
+  /* ======================================================
+  AUTO REDIRECT (FIXED)
+  ====================================================== */
+
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const user = localStorage.getItem("user");
+    try {
+      const token = localStorage.getItem("token");
+      const storedUser = JSON.parse(localStorage.getItem("user") || "null");
 
-    if (token && user) {
-      const role = JSON.parse(user).role;
+      if (!token || !storedUser?.role) return;
 
-      if (role === "admin") navigate("/admin");
-      else if (role === "driver") navigate("/driver");
+      const role = storedUser.role.toLowerCase();
+
+      console.log("🔁 Auto redirect as:", role);
+
+      if (role === "admin") navigate("/admin/dashboard");
+      else if (role === "driver") navigate("/driver/dashboard");
       else navigate("/book");
-    }
-  }, []);
 
-  // ======================================================
-  // LOGIN HANDLER
-  // ======================================================
+    } catch (err) {
+      console.error("Auto redirect error:", err);
+    }
+  }, [navigate]);
+
+  /* ======================================================
+  LOGIN HANDLER
+  ====================================================== */
+
   const handleLogin = async () => {
     if (loading) return;
 
-    if (!email || !password) {
-      setError("Please enter email and password");
+    if (!safeRole) {
+      setError("Invalid URL. Use /login?role=driver");
+      return;
+    }
+
+    if (!email.trim() || !password.trim()) {
+      setError("Enter email and password");
       return;
     }
 
@@ -58,54 +83,104 @@ export default function Login() {
       setLoading(true);
       setError("");
 
-      const res = await api.post("/auth/login", {
-        email,
-        password
-      });
+      const payload = {
+        email: email.trim().toLowerCase(),
+        password: password.trim(),
+        role: safeRole,
+      };
 
-      if (!res.data?.token)
+      console.log("📤 Sending payload:", payload);
+
+      const res = await api.post("/auth/login", payload);
+
+      console.log("✅ LOGIN RESPONSE:", res.data);
+
+      /* ================= VALIDATION ================= */
+
+      if (!res?.data?.token || !res?.data?.role) {
         throw new Error("Invalid server response");
+      }
 
-      // SAVE AUTH
+      const finalRole = res.data.role.toLowerCase();
+
+      const userData = res.data.user || {
+        name: "Admin",
+        email,
+        role: finalRole,
+      };
+
+      console.log("🎯 FINAL ROLE:", finalRole);
+
+      /* ================= SAVE SESSION ================= */
+
+      localStorage.clear();
+
       localStorage.setItem("token", res.data.token);
-      localStorage.setItem("user", JSON.stringify(res.data.user));
+      localStorage.setItem("user", JSON.stringify(userData));
+      localStorage.setItem("role", finalRole);
 
-      const role = res.data.user?.role;
+      console.log("💾 Stored role:", finalRole);
 
-      // REDIRECT
-      if (role === "admin") navigate("/admin");
-      else if (role === "driver") navigate("/driver");
+      /* ================= REDIRECT ================= */
+
+      if (finalRole === "admin") navigate("/admin/dashboard");
+      else if (finalRole === "driver") navigate("/driver/dashboard");
       else navigate("/book");
 
     } catch (err) {
-      if (err.code === "ECONNABORTED")
-        setError("Server timeout. Try again.");
+      console.error("❌ Login error:", err);
 
-      else if (!err.response)
-        setError("Server unreachable. Wait 30s and retry.");
+      if (err.response) {
+        const status = err.response.status;
+        const message = err.response?.data?.message;
 
-      else
-        setError(err.response.data?.message || "Login failed");
+        if (status === 400) {
+          setError(message || "Invalid request (check role)");
+        } else if (status === 401) {
+          setError("Invalid email or password");
+        } else if (status === 403) {
+          setError("Driver not approved");
+        } else {
+          setError(message || "Login failed");
+        }
+      } else if (err.code === "ECONNABORTED") {
+        setError("Server timeout");
+      } else {
+        setError("Server unreachable");
+      }
 
     } finally {
       setLoading(false);
     }
   };
 
-  // ======================================================
-  // UI
-  // ======================================================
+  /* ======================================================
+  ENTER KEY
+  ====================================================== */
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") handleLogin();
+  };
+
+  /* ======================================================
+  UI
+  ====================================================== */
+
   return (
     <div className="min-h-screen flex items-center justify-center
-                    bg-gradient-to-br from-indigo-500 to-purple-600
-                    dark:from-gray-900 dark:to-gray-800">
+    bg-gradient-to-br from-indigo-500 to-purple-600
+    dark:from-gray-900 dark:to-gray-800">
 
       <div className="bg-white dark:bg-gray-900
-                      p-8 rounded-2xl shadow-xl w-[350px]
-                      text-gray-800 dark:text-gray-100">
+      p-8 rounded-2xl shadow-xl w-[350px]
+      text-gray-800 dark:text-gray-100">
 
         <h2 className="text-2xl font-bold mb-6 text-center">
-          Welcome Back
+          {safeRole === "driver"
+            ? "Driver Login"
+            : safeRole === "admin"
+            ? "Admin Login"
+            : "Login"}
         </h2>
 
         <div className="space-y-4">
@@ -114,38 +189,35 @@ export default function Login() {
             type="email"
             placeholder="Email"
             value={email}
-            onChange={e => setEmail(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={handleKeyPress}
             className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            dark:bg-gray-800 dark:border-gray-700"
           />
 
           <input
             type="password"
             placeholder="Password"
             value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={handleKeyPress}
             className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            dark:bg-gray-800 dark:border-gray-700"
           />
 
           <button
             onClick={handleLogin}
             disabled={loading}
-            className={`w-full py-2 rounded-lg font-semibold transition
-              ${
-                loading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-indigo-600 text-white hover:bg-indigo-700"
-              }`}
+            className={`w-full py-2 rounded-lg text-white transition
+            ${
+              loading
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-indigo-600 hover:bg-indigo-700"
+            }`}
           >
             {loading ? "Logging in..." : "Login"}
           </button>
+
         </div>
 
         {error && (
@@ -153,17 +225,6 @@ export default function Login() {
             {error}
           </p>
         )}
-
-        <p className="text-sm text-center text-gray-600 dark:text-gray-400 mt-4">
-          Don’t have an account?
-          <span
-            onClick={() => navigate("/register")}
-            className="text-indigo-600 dark:text-indigo-400
-                       font-semibold cursor-pointer ml-1"
-          >
-            Register
-          </span>
-        </p>
 
       </div>
     </div>
