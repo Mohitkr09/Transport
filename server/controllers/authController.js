@@ -14,12 +14,12 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER USER (FIXED 🔥 PASSWORD HASH)
+REGISTER USER
 ====================================================== */
 
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    let { name, email, password, phone } = req.body;
 
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
@@ -27,6 +27,9 @@ exports.register = async (req, res) => {
         message: "All fields required",
       });
     }
+
+    email = email.toLowerCase().trim();
+    password = password.trim();
 
     if (password.length < 6) {
       return res.status(400).json({
@@ -46,19 +49,19 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* ✅ HASH PASSWORD */
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
       name,
-      email: email.toLowerCase().trim(),
+      email,
       password: hashedPassword,
       phone,
+      role: "user",
     });
 
     const token = generateToken(user._id, "user");
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       token,
       role: "user",
@@ -72,7 +75,7 @@ exports.register = async (req, res) => {
     });
   } catch (err) {
     console.error("REGISTER ERROR:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Registration failed",
     });
@@ -80,12 +83,14 @@ exports.register = async (req, res) => {
 };
 
 /* ======================================================
-LOGIN (FINAL STABLE VERSION 🔥)
+LOGIN (FINAL STABLE VERSION 🚀)
 ====================================================== */
 
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
+
+    /* ================= VALIDATION ================= */
 
     if (!email || !password || !role) {
       return res.status(400).json({
@@ -95,148 +100,95 @@ exports.login = async (req, res) => {
     }
 
     email = email.toLowerCase().trim();
+    password = password.trim();
     role = role.toLowerCase().trim();
 
     console.log("🔐 LOGIN ATTEMPT:", { email, role });
 
-    /* ==================================================
-    ADMIN LOGIN
-    ================================================== */
+    let account = null;
 
-    if (role === "admin") {
-      if (
-        email !== process.env.ADMIN_EMAIL ||
-        password !== process.env.ADMIN_PASSWORD
-      ) {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid admin credentials",
-        });
-      }
-
-      const token = generateToken("admin-id", "admin");
-
-      return res.json({
-        success: true,
-        token,
-        role: "admin",
-        user: {
-          id: "admin-id",
-          name: "Admin",
-          email,
-          role: "admin",
-        },
-      });
-    }
-
-    /* ==================================================
-    DRIVER LOGIN
-    ================================================== */
+    /* ================= DRIVER ================= */
 
     if (role === "driver") {
-      const driver = await Driver.findOne({ email }).select("+password");
+      account = await Driver.findOne({ email }).select("+password");
+    }
 
-      if (!driver || !driver.password) {
-        return res.status(401).json({
-          success: false,
-          message: "Driver account not found",
-        });
-      }
+    /* ================= USER / ADMIN ================= */
 
-      const match = await bcrypt.compare(password, driver.password);
+    else if (role === "user" || role === "admin") {
+      account = await User.findOne({ email, role }).select("+password");
+    }
 
-      console.log("🔑 DRIVER PASSWORD MATCH:", match);
-
-      if (!match) {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid email or password",
-        });
-      }
-
-      if (!driver.isApproved) {
-        return res.status(403).json({
-          success: false,
-          message: "Driver not approved",
-        });
-      }
-
-      /* ✅ UPDATE STATUS */
-      driver.isOnline = true;
-      driver.isAvailable = true;
-      driver.lastActive = new Date();
-
-      await driver.save();
-
-      const token = generateToken(driver._id, "driver");
-
-      return res.json({
-        success: true,
-        token,
-        role: "driver",
-        user: {
-          id: driver._id,
-          name: driver.name,
-          email: driver.email,
-          phone: driver.phone,
-          role: "driver",
-        },
+    else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role",
       });
     }
 
-    /* ==================================================
-    USER LOGIN
-    ================================================== */
+    /* ================= ACCOUNT CHECK ================= */
 
-    if (role === "user") {
-      const user = await User.findOne({ email }).select("+password");
-
-      if (!user || !user.password) {
-        return res.status(401).json({
-          success: false,
-          message: "User account not found",
-        });
-      }
-
-      const match = await bcrypt.compare(password, user.password);
-
-      console.log("🔑 USER PASSWORD MATCH:", match);
-
-      if (!match) {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid email or password",
-        });
-      }
-
-      const token = generateToken(user._id, "user");
-
-      return res.json({
-        success: true,
-        token,
-        role: "user",
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: "user",
-        },
+    if (!account || !account.password) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
       });
     }
 
-    /* ==================================================
-    INVALID ROLE
-    ================================================== */
+    /* ================= PASSWORD MATCH ================= */
 
-    return res.status(400).json({
-      success: false,
-      message: "Invalid role",
+    const isMatch = await bcrypt.compare(password, account.password);
+
+    console.log("🔑 PASSWORD MATCH:", isMatch);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    /* ================= DRIVER APPROVAL ================= */
+
+    if (role === "driver" && !account.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: "Driver not approved",
+      });
+    }
+
+    /* ================= DRIVER STATUS UPDATE ================= */
+
+    if (role === "driver") {
+      account.isOnline = true;
+      account.isAvailable = true;
+      account.lastActive = new Date();
+      await account.save();
+    }
+
+    /* ================= TOKEN ================= */
+
+    const token = generateToken(account._id, account.role);
+
+    /* ================= RESPONSE ================= */
+
+    res.json({
+      success: true,
+      token,
+      role: account.role,
+      user: {
+        id: account._id,
+        name: account.name,
+        email: account.email,
+        phone: account.phone || "",
+        role: account.role,
+      },
     });
+
   } catch (err) {
     console.error("LOGIN ERROR:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Server error",
     });
@@ -256,12 +208,12 @@ exports.getMe = async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       success: true,
       user: req.user,
     });
   } catch (err) {
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to fetch user",
     });
@@ -282,12 +234,12 @@ exports.logout = async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       success: true,
       message: "Logged out",
     });
   } catch (err) {
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Logout failed",
     });

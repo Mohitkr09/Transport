@@ -12,7 +12,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
 const BookRide = lazy(() => import("./pages/BookRide"));
 const DriverDashboard = lazy(() => import("./pages/DriverDashboard"));
-const DriverRequests = lazy(() => import("./pages/DriverRequests")); // ✅ NEW
+const DriverRequests = lazy(() => import("./pages/DriverRequests"));
 const About = lazy(() => import("./pages/About"));
 const Contact = lazy(() => import("./pages/Contact"));
 const Payment = lazy(() => import("./pages/Payment"));
@@ -59,37 +59,32 @@ function BackendWakeup() {
 }
 
 /* ======================================================
-ROLE REDIRECT
+ROLE REDIRECT (IMPROVED)
 ====================================================== */
 
 function RoleRedirect() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
 
     if (!token || !role) return;
 
-    if (role === "driver") {
-      if (!pathname.startsWith("/driver")) {
-        window.location.replace("/driver/dashboard");
-      }
+    // Prevent redirect loop
+    if (pathname === "/login" || pathname === "/register") return;
+
+    if (role === "driver" && !pathname.startsWith("/driver")) {
+      window.location.replace("/driver/dashboard");
     }
 
-    else if (role === "admin") {
-      if (!pathname.startsWith("/admin")) {
-        window.location.replace("/admin/dashboard");
-      }
+    if (role === "admin" && !pathname.startsWith("/admin")) {
+      window.location.replace("/admin/dashboard");
     }
 
-    else if (role === "user") {
-      if (pathname.startsWith("/driver") || pathname.startsWith("/admin")) {
-        window.location.replace("/");
-      }
+    if (role === "user" && pathname.startsWith("/admin")) {
+      window.location.replace("/");
     }
-
   }, [pathname]);
 
   return null;
@@ -107,7 +102,7 @@ function TitleManager() {
       "/": "Home",
       "/book": "Book Ride",
       "/driver/dashboard": "Driver Dashboard",
-      "/driver/requests": "Ride Requests", // ✅ NEW
+      "/driver/requests": "Ride Requests",
       "/admin/dashboard": "Admin Panel",
       "/notifications": "Notifications"
     };
@@ -148,7 +143,6 @@ function Layout({ children }) {
 
   return (
     <>
-      {/* ✅ SHOW NAVBAR FOR DRIVER NOW */}
       {!hideLayout && !isAdmin && <Navbar />}
 
       <div className={!hideLayout ? "pt-16 min-h-screen flex flex-col" : ""}>
@@ -172,23 +166,18 @@ APP ROOT
 ====================================================== */
 
 export default function App() {
-
   return (
     <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
-
       <ScrollToTop />
       <BackendWakeup />
       <TitleManager />
       <RoleRedirect />
 
       <Layout>
-
         <Suspense fallback={<PageLoader />}>
-
           <Routes>
 
             {/* PUBLIC */}
-
             <Route path="/" element={<Home />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
@@ -196,7 +185,6 @@ export default function App() {
             <Route path="/register" element={<Register />} />
 
             {/* USER */}
-
             <Route
               path="/book"
               element={
@@ -225,7 +213,6 @@ export default function App() {
             />
 
             {/* DRIVER */}
-
             <Route
               path="/driver/dashboard"
               element={
@@ -235,7 +222,6 @@ export default function App() {
               }
             />
 
-            {/* ✅ NEW DRIVER REQUEST PAGE */}
             <Route
               path="/driver/requests"
               element={
@@ -246,7 +232,6 @@ export default function App() {
             />
 
             {/* ADMIN */}
-
             <Route
               path="/admin"
               element={
@@ -264,15 +249,11 @@ export default function App() {
             </Route>
 
             {/* FALLBACK */}
-
             <Route path="*" element={<NotFound />} />
 
           </Routes>
-
         </Suspense>
-
       </Layout>
-
     </div>
   );
 }

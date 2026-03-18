@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 /* ======================================================
 API CONFIG
@@ -24,22 +24,16 @@ LOGIN COMPONENT
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const [role, setRole] = useState("user"); // ✅ DEFAULT ROLE
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const navigate = useNavigate();
-  const location = useLocation();
 
   /* ======================================================
-  ✅ SAFE ROLE FROM URL (NO DEFAULT)
-  ====================================================== */
-
-  const params = new URLSearchParams(location.search);
-  const rawRole = params.get("role");
-  const safeRole = rawRole ? rawRole.toLowerCase() : null;
-
-  /* ======================================================
-  AUTO REDIRECT (FIXED)
+  AUTO REDIRECT
   ====================================================== */
 
   useEffect(() => {
@@ -49,14 +43,11 @@ export default function Login() {
 
       if (!token || !storedUser?.role) return;
 
-      const role = storedUser.role.toLowerCase();
+      const r = storedUser.role.toLowerCase();
 
-      console.log("🔁 Auto redirect as:", role);
-
-      if (role === "admin") navigate("/admin/dashboard");
-      else if (role === "driver") navigate("/driver/dashboard");
+      if (r === "admin") navigate("/admin/dashboard");
+      else if (r === "driver") navigate("/driver/dashboard");
       else navigate("/book");
-
     } catch (err) {
       console.error("Auto redirect error:", err);
     }
@@ -68,11 +59,6 @@ export default function Login() {
 
   const handleLogin = async () => {
     if (loading) return;
-
-    if (!safeRole) {
-      setError("Invalid URL. Use /login?role=driver");
-      return;
-    }
 
     if (!email.trim() || !password.trim()) {
       setError("Enter email and password");
@@ -86,7 +72,7 @@ export default function Login() {
       const payload = {
         email: email.trim().toLowerCase(),
         password: password.trim(),
-        role: safeRole,
+        role: role, // ✅ SELECTED ROLE
       };
 
       console.log("📤 Sending payload:", payload);
@@ -95,8 +81,6 @@ export default function Login() {
 
       console.log("✅ LOGIN RESPONSE:", res.data);
 
-      /* ================= VALIDATION ================= */
-
       if (!res?.data?.token || !res?.data?.role) {
         throw new Error("Invalid server response");
       }
@@ -104,12 +88,9 @@ export default function Login() {
       const finalRole = res.data.role.toLowerCase();
 
       const userData = res.data.user || {
-        name: "Admin",
         email,
         role: finalRole,
       };
-
-      console.log("🎯 FINAL ROLE:", finalRole);
 
       /* ================= SAVE SESSION ================= */
 
@@ -118,8 +99,6 @@ export default function Login() {
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("user", JSON.stringify(userData));
       localStorage.setItem("role", finalRole);
-
-      console.log("💾 Stored role:", finalRole);
 
       /* ================= REDIRECT ================= */
 
@@ -135,7 +114,7 @@ export default function Login() {
         const message = err.response?.data?.message;
 
         if (status === 400) {
-          setError(message || "Invalid request (check role)");
+          setError(message || "Invalid request");
         } else if (status === 401) {
           setError("Invalid email or password");
         } else if (status === 403) {
@@ -176,14 +155,22 @@ export default function Login() {
       text-gray-800 dark:text-gray-100">
 
         <h2 className="text-2xl font-bold mb-6 text-center">
-          {safeRole === "driver"
-            ? "Driver Login"
-            : safeRole === "admin"
-            ? "Admin Login"
-            : "Login"}
+          Login
         </h2>
 
         <div className="space-y-4">
+
+          {/* ✅ ROLE SELECTOR */}
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="w-full px-4 py-2 border rounded-lg
+            dark:bg-gray-800 dark:border-gray-700"
+          >
+            <option value="user">User</option>
+            <option value="driver">Driver</option>
+            <option value="admin">Admin</option>
+          </select>
 
           <input
             type="email"
