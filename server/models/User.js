@@ -6,7 +6,6 @@ USER SCHEMA
 ====================================================== */
 
 const userSchema = new mongoose.Schema({
-
   /* ================= BASIC INFO ================= */
 
   name: {
@@ -29,7 +28,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "Password required"],
     minlength: 6,
-    select: false // ✅ hidden by default
+    select: false
   },
 
   phone: {
@@ -105,26 +104,16 @@ INDEXES
 userSchema.index({ location: "2dsphere" });
 
 /* ======================================================
-PASSWORD HASH (FINAL SAFE VERSION)
+PASSWORD HASH (FINAL FIXED 🚀)
 ====================================================== */
 
-userSchema.pre("save", async function (next) {
-  try {
-    // 🔥 prevent re-hashing already hashed password
-    if (!this.isModified("password")) return next();
+userSchema.pre("save", async function () {
+  // ✅ ONLY async — NO next()
 
-    // extra safety (avoid double hashing bug)
-    if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
-      return next();
-    }
+  if (!this.isModified("password")) return;
 
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-
-    next();
-  } catch (err) {
-    next(err);
-  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 /* ======================================================
@@ -133,7 +122,7 @@ METHODS
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
   if (!this.password) {
-    throw new Error("Password not loaded. Use .select('+password')");
+    throw new Error("Password not selected. Use .select('+password')");
   }
   return bcrypt.compare(enteredPassword, this.password);
 };
