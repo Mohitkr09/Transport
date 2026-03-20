@@ -53,7 +53,7 @@ const userSchema = new mongoose.Schema({
     default: null
   },
 
-  /* ================= LOCATION ================= */
+  /* ================= LOCATION (FIXED) ================= */
 
   location: {
     type: {
@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema({
     },
     coordinates: {
       type: [Number],
-      default: undefined
+      default: [0, 0] // ✅ FIX (IMPORTANT)
     }
   },
 
@@ -108,8 +108,6 @@ PASSWORD HASH (FINAL FIXED 🚀)
 ====================================================== */
 
 userSchema.pre("save", async function () {
-  // ✅ ONLY async — NO next()
-
   if (!this.isModified("password")) return;
 
   const salt = await bcrypt.genSalt(10);
