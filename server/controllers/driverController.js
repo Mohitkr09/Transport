@@ -1,6 +1,5 @@
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 /* =========================================================
@@ -60,7 +59,7 @@ exports.loginDriver = async (req, res) => {
 
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    return send(res, false, { message: "Login failed" }, 500);
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
@@ -78,8 +77,8 @@ exports.getDriverProfile = async (req, res) => {
 
     return send(res, true, { driver });
 
-  } catch {
-    return send(res, false, { message: "Failed to fetch profile" }, 500);
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
@@ -91,20 +90,24 @@ exports.updateDriverLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
 
-    if (!lat || !lng) {
+    // ✅ FIX: allow 0 values
+    if (lat === undefined || lng === undefined) {
       return send(res, false, { message: "lat & lng required" }, 400);
     }
 
     const driver = await Driver.findById(req.user.id);
 
-    driver.updateLocation(lat, lng);
+    if (!driver) {
+      return send(res, false, { message: "Driver not found" }, 404);
+    }
 
+    driver.updateLocation(lat, lng);
     await driver.save();
 
     return send(res, true, { message: "Location updated" });
 
-  } catch {
-    return send(res, false, { message: "Location update failed" }, 500);
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
@@ -116,8 +119,12 @@ exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
 
-    if (!driver?.location?.coordinates || !driver.isOnline) {
-      return send(res, false, { message: "Driver offline or no location" }, 400);
+    if (!driver || !driver.isOnline) {
+      return send(res, false, { message: "Driver offline" }, 400);
+    }
+
+    if (!driver.location?.coordinates?.length) {
+      return send(res, false, { message: "Location not set" }, 400);
     }
 
     const [lng, lat] = driver.location.coordinates;
@@ -125,7 +132,7 @@ exports.getNearbyRides = async (req, res) => {
     const rides = await Ride.find({
       status: "searching_driver",
       rejectedDrivers: { $ne: driver._id },
-      "pickupLocation.location": {
+      pickupLocation: {
         $near: {
           $geometry: {
             type: "Point",
@@ -134,25 +141,27 @@ exports.getNearbyRides = async (req, res) => {
           $maxDistance: 5000
         }
       }
-    }).limit(10);
+    })
+      .limit(10)
+      .sort({ createdAt: -1 });
 
     return send(res, true, { rides });
 
   } catch (err) {
     console.error(err);
-    return send(res, false, { message: "Failed to fetch rides" }, 500);
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT RIDE (SAFE)
+ACCEPT RIDE (ATOMIC 🔥)
 ========================================================= */
 
 exports.acceptRide = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
 
-    if (!driver.isAvailable) {
+    if (!driver || !driver.isAvailable) {
       return send(res, false, { message: "Driver not available" }, 400);
     }
 
@@ -180,7 +189,7 @@ exports.acceptRide = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    return send(res, false, { message: "Accept failed" }, 500);
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
@@ -198,12 +207,16 @@ exports.rejectRide = async (req, res) => {
       return send(res, false, { message: "Ride not found" }, 404);
     }
 
-    await ride.rejectDriver(driverId);
+    // ✅ prevent duplicate
+    if (!ride.rejectedDrivers.includes(driverId)) {
+      ride.rejectedDrivers.push(driverId);
+      await ride.save();
+    }
 
     return send(res, true, { message: "Ride rejected" });
 
-  } catch {
-    return send(res, false, { message: "Reject failed" }, 500);
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
   }
 };
 
@@ -217,6 +230,10 @@ exports.startRide = async (req, res) => {
 
     if (!ride || String(ride.driver) !== req.user.id) {
       return send(res, false, { message: "Unauthorized" }, 403);
+    }
+
+    if (ride.status !== "accepted") {
+      return send(res, false, { message: "Ride not ready to start" }, 400);
     }
 
     await ride.startRide(req.body.otp);
@@ -238,6 +255,10 @@ exports.completeRide = async (req, res) => {
 
     if (!ride || String(ride.driver) !== req.user.id) {
       return send(res, false, { message: "Unauthorized" }, 403);
+    }
+
+    if (ride.status !== "ongoing") {
+      return send(res, false, { message: "Ride not ongoing" }, 400);
     }
 
     await ride.completeRide();

@@ -36,7 +36,7 @@ const driverSchema = new mongoose.Schema({
     type: String,
     required: [true, "Password required"],
     minlength: 6,
-    select: false // 🔥 IMPORTANT
+    select: false
   },
 
   role: {
@@ -115,7 +115,7 @@ const driverSchema = new mongoose.Schema({
     default: Date.now
   },
 
-  /* ================= LOCATION ================= */
+  /* ================= LOCATION (FINAL FIX) ================= */
 
   location: {
     type: {
@@ -125,13 +125,16 @@ const driverSchema = new mongoose.Schema({
     },
     coordinates: {
       type: [Number],
-      default: undefined, // ✅ prevents empty array issues
+      default: [0, 0],
       validate: {
         validator: function (val) {
-          return !val || (
+          return (
+            Array.isArray(val) &&
             val.length === 2 &&
-            val[0] >= -180 && val[0] <= 180 &&
-            val[1] >= -90 && val[1] <= 90
+            val[0] >= -180 &&
+            val[0] <= 180 &&
+            val[1] >= -90 &&
+            val[1] <= 90
           );
         },
         message: "Invalid coordinates"
@@ -186,30 +189,28 @@ driverSchema.index({
 });
 
 /* ======================================================
-PASSWORD HASH (FIXED SAFE)
+PASSWORD HASH (SAFE)
 ====================================================== */
 
-driverSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+driverSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
 
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password.trim(), salt);
-    next();
-  } catch (err) {
-    next(err);
+  if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
+    return; // ✅ prevent double hashing
   }
+
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password.trim(), salt);
 });
 
 /* ======================================================
 STATUS CONTROL
 ====================================================== */
 
-driverSchema.pre("save", function (next) {
+driverSchema.pre("save", function () {
   if (!this.isOnline) {
     this.isAvailable = false;
   }
-  next();
 });
 
 /* ======================================================
@@ -217,15 +218,16 @@ METHODS
 ====================================================== */
 
 /* PASSWORD */
-
 driverSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!this.password) {
+    throw new Error("Password not selected. Use .select('+password')");
+  }
   return bcrypt.compare(enteredPassword.trim(), this.password);
 };
 
 /* LOCATION */
-
 driverSchema.methods.updateLocation = function (lat, lng) {
-  if (!lat || !lng) return;
+  if (lat === undefined || lng === undefined) return;
 
   this.location = {
     type: "Point",
@@ -237,7 +239,6 @@ driverSchema.methods.updateLocation = function (lat, lng) {
 };
 
 /* STATUS */
-
 driverSchema.methods.goOnline = function () {
   this.isOnline = true;
   this.isAvailable = true;
@@ -250,6 +251,7 @@ driverSchema.methods.goOffline = function () {
   this.socketId = null;
 };
 
+/* RIDE CONTROL */
 driverSchema.methods.markBusy = function (rideId) {
   this.isAvailable = false;
   this.currentRide = rideId;
@@ -259,8 +261,6 @@ driverSchema.methods.markAvailable = function () {
   this.currentRide = null;
   if (this.isOnline) this.isAvailable = true;
 };
-
-/* RIDE */
 
 driverSchema.methods.completeRide = function (fare = 0) {
   this.totalRides += 1;
@@ -276,7 +276,7 @@ driverSchema.methods.cancelRide = function () {
 };
 
 /* ======================================================
-NEARBY DRIVER SEARCH
+NEARBY DRIVER SEARCH (SAFE)
 ====================================================== */
 
 driverSchema.statics.findNearbyDrivers = async function ({
@@ -286,6 +286,10 @@ driverSchema.statics.findNearbyDrivers = async function ({
   radius = 5000,
   limit = 10
 }) {
+  if (lat === undefined || lng === undefined) {
+    throw new Error("Location required");
+  }
+
   return this.find({
     isApproved: true,
     isOnline: true,
@@ -306,24 +310,7 @@ driverSchema.statics.findNearbyDrivers = async function ({
 };
 
 /* ======================================================
-VIRTUALS
+EXPORT
 ====================================================== */
-
-driverSchema.virtual("isBusy").get(function () {
-  return !this.isAvailable;
-});
-
-/* ======================================================
-JSON CLEANUP
-====================================================== */
-
-driverSchema.set("toJSON", {
-  virtuals: true,
-  transform: (_, ret) => {
-    delete ret.password;
-    delete ret.__v;
-    return ret;
-  }
-});
 
 module.exports = mongoose.model("Driver", driverSchema);

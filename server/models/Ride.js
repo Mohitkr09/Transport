@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 /* ======================================================
-GEO POINT
+GEO POINT (FIXED)
 ====================================================== */
 
 const pointSchema = new mongoose.Schema(
@@ -13,14 +13,15 @@ const pointSchema = new mongoose.Schema(
     },
     coordinates: {
       type: [Number],
+      default: [0, 0], // ✅ FIX
       validate: {
         validator: arr =>
-          !arr ||
-          (arr.length === 2 &&
-            arr[0] >= -180 &&
-            arr[0] <= 180 &&
-            arr[1] >= -90 &&
-            arr[1] <= 90),
+          arr &&
+          arr.length === 2 &&
+          arr[0] >= -180 &&
+          arr[0] <= 180 &&
+          arr[1] >= -90 &&
+          arr[1] <= 90,
         message: "Invalid coordinates"
       }
     }
@@ -180,7 +181,7 @@ rideSchema.methods.assignDriver = function (driverId) {
 
 /* ACCEPT RIDE */
 rideSchema.methods.acceptRide = function () {
-  if (this.status !== "driver_assigned") {
+  if (!["driver_assigned", "searching_driver"].includes(this.status)) {
     throw new Error("Invalid state for accept");
   }
 
@@ -257,17 +258,17 @@ rideSchema.methods.updateDriverLocation = function (lat, lng) {
 };
 
 /* ======================================================
-STATIC METHODS
+STATIC METHODS (FIXED)
 ====================================================== */
 
-/* FIND AVAILABLE RIDES FOR DRIVER */
 rideSchema.statics.findAvailableRides = function (lat, lng, vehicleType) {
-  if (!lat || !lng) throw new Error("Location required");
+  if (lat === undefined || lng === undefined) {
+    throw new Error("Location required");
+  }
 
   return this.find({
     status: "searching_driver",
     vehicleType,
-    rejectedDrivers: { $ne: null }, // safety
     "pickupLocation.location": {
       $near: {
         $geometry: {

@@ -22,15 +22,16 @@ LOGIN COMPONENT
 ====================================================== */
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const navigate = useNavigate();
 
-  const [role, setRole] = useState("user"); // ✅ DEFAULT ROLE
+  const [form, setForm] = useState({
+    email: "",
+    password: "",
+    role: "user", // ✅ default
+  });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const navigate = useNavigate();
 
   /* ======================================================
   AUTO REDIRECT
@@ -39,19 +40,35 @@ export default function Login() {
   useEffect(() => {
     try {
       const token = localStorage.getItem("token");
-      const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+      const user = JSON.parse(localStorage.getItem("user") || "null");
 
-      if (!token || !storedUser?.role) return;
+      if (!token || !user?.role) return;
 
-      const r = storedUser.role.toLowerCase();
-
-      if (r === "admin") navigate("/admin/dashboard");
-      else if (r === "driver") navigate("/driver/dashboard");
-      else navigate("/book");
+      redirectUser(user.role);
     } catch (err) {
       console.error("Auto redirect error:", err);
     }
-  }, [navigate]);
+  }, []);
+
+  /* ======================================================
+  REDIRECT FUNCTION (FIXED 🔥)
+  ====================================================== */
+
+  const redirectUser = (role) => {
+    const r = role.toLowerCase();
+
+    if (r === "admin") navigate("/admin/dashboard");
+    else if (r === "driver") navigate("/driver/dashboard");
+    else navigate("/book");
+  };
+
+  /* ======================================================
+  INPUT HANDLER
+  ====================================================== */
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
   /* ======================================================
   LOGIN HANDLER
@@ -60,7 +77,11 @@ export default function Login() {
   const handleLogin = async () => {
     if (loading) return;
 
-    if (!email.trim() || !password.trim()) {
+    const email = form.email.trim().toLowerCase();
+    const password = form.password.trim();
+    const role = form.role;
+
+    if (!email || !password) {
       setError("Enter email and password");
       return;
     }
@@ -69,42 +90,36 @@ export default function Login() {
       setLoading(true);
       setError("");
 
-      const payload = {
-        email: email.trim().toLowerCase(),
-        password: password.trim(),
-        role: role, // ✅ SELECTED ROLE
-      };
+      const payload = { email, password, role };
 
       console.log("📤 Sending payload:", payload);
 
       const res = await api.post("/auth/login", payload);
 
-      console.log("✅ LOGIN RESPONSE:", res.data);
+      const data = res.data;
 
-      if (!res?.data?.token || !res?.data?.role) {
-        throw new Error("Invalid server response");
+      console.log("✅ LOGIN RESPONSE:", data);
+
+      if (!data?.token || !data?.role) {
+        throw new Error("Invalid response");
       }
 
-      const finalRole = res.data.role.toLowerCase();
+      const finalRole = data.role.toLowerCase();
 
-      const userData = res.data.user || {
-        email,
-        role: finalRole,
-      };
-
-      /* ================= SAVE SESSION ================= */
+      /* ================= SAVE ================= */
 
       localStorage.clear();
 
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("user", JSON.stringify(userData));
+      localStorage.setItem("token", data.token);
+      localStorage.setItem(
+        "user",
+        JSON.stringify(data.user || { email, role: finalRole })
+      );
       localStorage.setItem("role", finalRole);
 
       /* ================= REDIRECT ================= */
 
-      if (finalRole === "admin") navigate("/admin/dashboard");
-      else if (finalRole === "driver") navigate("/driver/dashboard");
-      else navigate("/book");
+      redirectUser(finalRole);
 
     } catch (err) {
       console.error("❌ Login error:", err);
@@ -113,21 +128,15 @@ export default function Login() {
         const status = err.response.status;
         const message = err.response?.data?.message;
 
-        if (status === 400) {
-          setError(message || "Invalid request");
-        } else if (status === 401) {
-          setError("Invalid email or password");
-        } else if (status === 403) {
-          setError("Driver not approved");
-        } else {
-          setError(message || "Login failed");
-        }
+        if (status === 400) setError(message || "Invalid request");
+        else if (status === 401) setError("Invalid email or password");
+        else if (status === 403) setError("Driver not approved");
+        else setError(message || "Login failed");
       } else if (err.code === "ECONNABORTED") {
         setError("Server timeout");
       } else {
         setError("Server unreachable");
       }
-
     } finally {
       setLoading(false);
     }
@@ -137,7 +146,7 @@ export default function Login() {
   ENTER KEY
   ====================================================== */
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
   };
 
@@ -160,10 +169,11 @@ export default function Login() {
 
         <div className="space-y-4">
 
-          {/* ✅ ROLE SELECTOR */}
+          {/* ROLE */}
           <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
+            name="role"
+            value={form.role}
+            onChange={handleChange}
             className="w-full px-4 py-2 border rounded-lg
             dark:bg-gray-800 dark:border-gray-700"
           >
@@ -172,41 +182,47 @@ export default function Login() {
             <option value="admin">Admin</option>
           </select>
 
+          {/* EMAIL */}
           <input
+            name="email"
             type="email"
             placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={handleKeyPress}
+            value={form.email}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
             className="w-full px-4 py-2 border rounded-lg
             dark:bg-gray-800 dark:border-gray-700"
           />
 
+          {/* PASSWORD */}
           <input
+            name="password"
             type="password"
             placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={handleKeyPress}
+            value={form.password}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
             className="w-full px-4 py-2 border rounded-lg
             dark:bg-gray-800 dark:border-gray-700"
           />
 
+          {/* BUTTON */}
           <button
             onClick={handleLogin}
             disabled={loading}
             className={`w-full py-2 rounded-lg text-white transition
-            ${
-              loading
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700"
-            }`}
+              ${
+                loading
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
           >
             {loading ? "Logging in..." : "Login"}
           </button>
 
         </div>
 
+        {/* ERROR */}
         {error && (
           <p className="text-red-500 text-sm mt-3 text-center">
             {error}
