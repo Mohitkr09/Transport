@@ -154,7 +154,6 @@ INDEXES
 rideSchema.index({ "pickupLocation.location": "2dsphere" });
 rideSchema.index({ status: 1, createdAt: -1 });
 rideSchema.index({ driver: 1, status: 1 });
-rideSchema.index({ rejectedDrivers: 1 });
 
 /* ======================================================
 VIRTUALS
@@ -170,46 +169,58 @@ METHODS
 
 /* ASSIGN DRIVER */
 rideSchema.methods.assignDriver = function (driverId) {
+  if (this.driver) throw new Error("Driver already assigned");
+
   this.driver = driverId;
   this.status = "driver_assigned";
   this.driverResponseDeadline = new Date(Date.now() + 15000);
+
   return this.save();
 };
 
 /* ACCEPT RIDE */
 rideSchema.methods.acceptRide = function () {
-  if (this.status !== "driver_assigned") throw new Error("Invalid state");
+  if (this.status !== "driver_assigned") {
+    throw new Error("Invalid state for accept");
+  }
 
   this.status = "accepted";
   this.acceptedAt = new Date();
+
   return this.save();
 };
 
 /* START RIDE */
 rideSchema.methods.startRide = function (otpInput) {
-  if (this.status !== "accepted") throw new Error("Invalid state");
+  if (this.status !== "accepted") {
+    throw new Error("Ride not accepted");
+  }
 
-  if (this.otp && otpInput !== this.otp) {
+  if (this.otp && Number(otpInput) !== this.otp) {
     throw new Error("Invalid OTP");
   }
 
   this.status = "ongoing";
   this.startedAt = new Date();
+
   return this.save();
 };
 
 /* COMPLETE RIDE */
 rideSchema.methods.completeRide = function () {
-  if (this.status !== "ongoing") throw new Error("Invalid state");
+  if (this.status !== "ongoing") {
+    throw new Error("Ride not ongoing");
+  }
 
   this.status = "completed";
   this.completedAt = new Date();
+
   return this.save();
 };
 
 /* CANCEL RIDE */
 rideSchema.methods.cancelRide = function (by, reason) {
-  if (["completed"].includes(this.status)) {
+  if (this.status === "completed") {
     throw new Error("Cannot cancel completed ride");
   }
 
@@ -217,14 +228,19 @@ rideSchema.methods.cancelRide = function (by, reason) {
   this.cancelledBy = by;
   this.cancelReason = reason;
   this.cancelledAt = new Date();
+
   return this.save();
 };
 
 /* REJECT DRIVER */
 rideSchema.methods.rejectDriver = function (driverId) {
-  this.rejectedDrivers.push(driverId);
+  if (!this.rejectedDrivers.includes(driverId)) {
+    this.rejectedDrivers.push(driverId);
+  }
+
   this.driver = null;
   this.status = "searching_driver";
+
   return this.save();
 };
 
@@ -236,6 +252,7 @@ rideSchema.methods.updateDriverLocation = function (lat, lng) {
   };
 
   this.driverLocationUpdatedAt = new Date();
+
   return this.save();
 };
 
@@ -243,16 +260,19 @@ rideSchema.methods.updateDriverLocation = function (lat, lng) {
 STATIC METHODS
 ====================================================== */
 
-/* FIND RIDES FOR DRIVER */
+/* FIND AVAILABLE RIDES FOR DRIVER */
 rideSchema.statics.findAvailableRides = function (lat, lng, vehicleType) {
+  if (!lat || !lng) throw new Error("Location required");
+
   return this.find({
     status: "searching_driver",
     vehicleType,
+    rejectedDrivers: { $ne: null }, // safety
     "pickupLocation.location": {
       $near: {
         $geometry: {
           type: "Point",
-          coordinates: [lng, lat]
+          coordinates: [Number(lng), Number(lat)]
         },
         $maxDistance: 5000
       }
@@ -260,7 +280,7 @@ rideSchema.statics.findAvailableRides = function (lat, lng, vehicleType) {
   });
 };
 
-/* HANDLE TIMEOUT */
+/* HANDLE DRIVER TIMEOUT */
 rideSchema.statics.handleDriverTimeouts = async function () {
   const expired = await this.find({
     status: "driver_assigned",

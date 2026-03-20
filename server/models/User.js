@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "Password required"],
     minlength: 6,
-    select: false
+    select: false   // ✅ hide password by default
   },
 
   phone: {
@@ -105,23 +105,32 @@ INDEXES
 userSchema.index({ location: "2dsphere" });
 
 /* ======================================================
-PASSWORD HASH
+PASSWORD HASH (FIXED SAFE VERSION)
 ====================================================== */
 
-userSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+userSchema.pre("save", async function (next) {
+  try {
+    if (!this.isModified("password")) return next();
 
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 /* ======================================================
 METHODS
 ====================================================== */
 
-/* MATCH PASSWORD */
-userSchema.methods.matchPassword = async function (password) {
-  return bcrypt.compare(password, this.password);
+/* MATCH PASSWORD (SAFE) */
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!this.password) {
+    throw new Error("Password not loaded. Use .select('+password')");
+  }
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
 /* UPDATE LOCATION */
@@ -153,7 +162,7 @@ userSchema.methods.verifyOTP = function (input) {
     this.otp.expiresAt > new Date();
 
   if (isValid) {
-    this.otp = undefined; // clear after success
+    this.otp = undefined;
   }
 
   return isValid;
@@ -167,7 +176,7 @@ userSchema.virtual("isOnline").get(function () {
   if (!this.lastLogin) return false;
 
   const diff = Date.now() - new Date(this.lastLogin).getTime();
-  return diff < 5 * 60 * 1000; // 5 minutes
+  return diff < 5 * 60 * 1000;
 });
 
 /* ======================================================

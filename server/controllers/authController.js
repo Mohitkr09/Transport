@@ -8,6 +8,10 @@ TOKEN
 ====================================================== */
 
 const generateToken = (id, role) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET missing in .env");
+  }
+
   return jwt.sign({ id, role }, process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
@@ -49,12 +53,10 @@ exports.register = async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password, // schema will hash
       phone,
       role: "user",
     });
@@ -77,20 +79,18 @@ exports.register = async (req, res) => {
     console.error("REGISTER ERROR:", err);
     res.status(500).json({
       success: false,
-      message: "Registration failed",
+      message: err.message,
     });
   }
 };
 
 /* ======================================================
-LOGIN (FINAL STABLE VERSION 🚀)
+LOGIN (100% FIXED 🚀)
 ====================================================== */
 
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
-
-    /* ================= VALIDATION ================= */
 
     if (!email || !password || !role) {
       return res.status(400).json({
@@ -103,20 +103,25 @@ exports.login = async (req, res) => {
     password = password.trim();
     role = role.toLowerCase().trim();
 
-    console.log("🔐 LOGIN ATTEMPT:", { email, role });
+    console.log("🔐 LOGIN:", { email, role });
 
     let account = null;
 
-    /* ================= DRIVER ================= */
-
+    /* DRIVER */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
     }
 
-    /* ================= USER / ADMIN ================= */
-
+    /* USER / ADMIN */
     else if (role === "user" || role === "admin") {
-      account = await User.findOne({ email, role }).select("+password");
+      account = await User.findOne({ email }).select("+password");
+
+      if (account && account.role !== role) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid role selected",
+        });
+      }
     }
 
     else {
@@ -126,20 +131,28 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= ACCOUNT CHECK ================= */
-
-    if (!account || !account.password) {
+    /* ACCOUNT CHECK */
+    if (!account) {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
       });
     }
 
-    /* ================= PASSWORD MATCH ================= */
+    /* PASSWORD CHECK */
+    if (!account.password) {
+      console.error("❌ PASSWORD NOT FOUND IN QUERY");
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
+    }
+
+    console.log("📦 ACCOUNT FOUND:", account.email);
 
     const isMatch = await bcrypt.compare(password, account.password);
 
-    console.log("🔑 PASSWORD MATCH:", isMatch);
+    console.log("🔑 MATCH:", isMatch);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -148,8 +161,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= DRIVER APPROVAL ================= */
-
+    /* DRIVER APPROVAL */
     if (role === "driver" && !account.isApproved) {
       return res.status(403).json({
         success: false,
@@ -157,8 +169,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= DRIVER STATUS UPDATE ================= */
-
+    /* DRIVER STATUS */
     if (role === "driver") {
       account.isOnline = true;
       account.isAvailable = true;
@@ -166,11 +177,8 @@ exports.login = async (req, res) => {
       await account.save();
     }
 
-    /* ================= TOKEN ================= */
-
+    /* TOKEN */
     const token = generateToken(account._id, account.role);
-
-    /* ================= RESPONSE ================= */
 
     res.json({
       success: true,
@@ -186,11 +194,11 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
+    console.error("🔥 LOGIN CRASH:", err.stack);
 
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: err.message,
     });
   }
 };

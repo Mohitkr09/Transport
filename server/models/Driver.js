@@ -7,163 +7,166 @@ DRIVER SCHEMA
 
 const driverSchema = new mongoose.Schema({
 
-/* ================= BASIC INFO ================= */
+  /* ================= BASIC INFO ================= */
 
-name: {
-  type: String,
-  required: [true, "Driver name required"],
-  trim: true
-},
-
-email: {
-  type: String,
-  required: [true, "Email required"],
-  unique: true,
-  lowercase: true,
-  trim: true,
-  index: true,
-  match: [/^\S+@\S+\.\S+$/, "Invalid email"]
-},
-
-phone: {
-  type: String,
-  required: [true, "Phone required"],
-  trim: true,
-  match: [/^[0-9]{10,15}$/, "Invalid phone number"]
-},
-
-password: {
-  type: String,
-  required: [true, "Password required"],
-  minlength: 6,
-  select: false
-},
-
-role: {
-  type: String,
-  default: "driver"
-},
-
-/* ================= DOCUMENTS ================= */
-
-documents: {
-  license: { type: String, default: null },
-  vehicleRC: { type: String, default: null }
-},
-
-/* ================= VEHICLE ================= */
-
-vehicle: {
-  type: {
+  name: {
     type: String,
-    enum: ["bike", "auto", "car"],
-    required: true
+    required: [true, "Driver name required"],
+    trim: true
   },
-  number: {
+
+  email: {
     type: String,
+    required: [true, "Email required"],
+    unique: true,
+    lowercase: true,
     trim: true,
-    uppercase: true
+    index: true,
+    match: [/^\S+@\S+\.\S+$/, "Invalid email"]
   },
-  model: String,
-  color: String
-},
 
-/* ================= ADMIN CONTROL ================= */
-
-isApproved: {
-  type: Boolean,
-  default: false,
-  index: true
-},
-
-addedByAdmin: {
-  type: Boolean,
-  default: false
-},
-
-/* ================= STATUS ================= */
-
-isOnline: {
-  type: Boolean,
-  default: false,
-  index: true
-},
-
-isAvailable: {
-  type: Boolean,
-  default: false,
-  index: true
-},
-
-currentRide: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Ride",
-  default: null,
-  index: true
-},
-
-/* ================= REALTIME ================= */
-
-socketId: {
-  type: String,
-  default: null,
-  index: true
-},
-
-lastActive: {
-  type: Date,
-  default: Date.now
-},
-
-/* ================= LOCATION ================= */
-
-location: {
-  type: {
+  phone: {
     type: String,
-    enum: ["Point"],
-    default: "Point"
+    required: [true, "Phone required"],
+    trim: true,
+    match: [/^[0-9]{10,15}$/, "Invalid phone number"]
   },
-  coordinates: {
-    type: [Number],
-    validate: {
-      validator: function (val) {
-        return !val || (val.length === 2 &&
-          val[0] >= -180 && val[0] <= 180 &&
-          val[1] >= -90 && val[1] <= 90);
-      },
-      message: "Invalid coordinates"
+
+  password: {
+    type: String,
+    required: [true, "Password required"],
+    minlength: 6,
+    select: false // 🔥 IMPORTANT
+  },
+
+  role: {
+    type: String,
+    default: "driver"
+  },
+
+  /* ================= DOCUMENTS ================= */
+
+  documents: {
+    license: { type: String, default: null },
+    vehicleRC: { type: String, default: null }
+  },
+
+  /* ================= VEHICLE ================= */
+
+  vehicle: {
+    type: {
+      type: String,
+      enum: ["bike", "auto", "car"],
+      required: true
+    },
+    number: {
+      type: String,
+      trim: true,
+      uppercase: true
+    },
+    model: String,
+    color: String
+  },
+
+  /* ================= ADMIN CONTROL ================= */
+
+  isApproved: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  addedByAdmin: {
+    type: Boolean,
+    default: false
+  },
+
+  /* ================= STATUS ================= */
+
+  isOnline: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  isAvailable: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  currentRide: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Ride",
+    default: null,
+    index: true
+  },
+
+  /* ================= REALTIME ================= */
+
+  socketId: {
+    type: String,
+    default: null,
+    index: true
+  },
+
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
+
+  /* ================= LOCATION ================= */
+
+  location: {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point"
+    },
+    coordinates: {
+      type: [Number],
+      default: undefined, // ✅ prevents empty array issues
+      validate: {
+        validator: function (val) {
+          return !val || (
+            val.length === 2 &&
+            val[0] >= -180 && val[0] <= 180 &&
+            val[1] >= -90 && val[1] <= 90
+          );
+        },
+        message: "Invalid coordinates"
+      }
     }
+  },
+
+  lastLocationUpdate: {
+    type: Date,
+    default: null
+  },
+
+  /* ================= PERFORMANCE ================= */
+
+  rating: {
+    type: Number,
+    default: 5,
+    min: 1,
+    max: 5
+  },
+
+  totalRides: {
+    type: Number,
+    default: 0
+  },
+
+  cancelledRides: {
+    type: Number,
+    default: 0
+  },
+
+  earnings: {
+    type: Number,
+    default: 0
   }
-},
-
-lastLocationUpdate: {
-  type: Date,
-  default: null
-},
-
-/* ================= PERFORMANCE ================= */
-
-rating: {
-  type: Number,
-  default: 5,
-  min: 1,
-  max: 5
-},
-
-totalRides: {
-  type: Number,
-  default: 0
-},
-
-cancelledRides: {
-  type: Number,
-  default: 0
-},
-
-earnings: {
-  type: Number,
-  default: 0
-}
 
 }, {
   timestamps: true
@@ -182,35 +185,41 @@ driverSchema.index({
   "vehicle.type": 1
 });
 
-driverSchema.index({ rating: -1, totalRides: -1 });
-
 /* ======================================================
-PASSWORD HASH
+PASSWORD HASH (FIXED SAFE)
 ====================================================== */
 
-driverSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+driverSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
 
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password.trim(), salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 /* ======================================================
 STATUS CONTROL
 ====================================================== */
 
-driverSchema.pre("save", function () {
+driverSchema.pre("save", function (next) {
   if (!this.isOnline) {
     this.isAvailable = false;
   }
+  next();
 });
 
 /* ======================================================
 METHODS
 ====================================================== */
 
-driverSchema.methods.matchPassword = async function (password) {
-  return bcrypt.compare(password, this.password);
+/* PASSWORD */
+
+driverSchema.methods.matchPassword = async function (enteredPassword) {
+  return bcrypt.compare(enteredPassword.trim(), this.password);
 };
 
 /* LOCATION */
@@ -302,13 +311,6 @@ VIRTUALS
 
 driverSchema.virtual("isBusy").get(function () {
   return !this.isAvailable;
-});
-
-driverSchema.virtual("experienceLevel").get(function () {
-  if (this.totalRides > 1000) return "expert";
-  if (this.totalRides > 200) return "pro";
-  if (this.totalRides > 50) return "experienced";
-  return "new";
 });
 
 /* ======================================================
