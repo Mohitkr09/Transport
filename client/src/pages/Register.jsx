@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-// ======================================================
-// API CONFIG (AUTO ENV SAFE)
-// ======================================================
+/* ======================================================
+API CONFIG
+====================================================== */
 const BASE =
   import.meta.env.VITE_API_URL ||
   "https://transport-mpb5.onrender.com";
@@ -16,76 +16,81 @@ const api = axios.create({
   timeout: 20000
 });
 
-// ======================================================
-// COMPONENT
-// ======================================================
+/* ======================================================
+COMPONENT
+====================================================== */
 export default function Register() {
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
     name: "",
     email: "",
-    password: ""
+    password: "",
+    phone: "",
+    role: "user" // default
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // ======================================================
-  // INPUT HANDLER
-  // ======================================================
-  const update = e =>
+  /* ======================================================
+  INPUT HANDLER
+  ====================================================== */
+  const update = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
-  // ======================================================
-  // REGISTER HANDLER
-  // ======================================================
+  /* ======================================================
+  REGISTER HANDLER
+  ====================================================== */
   const handleRegister = async () => {
     if (loading) return;
 
-    if (!form.name || !form.email || !form.password)
+    if (!form.name || !form.email || !form.password || !form.phone) {
       return setError("All fields are required");
+    }
 
-    if (form.password.length < 6)
+    if (form.password.length < 6) {
       return setError("Password must be at least 6 characters");
+    }
 
     try {
       setLoading(true);
       setError("");
       setSuccess("");
 
-     const res = await api.post("/auth/register", {
-  name: form.name.trim(),
-  email: form.email.trim().toLowerCase(),
-  password: form.password
-});
+      const res = await api.post("/auth/register", {
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        phone: form.phone.trim(),
+        role: form.role // 👈 IMPORTANT
+      });
 
-      if (!res.data?.success)
+      if (!res.data?.success) {
         throw new Error(res.data?.message || "Registration failed");
+      }
 
       setSuccess("🎉 Account created successfully!");
 
       setTimeout(() => navigate("/"), 1500);
 
     } catch (err) {
-      if (err.code === "ECONNABORTED")
+      if (err.code === "ECONNABORTED") {
         setError("Server timeout. Try again.");
-
-      else if (!err.response)
+      } else if (!err.response) {
         setError("Server unavailable. Please wait 30s.");
-
-      else
+      } else {
         setError(err.response.data?.message || "Registration failed");
-
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // ======================================================
-  // UI
-  // ======================================================
+  /* ======================================================
+  UI
+  ====================================================== */
   return (
     <div className="min-h-screen flex items-center justify-center
                     bg-gradient-to-br from-indigo-500 to-purple-600
@@ -101,44 +106,58 @@ export default function Register() {
 
         <div className="space-y-4">
 
+          {/* ROLE */}
+          <select
+            name="role"
+            value={form.role}
+            onChange={update}
+            className="w-full px-4 py-2 border rounded-lg
+                       bg-white dark:bg-gray-800
+                       border-gray-300 dark:border-gray-700"
+          >
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </select>
+
+          {/* NAME */}
           <input
             name="name"
             placeholder="Full Name"
             value={form.name}
             onChange={update}
-            onKeyDown={e=>e.key==="Enter" && handleRegister()}
-            className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-4 py-2 border rounded-lg"
           />
 
+          {/* EMAIL */}
           <input
             name="email"
             type="email"
             placeholder="Email"
             value={form.email}
             onChange={update}
-            onKeyDown={e=>e.key==="Enter" && handleRegister()}
-            className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-4 py-2 border rounded-lg"
           />
 
+          {/* PHONE */}
+          <input
+            name="phone"
+            placeholder="Phone Number"
+            value={form.phone}
+            onChange={update}
+            className="w-full px-4 py-2 border rounded-lg"
+          />
+
+          {/* PASSWORD */}
           <input
             name="password"
             type="password"
             placeholder="Password"
             value={form.password}
             onChange={update}
-            onKeyDown={e=>e.key==="Enter" && handleRegister()}
-            className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-4 py-2 border rounded-lg"
           />
 
+          {/* BUTTON */}
           <button
             onClick={handleRegister}
             disabled={loading}
@@ -167,12 +186,12 @@ export default function Register() {
           </p>
         )}
 
-        <p className="text-sm text-center text-gray-600 dark:text-gray-400 mt-4">
+        <p className="text-sm text-center mt-4">
           Already have an account?
           <span
-            onClick={()=>navigate("/")}
-            className="text-indigo-600 dark:text-indigo-400
-                       font-semibold cursor-pointer ml-1">
+            onClick={() => navigate("/")}
+            className="text-indigo-600 font-semibold cursor-pointer ml-1"
+          >
             Login
           </span>
         </p>

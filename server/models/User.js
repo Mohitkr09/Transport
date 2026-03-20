@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "Password required"],
     minlength: 6,
-    select: false   // ✅ hide password by default
+    select: false // ✅ hidden by default
   },
 
   phone: {
@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema({
       default: "Point"
     },
     coordinates: {
-      type: [Number], // [lng, lat]
+      type: [Number],
       default: undefined
     }
   },
@@ -105,12 +105,18 @@ INDEXES
 userSchema.index({ location: "2dsphere" });
 
 /* ======================================================
-PASSWORD HASH (FIXED SAFE VERSION)
+PASSWORD HASH (FINAL SAFE VERSION)
 ====================================================== */
 
 userSchema.pre("save", async function (next) {
   try {
+    // 🔥 prevent re-hashing already hashed password
     if (!this.isModified("password")) return next();
+
+    // extra safety (avoid double hashing bug)
+    if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
+      return next();
+    }
 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -125,7 +131,6 @@ userSchema.pre("save", async function (next) {
 METHODS
 ====================================================== */
 
-/* MATCH PASSWORD (SAFE) */
 userSchema.methods.matchPassword = async function (enteredPassword) {
   if (!this.password) {
     throw new Error("Password not loaded. Use .select('+password')");
@@ -133,7 +138,6 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password);
 };
 
-/* UPDATE LOCATION */
 userSchema.methods.updateLocation = function (lat, lng) {
   if (!lat || !lng) return;
 
@@ -145,15 +149,13 @@ userSchema.methods.updateLocation = function (lat, lng) {
   this.lastLocationUpdate = new Date();
 };
 
-/* SET OTP */
 userSchema.methods.setOTP = function (code) {
   this.otp = {
     code,
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 min
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000)
   };
 };
 
-/* VERIFY OTP */
 userSchema.methods.verifyOTP = function (input) {
   if (!this.otp) return false;
 

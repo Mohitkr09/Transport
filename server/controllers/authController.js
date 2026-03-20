@@ -25,6 +25,8 @@ exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
 
+    /* ================= VALIDATION ================= */
+
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
@@ -36,8 +38,9 @@ exports.register = async (req, res) => {
     password = password.trim();
     role = role?.toLowerCase().trim() || "user";
 
+    // 🔒 restrict role abuse
     if (!["user", "admin"].includes(role)) {
-      role = "user"; // 🔒 prevent abuse
+      role = "user";
     }
 
     if (password.length < 6) {
@@ -46,6 +49,8 @@ exports.register = async (req, res) => {
         message: "Password must be at least 6 characters",
       });
     }
+
+    /* ================= EXIST CHECK ================= */
 
     const exists = await User.findOne({
       $or: [{ email }, { phone }],
@@ -58,10 +63,12 @@ exports.register = async (req, res) => {
       });
     }
 
+    /* ================= CREATE USER ================= */
+
     const user = await User.create({
       name,
       email,
-      password, // ✅ schema hashes it
+      password, // hashed via schema
       phone,
       role,
     });
@@ -82,7 +89,8 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("REGISTER ERROR:", err);
+    console.error("🔥 REGISTER ERROR:", err.stack);
+
     res.status(500).json({
       success: false,
       message: err.message,
@@ -97,6 +105,8 @@ LOGIN (FINAL STABLE 🚀)
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
+
+    /* ================= VALIDATION ================= */
 
     if (!email || !password || !role) {
       return res.status(400).json({
@@ -114,14 +124,17 @@ exports.login = async (req, res) => {
     let account = null;
 
     /* ================= DRIVER ================= */
+
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
     }
 
     /* ================= USER / ADMIN ================= */
+
     else if (role === "user" || role === "admin") {
       account = await User.findOne({ email }).select("+password");
 
+      // 🔒 role mismatch protection
       if (account && account.role !== role) {
         return res.status(401).json({
           success: false,
@@ -138,6 +151,7 @@ exports.login = async (req, res) => {
     }
 
     /* ================= ACCOUNT CHECK ================= */
+
     if (!account) {
       return res.status(401).json({
         success: false,
@@ -153,9 +167,8 @@ exports.login = async (req, res) => {
       });
     }
 
-    console.log("📦 ACCOUNT:", account.email);
-
     /* ================= PASSWORD MATCH ================= */
+
     const isMatch = await bcrypt.compare(password, account.password);
 
     if (!isMatch) {
@@ -165,7 +178,8 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= DRIVER CHECK ================= */
+    /* ================= DRIVER APPROVAL ================= */
+
     if (role === "driver" && !account.isApproved) {
       return res.status(403).json({
         success: false,
@@ -173,22 +187,24 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= DRIVER STATUS ================= */
+    /* ================= UPDATE STATUS ================= */
+
     if (role === "driver") {
       account.isOnline = true;
       account.isAvailable = true;
       account.lastActive = new Date();
-      await account.save();
     }
 
-    /* ================= UPDATE LAST LOGIN ================= */
+    // update login time (single save only ✅)
     account.lastLogin = new Date();
     await account.save();
 
     /* ================= TOKEN ================= */
+
     const token = generateToken(account._id, account.role);
 
     /* ================= RESPONSE ================= */
+
     res.json({
       success: true,
       token,
@@ -203,7 +219,7 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 LOGIN CRASH:", err.stack);
+    console.error("🔥 LOGIN ERROR:", err.stack);
 
     res.status(500).json({
       success: false,
@@ -230,6 +246,8 @@ exports.getMe = async (req, res) => {
       user: req.user,
     });
   } catch (err) {
+    console.error("GET ME ERROR:", err);
+
     res.status(500).json({
       success: false,
       message: "Failed to fetch user",
@@ -256,6 +274,8 @@ exports.logout = async (req, res) => {
       message: "Logged out",
     });
   } catch (err) {
+    console.error("LOGOUT ERROR:", err);
+
     res.status(500).json({
       success: false,
       message: "Logout failed",
