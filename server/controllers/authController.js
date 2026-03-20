@@ -18,12 +18,12 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER USER
+REGISTER USER / ADMIN
 ====================================================== */
 
 exports.register = async (req, res) => {
   try {
-    let { name, email, password, phone } = req.body;
+    let { name, email, password, phone, role } = req.body;
 
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
@@ -34,6 +34,11 @@ exports.register = async (req, res) => {
 
     email = email.toLowerCase().trim();
     password = password.trim();
+    role = role?.toLowerCase().trim() || "user";
+
+    if (!["user", "admin"].includes(role)) {
+      role = "user"; // 🔒 prevent abuse
+    }
 
     if (password.length < 6) {
       return res.status(400).json({
@@ -56,25 +61,26 @@ exports.register = async (req, res) => {
     const user = await User.create({
       name,
       email,
-      password, // schema will hash
+      password, // ✅ schema hashes it
       phone,
-      role: "user",
+      role,
     });
 
-    const token = generateToken(user._id, "user");
+    const token = generateToken(user._id, role);
 
     res.status(201).json({
       success: true,
       token,
-      role: "user",
+      role,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: "user",
+        role,
       },
     });
+
   } catch (err) {
     console.error("REGISTER ERROR:", err);
     res.status(500).json({
@@ -85,7 +91,7 @@ exports.register = async (req, res) => {
 };
 
 /* ======================================================
-LOGIN (100% FIXED 🚀)
+LOGIN (FINAL STABLE 🚀)
 ====================================================== */
 
 exports.login = async (req, res) => {
@@ -107,12 +113,12 @@ exports.login = async (req, res) => {
 
     let account = null;
 
-    /* DRIVER */
+    /* ================= DRIVER ================= */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
     }
 
-    /* USER / ADMIN */
+    /* ================= USER / ADMIN ================= */
     else if (role === "user" || role === "admin") {
       account = await User.findOne({ email }).select("+password");
 
@@ -131,7 +137,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ACCOUNT CHECK */
+    /* ================= ACCOUNT CHECK ================= */
     if (!account) {
       return res.status(401).json({
         success: false,
@@ -139,20 +145,18 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* PASSWORD CHECK */
     if (!account.password) {
-      console.error("❌ PASSWORD NOT FOUND IN QUERY");
+      console.error("❌ PASSWORD NOT SELECTED");
       return res.status(500).json({
         success: false,
         message: "Internal server error",
       });
     }
 
-    console.log("📦 ACCOUNT FOUND:", account.email);
+    console.log("📦 ACCOUNT:", account.email);
 
+    /* ================= PASSWORD MATCH ================= */
     const isMatch = await bcrypt.compare(password, account.password);
-
-    console.log("🔑 MATCH:", isMatch);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -161,7 +165,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* DRIVER APPROVAL */
+    /* ================= DRIVER CHECK ================= */
     if (role === "driver" && !account.isApproved) {
       return res.status(403).json({
         success: false,
@@ -169,7 +173,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* DRIVER STATUS */
+    /* ================= DRIVER STATUS ================= */
     if (role === "driver") {
       account.isOnline = true;
       account.isAvailable = true;
@@ -177,9 +181,14 @@ exports.login = async (req, res) => {
       await account.save();
     }
 
-    /* TOKEN */
+    /* ================= UPDATE LAST LOGIN ================= */
+    account.lastLogin = new Date();
+    await account.save();
+
+    /* ================= TOKEN ================= */
     const token = generateToken(account._id, account.role);
 
+    /* ================= RESPONSE ================= */
     res.json({
       success: true,
       token,
