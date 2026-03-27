@@ -6,13 +6,12 @@ DRIVER SCHEMA
 ====================================================== */
 
 const driverSchema = new mongoose.Schema({
-
   /* ================= BASIC INFO ================= */
 
   name: {
     type: String,
     required: [true, "Driver name required"],
-    trim: true
+    trim: true,
   },
 
   email: {
@@ -22,33 +21,33 @@ const driverSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
     index: true,
-    match: [/^\S+@\S+\.\S+$/, "Invalid email"]
+    match: [/^\S+@\S+\.\S+$/, "Invalid email"],
   },
 
   phone: {
     type: String,
     required: [true, "Phone required"],
     trim: true,
-    match: [/^[0-9]{10,15}$/, "Invalid phone number"]
+    match: [/^[0-9]{10,15}$/, "Invalid phone number"],
   },
 
   password: {
     type: String,
     required: [true, "Password required"],
     minlength: 6,
-    select: false
+    select: false,
   },
 
   role: {
     type: String,
-    default: "driver"
+    default: "driver",
   },
 
   /* ================= DOCUMENTS ================= */
 
   documents: {
     license: { type: String, default: null },
-    vehicleRC: { type: String, default: null }
+    vehicleRC: { type: String, default: null },
   },
 
   /* ================= VEHICLE ================= */
@@ -57,28 +56,28 @@ const driverSchema = new mongoose.Schema({
     type: {
       type: String,
       enum: ["bike", "auto", "car"],
-      required: true
+      required: true,
     },
     number: {
       type: String,
       trim: true,
-      uppercase: true
+      uppercase: true,
     },
     model: String,
-    color: String
+    color: String,
   },
 
   /* ================= ADMIN CONTROL ================= */
 
   isApproved: {
     type: Boolean,
-    default: false, // 🔥 keep false (admin approval system)
-    index: true
+    default: false, // keep false (admin approval)
+    index: true,
   },
 
   addedByAdmin: {
     type: Boolean,
-    default: false
+    default: false,
   },
 
   /* ================= STATUS ================= */
@@ -86,20 +85,20 @@ const driverSchema = new mongoose.Schema({
   isOnline: {
     type: Boolean,
     default: false,
-    index: true
+    index: true,
   },
 
   isAvailable: {
     type: Boolean,
     default: false,
-    index: true
+    index: true,
   },
 
   currentRide: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Ride",
     default: null,
-    index: true
+    index: true,
   },
 
   /* ================= REALTIME ================= */
@@ -107,12 +106,12 @@ const driverSchema = new mongoose.Schema({
   socketId: {
     type: String,
     default: null,
-    index: true
+    index: true,
   },
 
   lastActive: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
 
   /* ================= LOCATION ================= */
@@ -121,7 +120,7 @@ const driverSchema = new mongoose.Schema({
     type: {
       type: String,
       enum: ["Point"],
-      default: "Point"
+      default: "Point",
     },
     coordinates: {
       type: [Number],
@@ -137,14 +136,14 @@ const driverSchema = new mongoose.Schema({
             val[1] <= 90
           );
         },
-        message: "Invalid coordinates"
-      }
-    }
+        message: "Invalid coordinates",
+      },
+    },
   },
 
   lastLocationUpdate: {
     type: Date,
-    default: null
+    default: null,
   },
 
   /* ================= PERFORMANCE ================= */
@@ -153,26 +152,25 @@ const driverSchema = new mongoose.Schema({
     type: Number,
     default: 5,
     min: 1,
-    max: 5
+    max: 5,
   },
 
   totalRides: {
     type: Number,
-    default: 0
+    default: 0,
   },
 
   cancelledRides: {
     type: Number,
-    default: 0
+    default: 0,
   },
 
   earnings: {
     type: Number,
-    default: 0
-  }
-
+    default: 0,
+  },
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
 /* ======================================================
@@ -185,24 +183,25 @@ driverSchema.index({
   isApproved: 1,
   isOnline: 1,
   isAvailable: 1,
-  "vehicle.type": 1
+  "vehicle.type": 1,
 });
 
 /* ======================================================
-PASSWORD HASH (FIXED + SAFE)
+PASSWORD HASH (FINAL FIX)
 ====================================================== */
 
 driverSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-
-  // prevent double hashing
-  if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
-    return next();
-  }
-
   try {
+    if (!this.isModified("password")) return next();
+
+    // prevent double hashing
+    if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
+      return next();
+    }
+
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password.trim(), salt);
+
     next();
   } catch (err) {
     next(err);
@@ -224,7 +223,7 @@ driverSchema.pre("save", function (next) {
 METHODS
 ====================================================== */
 
-/* PASSWORD (USE THIS IN LOGIN) */
+/* PASSWORD */
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   if (!this.password) {
     throw new Error("Password not selected. Use .select('+password')");
@@ -238,7 +237,7 @@ driverSchema.methods.updateLocation = function (lat, lng) {
 
   this.location = {
     type: "Point",
-    coordinates: [Number(lng), Number(lat)]
+    coordinates: [Number(lng), Number(lat)],
   };
 
   this.lastLocationUpdate = new Date();
@@ -291,7 +290,7 @@ driverSchema.statics.findNearbyDrivers = async function ({
   lng,
   vehicleType,
   radius = 5000,
-  limit = 10
+  limit = 10,
 }) {
   if (lat === undefined || lng === undefined) {
     throw new Error("Location required");
@@ -306,11 +305,11 @@ driverSchema.statics.findNearbyDrivers = async function ({
       $near: {
         $geometry: {
           type: "Point",
-          coordinates: [Number(lng), Number(lat)]
+          coordinates: [Number(lng), Number(lat)],
         },
-        $maxDistance: radius
-      }
-    }
+        $maxDistance: radius,
+      },
+    },
   })
     .sort({ rating: -1, totalRides: -1 })
     .limit(limit);
