@@ -98,8 +98,6 @@ exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
 
-    /* ================= VALIDATION ================= */
-
     if (!email || !password || !role) {
       return res.status(400).json({
         success: false,
@@ -120,9 +118,7 @@ exports.login = async (req, res) => {
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
 
-      if (account) {
-        account.role = "driver"; // ✅ FIX (important)
-      }
+      if (account) account.role = "driver";
     }
 
     /* ================= USER / ADMIN ================= */
@@ -145,7 +141,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= ACCOUNT CHECK ================= */
+    /* ================= CHECK ================= */
 
     if (!account) {
       return res.status(401).json({
@@ -154,27 +150,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    if (!account.password) {
-      console.error("❌ Password missing in DB");
-      return res.status(500).json({
-        success: false,
-        message: "Internal error",
-      });
-    }
+    /* ================= PASSWORD ================= */
 
-    /* ================= PASSWORD MATCH ================= */
-
-    let isMatch = false;
-
-    try {
-      isMatch = await bcrypt.compare(password, account.password);
-    } catch (err) {
-      console.error("❌ BCRYPT ERROR:", err);
-      return res.status(500).json({
-        success: false,
-        message: "Password compare failed",
-      });
-    }
+    const isMatch = await bcrypt.compare(password, account.password);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -192,24 +170,24 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= UPDATE STATUS ================= */
-
-    account.lastLogin = new Date();
+    /* ================= UPDATE WITHOUT SAVE (🔥 FIX) ================= */
 
     if (role === "driver") {
-      account.isOnline = true;
-      account.isAvailable = true;
-      account.lastActive = new Date();
+      await Driver.findByIdAndUpdate(account._id, {
+        isOnline: true,
+        isAvailable: true,
+        lastActive: new Date(),
+        lastLogin: new Date(),
+      });
+    } else {
+      await User.findByIdAndUpdate(account._id, {
+        lastLogin: new Date(),
+      });
     }
-
-    await account.save();
 
     /* ================= TOKEN ================= */
 
-    const token = generateToken(
-      account._id,
-      account.role || role // ✅ fallback fix
-    );
+    const token = generateToken(account._id, account.role || role);
 
     /* ================= RESPONSE ================= */
 
