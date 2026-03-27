@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
 import {
   MapPin,
-  CheckCircle,
-  XCircle,
   Navigation,
   PlayCircle,
   StopCircle
@@ -20,9 +18,7 @@ export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
 
-  /* ======================================================
-  AUTH CHECK
-  ====================================================== */
+  /* ================= AUTH CHECK ================= */
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -33,27 +29,19 @@ export default function DriverDashboard() {
     }
   }, []);
 
-  /* ======================================================
-  GET PROFILE
-  ====================================================== */
+  /* ================= PROFILE ================= */
 
   const loadProfile = async () => {
     try {
-      const res = await api.get("/driver/me", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-      });
-
+      const res = await api.get("/driver/me");
       setProfile(res.data.driver);
       setOnline(res.data.driver?.isOnline);
-
     } catch (err) {
-      console.log("❌ Profile fetch failed");
+      console.log("❌ Profile fetch failed", err);
     }
   };
 
-  /* ======================================================
-  LIVE LOCATION (REAL-TIME)
-  ====================================================== */
+  /* ================= LOCATION ================= */
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -61,18 +49,12 @@ export default function DriverDashboard() {
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
         try {
-          await api.put(
-            "/driver/location",
-            {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude
-            },
-            {
-              headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-            }
-          );
+          await api.put("/driver/location", {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+          });
         } catch (err) {
-          console.log("❌ Location update failed");
+          console.log("❌ Location update failed", err);
         }
       },
       (err) => console.log(err),
@@ -82,39 +64,24 @@ export default function DriverDashboard() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  /* ======================================================
-  FETCH RIDES
-  ====================================================== */
+  /* ================= FETCH RIDES ================= */
 
   const fetchRides = async () => {
     try {
-      const res = await api.get("/ride/nearby", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-      });
-
+      const res = await api.get("/driver/rides/nearby"); // ✅ FIXED
       setRides(res.data?.rides || []);
-
     } catch (err) {
-      console.log("❌ Ride fetch failed");
+      console.log("❌ Ride fetch failed", err);
     }
   };
 
-  /* ======================================================
-  ACCEPT RIDE
-  ====================================================== */
+  /* ================= ACCEPT ================= */
 
   const acceptRide = async (id) => {
     try {
       setLoadingId(id);
 
-      const res = await api.put(
-        `/driver/ride/${id}/accept`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-        }
-      );
-
+      const res = await api.put(`/driver/ride/${id}/accept`); // ✅ FIXED
       setActiveRide(res.data.ride);
       setRides([]);
 
@@ -125,97 +92,56 @@ export default function DriverDashboard() {
     }
   };
 
-  /* ======================================================
-  REJECT RIDE
-  ====================================================== */
+  /* ================= REJECT ================= */
 
   const rejectRide = async (id) => {
     try {
-      await api.put(
-        `/driver/ride/${id}/reject`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-        }
-      );
-
-      setRides((prev) => prev.filter((r) => r._id !== id));
-
-    } catch (err) {
+      await api.put(`/driver/ride/${id}/reject`); // ✅ FIXED
+      setRides(prev => prev.filter(r => r._id !== id));
+    } catch {
       alert("Failed to reject ride");
     }
   };
 
-  /* ======================================================
-  START RIDE
-  ====================================================== */
+  /* ================= START ================= */
 
   const startRide = async () => {
     try {
-      const res = await api.put(
-        `/driver/ride/${activeRide._id}/start`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-        }
-      );
-
+      const res = await api.put(`/driver/ride/${activeRide._id}/start`); // ✅ FIXED
       setActiveRide(res.data.ride);
-
-    } catch (err) {
+    } catch {
       alert("Failed to start ride");
     }
   };
 
-  /* ======================================================
-  COMPLETE RIDE
-  ====================================================== */
+  /* ================= COMPLETE ================= */
 
   const completeRide = async () => {
     try {
-      await api.put(
-        `/driver/ride/${activeRide._id}/complete`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-        }
-      );
-
+      await api.put(`/driver/ride/${activeRide._id}/complete`); // ✅ FIXED
       alert("Ride completed 🎉");
       setActiveRide(null);
       fetchRides();
-
-    } catch (err) {
+    } catch {
       alert("Failed to complete ride");
     }
   };
 
-  /* ======================================================
-  TOGGLE ONLINE
-  ====================================================== */
+  /* ================= ONLINE ================= */
 
   const toggleOnline = async () => {
     try {
       const newStatus = !online;
 
-      await api.put(
-        "/driver/online",
-        { isOnline: newStatus },
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-        }
-      );
-
+      await api.put("/driver/online", { isOnline: newStatus });
       setOnline(newStatus);
 
-    } catch (err) {
+    } catch {
       alert("Status update failed");
     }
   };
 
-  /* ======================================================
-  INITIAL LOAD
-  ====================================================== */
+  /* ================= INIT ================= */
 
   useEffect(() => {
     loadProfile();
@@ -225,9 +151,7 @@ export default function DriverDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  /* ======================================================
-  UI
-  ====================================================== */
+  /* ================= UI ================= */
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black p-6">
