@@ -2,9 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-/* ======================================================
-API CONFIG
-====================================================== */
+/* ================= API ================= */
 
 const BASE =
   import.meta.env.VITE_API_URL ||
@@ -17,9 +15,7 @@ const api = axios.create({
   timeout: 15000,
 });
 
-/* ======================================================
-LOGIN COMPONENT
-====================================================== */
+/* ================= COMPONENT ================= */
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,33 +23,27 @@ export default function Login() {
   const [form, setForm] = useState({
     email: "",
     password: "",
-    role: "user", // ✅ default
+    role: "user",
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  /* ======================================================
-  AUTO REDIRECT
-  ====================================================== */
-
+  /* ===== AUTO REDIRECT ===== */
   useEffect(() => {
     try {
       const token = localStorage.getItem("token");
-      const user = JSON.parse(localStorage.getItem("user") || "null");
+      const role = localStorage.getItem("role");
 
-      if (!token || !user?.role) return;
-
-      redirectUser(user.role);
+      if (token && role) {
+        redirectUser(role);
+      }
     } catch (err) {
-      console.error("Auto redirect error:", err);
+      console.error(err);
     }
   }, []);
 
-  /* ======================================================
-  REDIRECT FUNCTION (FIXED 🔥)
-  ====================================================== */
-
+  /* ===== REDIRECT ===== */
   const redirectUser = (role) => {
     const r = role.toLowerCase();
 
@@ -62,18 +52,12 @@ export default function Login() {
     else navigate("/book");
   };
 
-  /* ======================================================
-  INPUT HANDLER
-  ====================================================== */
-
+  /* ===== INPUT ===== */
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  /* ======================================================
-  LOGIN HANDLER
-  ====================================================== */
-
+  /* ===== LOGIN ===== */
   const handleLogin = async () => {
     if (loading) return;
 
@@ -90,78 +74,57 @@ export default function Login() {
       setLoading(true);
       setError("");
 
-      const payload = { email, password, role };
-
-      console.log("📤 Sending payload:", payload);
-
-      const res = await api.post("/auth/login", payload);
+      const res = await api.post("/auth/login", {
+        email,
+        password,
+        role,
+      });
 
       const data = res.data;
 
-      console.log("✅ LOGIN RESPONSE:", data);
-
-      if (!data?.token || !data?.role) {
+      if (!data?.token) {
         throw new Error("Invalid response");
       }
 
-      const finalRole = data.role.toLowerCase();
+      const finalRole = (data.role || role).toLowerCase();
 
-      /* ================= SAVE ================= */
-
-      localStorage.clear();
-
+      /* ===== SAVE ===== */
       localStorage.setItem("token", data.token);
-      localStorage.setItem(
-        "user",
-        JSON.stringify(data.user || { email, role: finalRole })
-      );
       localStorage.setItem("role", finalRole);
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-      /* ================= REDIRECT ================= */
-
+      /* ===== REDIRECT ===== */
       redirectUser(finalRole);
 
     } catch (err) {
-      console.error("❌ Login error:", err);
+      console.error(err);
 
       if (err.response) {
         const status = err.response.status;
-        const message = err.response?.data?.message;
 
-        if (status === 400) setError(message || "Invalid request");
-        else if (status === 401) setError("Invalid email or password");
+        if (status === 401) setError("Invalid email or password");
         else if (status === 403) setError("Driver not approved");
-        else setError(message || "Login failed");
-      } else if (err.code === "ECONNABORTED") {
-        setError("Server timeout");
+        else setError(err.response.data?.message || "Login failed");
       } else {
-        setError("Server unreachable");
+        setError("Server not reachable");
       }
+
     } finally {
       setLoading(false);
     }
   };
 
-  /* ======================================================
-  ENTER KEY
-  ====================================================== */
-
+  /* ===== ENTER KEY ===== */
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
   };
 
-  /* ======================================================
-  UI
-  ====================================================== */
-
+  /* ===== UI ===== */
   return (
     <div className="min-h-screen flex items-center justify-center
-    bg-gradient-to-br from-indigo-500 to-purple-600
-    dark:from-gray-900 dark:to-gray-800">
+    bg-gradient-to-br from-indigo-500 to-purple-600">
 
-      <div className="bg-white dark:bg-gray-900
-      p-8 rounded-2xl shadow-xl w-[350px]
-      text-gray-800 dark:text-gray-100">
+      <div className="bg-white p-8 rounded-2xl shadow-xl w-[350px]">
 
         <h2 className="text-2xl font-bold mb-6 text-center">
           Login
@@ -169,20 +132,17 @@ export default function Login() {
 
         <div className="space-y-4">
 
-          {/* ROLE */}
           <select
             name="role"
             value={form.role}
             onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg
-            dark:bg-gray-800 dark:border-gray-700"
+            className="w-full px-4 py-2 border rounded-lg"
           >
             <option value="user">User</option>
             <option value="driver">Driver</option>
             <option value="admin">Admin</option>
           </select>
 
-          {/* EMAIL */}
           <input
             name="email"
             type="email"
@@ -190,11 +150,9 @@ export default function Login() {
             value={form.email}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-lg
-            dark:bg-gray-800 dark:border-gray-700"
+            className="w-full px-4 py-2 border rounded-lg"
           />
 
-          {/* PASSWORD */}
           <input
             name="password"
             type="password"
@@ -202,27 +160,23 @@ export default function Login() {
             value={form.password}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-lg
-            dark:bg-gray-800 dark:border-gray-700"
+            className="w-full px-4 py-2 border rounded-lg"
           />
 
-          {/* BUTTON */}
           <button
             onClick={handleLogin}
             disabled={loading}
-            className={`w-full py-2 rounded-lg text-white transition
-              ${
-                loading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-indigo-600 hover:bg-indigo-700"
-              }`}
+            className={`w-full py-2 rounded-lg text-white ${
+              loading
+                ? "bg-gray-400"
+                : "bg-indigo-600 hover:bg-indigo-700"
+            }`}
           >
             {loading ? "Logging in..." : "Login"}
           </button>
 
         </div>
 
-        {/* ERROR */}
         {error && (
           <p className="text-red-500 text-sm mt-3 text-center">
             {error}

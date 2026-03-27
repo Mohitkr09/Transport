@@ -25,8 +25,6 @@ exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
 
-    /* ================= VALIDATION ================= */
-
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
@@ -38,7 +36,6 @@ exports.register = async (req, res) => {
     password = password.trim();
     role = role?.toLowerCase().trim() || "user";
 
-    // 🔒 restrict role abuse
     if (!["user", "admin"].includes(role)) {
       role = "user";
     }
@@ -49,8 +46,6 @@ exports.register = async (req, res) => {
         message: "Password must be at least 6 characters",
       });
     }
-
-    /* ================= EXIST CHECK ================= */
 
     const exists = await User.findOne({
       $or: [{ email }, { phone }],
@@ -63,12 +58,10 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* ================= CREATE USER ================= */
-
     const user = await User.create({
       name,
       email,
-      password, // hashed via schema
+      password,
       phone,
       role,
     });
@@ -89,17 +82,16 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 REGISTER ERROR:", err.stack);
-
+    console.error("🔥 REGISTER ERROR:", err);
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Server error",
     });
   }
 };
 
 /* ======================================================
-LOGIN (FINAL STABLE 🚀)
+LOGIN (FIXED 🚀)
 ====================================================== */
 
 exports.login = async (req, res) => {
@@ -127,6 +119,10 @@ exports.login = async (req, res) => {
 
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
+
+      if (account) {
+        account.role = "driver"; // ✅ FIX (important)
+      }
     }
 
     /* ================= USER / ADMIN ================= */
@@ -134,7 +130,6 @@ exports.login = async (req, res) => {
     else if (role === "user" || role === "admin") {
       account = await User.findOne({ email }).select("+password");
 
-      // 🔒 role mismatch protection
       if (account && account.role !== role) {
         return res.status(401).json({
           success: false,
@@ -160,16 +155,26 @@ exports.login = async (req, res) => {
     }
 
     if (!account.password) {
-      console.error("❌ PASSWORD NOT SELECTED");
+      console.error("❌ Password missing in DB");
       return res.status(500).json({
         success: false,
-        message: "Internal server error",
+        message: "Internal error",
       });
     }
 
     /* ================= PASSWORD MATCH ================= */
 
-    const isMatch = await bcrypt.compare(password, account.password);
+    let isMatch = false;
+
+    try {
+      isMatch = await bcrypt.compare(password, account.password);
+    } catch (err) {
+      console.error("❌ BCRYPT ERROR:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Password compare failed",
+      });
+    }
 
     if (!isMatch) {
       return res.status(401).json({
@@ -189,41 +194,44 @@ exports.login = async (req, res) => {
 
     /* ================= UPDATE STATUS ================= */
 
+    account.lastLogin = new Date();
+
     if (role === "driver") {
       account.isOnline = true;
       account.isAvailable = true;
       account.lastActive = new Date();
     }
 
-    // update login time (single save only ✅)
-    account.lastLogin = new Date();
     await account.save();
 
     /* ================= TOKEN ================= */
 
-    const token = generateToken(account._id, account.role);
+    const token = generateToken(
+      account._id,
+      account.role || role // ✅ fallback fix
+    );
 
     /* ================= RESPONSE ================= */
 
     res.json({
       success: true,
       token,
-      role: account.role,
+      role: account.role || role,
       user: {
         id: account._id,
         name: account.name,
         email: account.email,
         phone: account.phone || "",
-        role: account.role,
+        role: account.role || role,
       },
     });
 
   } catch (err) {
-    console.error("🔥 LOGIN ERROR:", err.stack);
+    console.error("🔥 LOGIN ERROR:", err);
 
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Internal Server Error",
     });
   }
 };

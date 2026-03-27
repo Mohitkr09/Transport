@@ -72,7 +72,7 @@ const driverSchema = new mongoose.Schema({
 
   isApproved: {
     type: Boolean,
-    default: false,
+    default: false, // 🔥 keep false (admin approval system)
     index: true
   },
 
@@ -115,7 +115,7 @@ const driverSchema = new mongoose.Schema({
     default: Date.now
   },
 
-  /* ================= LOCATION (FINAL FIX) ================= */
+  /* ================= LOCATION ================= */
 
   location: {
     type: {
@@ -189,35 +189,42 @@ driverSchema.index({
 });
 
 /* ======================================================
-PASSWORD HASH (SAFE)
+PASSWORD HASH (FIXED + SAFE)
 ====================================================== */
 
-driverSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+driverSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
 
+  // prevent double hashing
   if (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) {
-    return; // ✅ prevent double hashing
+    return next();
   }
 
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password.trim(), salt);
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password.trim(), salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 /* ======================================================
 STATUS CONTROL
 ====================================================== */
 
-driverSchema.pre("save", function () {
+driverSchema.pre("save", function (next) {
   if (!this.isOnline) {
     this.isAvailable = false;
   }
+  next();
 });
 
 /* ======================================================
 METHODS
 ====================================================== */
 
-/* PASSWORD */
+/* PASSWORD (USE THIS IN LOGIN) */
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   if (!this.password) {
     throw new Error("Password not selected. Use .select('+password')");
@@ -276,7 +283,7 @@ driverSchema.methods.cancelRide = function () {
 };
 
 /* ======================================================
-NEARBY DRIVER SEARCH (SAFE)
+NEARBY DRIVER SEARCH
 ====================================================== */
 
 driverSchema.statics.findNearbyDrivers = async function ({
