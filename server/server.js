@@ -11,8 +11,6 @@ const compression = require("compression");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 
-const root = __dirname;
-
 /* ======================================================
 IMPORT ROUTES
 ====================================================== */
@@ -31,7 +29,6 @@ const notificationRoutes = require("./routes/notificationRoutes");
 MODELS
 ====================================================== */
 
-const Ride = require("./models/Ride");
 const Driver = require("./models/Driver");
 
 /* ======================================================
@@ -76,16 +73,16 @@ const app = express();
 app.set("trust proxy", 1);
 
 /* ======================================================
-GLOBAL DEBUG (IMPORTANT 🔥)
+GLOBAL DEBUG
 ====================================================== */
 
 app.use((req, res, next) => {
-  console.log("➡️", req.method, req.url);
+  console.log(`➡️ ${req.method} ${req.originalUrl}`);
   next();
 });
 
 /* ======================================================
-BODY PARSER (MOVE UP 🔥)
+BODY PARSER
 ====================================================== */
 
 app.use(express.json());
@@ -104,7 +101,7 @@ app.use(
 app.use(compression());
 
 /* ======================================================
-CORS (SIMPLIFIED 🔥)
+CORS
 ====================================================== */
 
 app.use(
@@ -121,7 +118,13 @@ LOGGER
 app.use(morgan("dev"));
 
 /* ======================================================
-WEBHOOK (AFTER JSON FIX)
+STATIC FILES
+====================================================== */
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+/* ======================================================
+WEBHOOK (RAW BODY)
 ====================================================== */
 
 app.use(
@@ -131,13 +134,7 @@ app.use(
 );
 
 /* ======================================================
-STATIC
-====================================================== */
-
-app.use("/uploads", express.static(path.join(root, "uploads")));
-
-/* ======================================================
-ROUTES
+API ROUTES
 ====================================================== */
 
 app.use("/api/auth", authRoutes);
@@ -150,7 +147,7 @@ app.use("/api/location", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 /* ======================================================
-HEALTH
+HEALTH CHECK
 ====================================================== */
 
 app.get("/health", (req, res) => {
@@ -161,7 +158,7 @@ app.get("/health", (req, res) => {
 });
 
 /* ======================================================
-404
+404 HANDLER
 ====================================================== */
 
 app.use((req, res) => {
@@ -176,7 +173,8 @@ ERROR HANDLER
 ====================================================== */
 
 app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", err);
+  console.error("🔥 ERROR:", err.message);
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal Server Error",
@@ -208,13 +206,16 @@ SOCKET AUTH
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error("No token"));
+
+    if (!token) {
+      return next(new Error("No token"));
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = decoded;
 
     next();
-  } catch {
+  } catch (err) {
     next(new Error("Unauthorized"));
   }
 });
@@ -232,18 +233,22 @@ io.on("connection", (socket) => {
   if (userId) socket.join(userId);
 
   socket.on("disconnect", async () => {
-    if (role === "driver") {
-      await Driver.findByIdAndUpdate(userId, {
-        socketId: null,
-        isOnline: false,
-        isAvailable: false,
-      });
+    try {
+      if (role === "driver") {
+        await Driver.findByIdAndUpdate(userId, {
+          socketId: null,
+          isOnline: false,
+          isAvailable: false,
+        });
+      }
+    } catch (err) {
+      console.log("⚠️ Socket cleanup error");
     }
   });
 });
 
 /* ======================================================
-START
+START SERVER
 ====================================================== */
 
 const PORT = process.env.PORT || 5000;
