@@ -10,18 +10,16 @@ if (!BASE) {
   throw new Error("❌ VITE_API_URL missing");
 }
 
-/* remove trailing slash */
-const BASE_URL = BASE.replace(/\/$/, "");
-
-/* remove /api for root calls (health etc.) */
-const ROOT_URL = BASE_URL.replace(/\/api$/, "");
+/* normalize URL */
+const BASE_URL = BASE.replace(/\/$/, ""); // remove trailing slash
+const ROOT_URL = BASE_URL.replace(/\/api$/, ""); // remove /api for health
 
 /* ======================================================
 AXIOS INSTANCE
 ====================================================== */
 
 const api = axios.create({
-  baseURL: BASE_URL, // ✅ includes /api
+  baseURL: BASE_URL, // ✅ MUST include /api
   timeout: 20000,
   headers: {
     "Content-Type": "application/json"
@@ -39,6 +37,11 @@ api.interceptors.request.use(
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    /* 🔥 FIX: prevent double /api */
+    if (config.url?.startsWith("/api")) {
+      config.url = config.url.replace(/^\/api/, "");
     }
 
     console.log(
@@ -82,14 +85,18 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    /* ================= RENDER WAKEUP FIX ================= */
+    /* ================= WAKEUP FIX ================= */
 
-    if (error.response?.status === 404 && original && !original._retry) {
+    if (
+      error.response?.status === 404 &&
+      original &&
+      !original._retry
+    ) {
 
       original._retry = true;
 
       try {
-        // ✅ FIXED (NO /api/api)
+        /* 🔥 FIX: correct health endpoint */
         await fetch(`${ROOT_URL}/health`);
       } catch {}
 
@@ -119,5 +126,14 @@ export const logout = () => {
   localStorage.clear();
   window.location.href = "/login";
 };
+
+/* ======================================================
+SAFE API HELPERS (RECOMMENDED)
+====================================================== */
+
+export const get = (url, config = {}) => api.get(url, config);
+export const post = (url, data, config = {}) => api.post(url, data, config);
+export const put = (url, data, config = {}) => api.put(url, data, config);
+export const del = (url, config = {}) => api.delete(url, config);
 
 export default api;
