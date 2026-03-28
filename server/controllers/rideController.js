@@ -4,7 +4,6 @@ const Driver = require("../models/Driver");
 /* ======================================================
 FARE CALCULATOR
 ====================================================== */
-
 const calculateFare = (vehicleType, distanceKm = 5) => {
   const rates = { bike: 10, auto: 15, car: 20 };
   return Math.round(distanceKm * (rates[vehicleType] || 20));
@@ -13,7 +12,6 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 /* ======================================================
 SOCKET NOTIFICATION
 ====================================================== */
-
 const notify = (userId, payload) => {
   if (!global.io || !userId) return;
 
@@ -27,14 +25,12 @@ const notify = (userId, payload) => {
 /* ======================================================
 GET NEARBY DRIVERS
 ====================================================== */
-
 const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
   return Driver.find({
     isApproved: true,
     isOnline: true,
     isAvailable: true,
     "vehicle.type": vehicleType,
-
     location: {
       $near: {
         $geometry: {
@@ -44,21 +40,17 @@ const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
         $maxDistance: 8000
       }
     }
-  }).select("_id name socketId");
+  }).select("_id name");
 };
 
 /* ======================================================
-CREATE RIDE (UPDATED)
+CREATE RIDE (REAL-TIME)
 ====================================================== */
-
 exports.createRide = async (req, res) => {
   try {
-
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
     const fare = calculateFare(vehicleType, distance || 5);
-
-    /* ✅ CREATE AS PENDING (NOT ASSIGNED) */
 
     const ride = await Ride.create({
       user: req.user._id,
@@ -83,29 +75,25 @@ exports.createRide = async (req, res) => {
       distanceKm: distance || 5,
       fare,
 
-      status: "pending", // 🔥 IMPORTANT
+      status: "pending",
       requestedAt: new Date()
     });
 
-    /* ======================================================
-    SEND TO ALL NEARBY DRIVERS
-    ====================================================== */
-
+    /* 🔥 FIND NEARBY DRIVERS */
     const drivers = await getNearbyDrivers({
       lat: pickupLocation.lat,
       lng: pickupLocation.lng,
       vehicleType
     });
 
+    /* 🔥 SEND REAL-TIME TO DRIVERS */
     drivers.forEach(driver => {
-      if (driver.socketId) {
-        global.io.to(driver.socketId).emit("newRideRequest", {
-          rideId: ride._id,
-          pickup: pickupLocation.address,
-          drop: dropLocation.address,
-          fare
-        });
-      }
+      global.io.to(driver._id.toString()).emit("newRideRequest", {
+        _id: ride._id,
+        pickup: pickupLocation.address,
+        destination: dropLocation.address,
+        fare
+      });
     });
 
     notify(req.user._id, {
@@ -125,17 +113,18 @@ exports.createRide = async (req, res) => {
 };
 
 /* ======================================================
-GET NEARBY RIDES (FOR DASHBOARD)
+GET NEARBY RIDES (FILTERED)
 ====================================================== */
-
 exports.getNearbyRides = async (req, res) => {
   try {
-
     const driver = await Driver.findById(req.user.id);
 
     const rides = await Ride.find({
       status: "pending",
+      driver: null,
       vehicleType: driver.vehicle.type,
+
+      rejectedDrivers: { $ne: req.user.id }, // ✅ IMPORTANT
 
       "pickupLocation.location": {
         $near: {
@@ -159,30 +148,31 @@ exports.getNearbyRides = async (req, res) => {
 };
 
 /* ======================================================
-ACCEPT RIDE (UPDATED)
+ACCEPT RIDE (FIXED 🔥)
 ====================================================== */
-
 exports.acceptRide = async (req, res) => {
   try {
 
-    const ride = await Ride.findById(req.params.id);
+    const ride = await Ride.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: "pending",
+        driver: null
+      },
+      {
+        status: "accepted",
+        driver: req.user.id,
+        acceptedAt: new Date()
+      },
+      { new: true }
+    );
 
-    if (!ride || ride.status !== "pending") {
+    if (!ride) {
       return res.status(400).json({
         success: false,
         message: "Ride already taken"
       });
     }
-
-    /* ✅ ASSIGN DRIVER */
-
-    ride.status = "accepted";
-    ride.driver = req.user.id;
-    ride.acceptedAt = new Date();
-
-    await ride.save();
-
-    /* ✅ UPDATE DRIVER */
 
     await Driver.findByIdAndUpdate(req.user.id, {
       isAvailable: false,
@@ -205,12 +195,40 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* ======================================================
-REJECT RIDE
+REJECT RIDE (FIXED)
 ====================================================== */
-
 exports.rejectRide = async (req, res) => {
   try {
+
+    await Ride.findByIdAndUpdate(req.params.id, {
+      $addToSet: { rejectedDrivers: req.user.id }
+    });
+
     res.json({ success: true });
+
+  } catch {
+    res.status(500).json({ success: false });
+  }
+};
+
+/* ======================================================
+START RIDE
+====================================================== */
+exports.startRide = async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.id);
+
+    if (ride.driver.toString() !== req.user.id) {
+      return res.status(403).json({ success: false });
+    }
+
+    ride.status = "ongoing";
+    ride.startedAt = new Date();
+
+    await ride.save();
+
+    res.json({ success: true, ride });
+
   } catch {
     res.status(500).json({ success: false });
   }
@@ -219,7 +237,6 @@ exports.rejectRide = async (req, res) => {
 /* ======================================================
 COMPLETE RIDE
 ====================================================== */
-
 exports.completeRide = async (req, res) => {
   try {
 

@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
+import { io } from "socket.io-client";
 import {
   MapPin,
   Navigation,
   PlayCircle,
   StopCircle
 } from "lucide-react";
+
+/* ================= SOCKET ================= */
+const socket = io("http://localhost:5000", {
+  auth: {
+    token: localStorage.getItem("token")
+  }
+});
 
 export default function DriverDashboard() {
 
@@ -18,8 +26,7 @@ export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
 
-  /* ================= AUTH CHECK ================= */
-
+  /* ================= AUTH ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
@@ -30,19 +37,37 @@ export default function DriverDashboard() {
   }, []);
 
   /* ================= PROFILE ================= */
-
   const loadProfile = async () => {
     try {
       const res = await api.get("/driver/me");
       setProfile(res.data.driver);
       setOnline(res.data.driver?.isOnline);
     } catch (err) {
-      console.log("❌ Profile fetch failed", err);
+      console.log("❌ Profile error", err);
     }
   };
 
-  /* ================= LOCATION ================= */
+  /* ================= SOCKET CONNECT ================= */
+  useEffect(() => {
+    if (profile?._id) {
+      socket.emit("driverOnline", profile._id);
+    }
+  }, [profile]);
 
+  /* ================= RECEIVE RIDES ================= */
+  useEffect(() => {
+
+    socket.on("newRideRequest", (ride) => {
+      console.log("🚗 New Ride:", ride);
+
+      setRides(prev => [ride, ...prev]);
+    });
+
+    return () => socket.off("newRideRequest");
+
+  }, []);
+
+  /* ================= LOCATION ================= */
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -54,7 +79,7 @@ export default function DriverDashboard() {
             lng: pos.coords.longitude
           });
         } catch (err) {
-          console.log("❌ Location update failed", err);
+          console.log("❌ Location error", err);
         }
       },
       (err) => console.log(err),
@@ -64,95 +89,80 @@ export default function DriverDashboard() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  /* ================= FETCH RIDES ================= */
-
-  const fetchRides = async () => {
-    try {
-      const res = await api.get("/driver/rides/nearby"); // ✅ FIXED
-      setRides(res.data?.rides || []);
-    } catch (err) {
-      console.log("❌ Ride fetch failed", err);
-    }
-  };
+  /* ================= INITIAL LOAD ================= */
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
   /* ================= ACCEPT ================= */
-
   const acceptRide = async (id) => {
     try {
       setLoadingId(id);
 
-      const res = await api.put(`/driver/ride/${id}/accept`); // ✅ FIXED
+      const res = await api.put(`/ride/${id}/accept`);
       setActiveRide(res.data.ride);
+
+      /* REMOVE FROM LIST */
       setRides([]);
 
     } catch (err) {
-      alert("Failed to accept ride");
+      alert("Ride already taken");
     } finally {
       setLoadingId(null);
     }
   };
 
   /* ================= REJECT ================= */
-
   const rejectRide = async (id) => {
     try {
-      await api.put(`/driver/ride/${id}/reject`); // ✅ FIXED
+      await api.put(`/ride/${id}/reject`);
+
       setRides(prev => prev.filter(r => r._id !== id));
+
     } catch {
-      alert("Failed to reject ride");
+      alert("Reject failed");
     }
   };
 
   /* ================= START ================= */
-
   const startRide = async () => {
     try {
-      const res = await api.put(`/driver/ride/${activeRide._id}/start`); // ✅ FIXED
+      const res = await api.put(`/ride/${activeRide._id}/start`);
       setActiveRide(res.data.ride);
     } catch {
-      alert("Failed to start ride");
+      alert("Start failed");
     }
   };
 
   /* ================= COMPLETE ================= */
-
   const completeRide = async () => {
     try {
-      await api.put(`/driver/ride/${activeRide._id}/complete`); // ✅ FIXED
-      alert("Ride completed 🎉");
+      await api.put(`/ride/${activeRide._id}/complete`);
+
+      alert("Ride Completed 🎉");
+
       setActiveRide(null);
-      fetchRides();
+
     } catch {
-      alert("Failed to complete ride");
+      alert("Complete failed");
     }
   };
 
   /* ================= ONLINE ================= */
-
   const toggleOnline = async () => {
     try {
       const newStatus = !online;
 
       await api.put("/driver/online", { isOnline: newStatus });
+
       setOnline(newStatus);
 
     } catch {
-      alert("Status update failed");
+      alert("Failed");
     }
   };
 
-  /* ================= INIT ================= */
-
-  useEffect(() => {
-    loadProfile();
-    fetchRides();
-
-    const interval = setInterval(fetchRides, 8000);
-    return () => clearInterval(interval);
-  }, []);
-
   /* ================= UI ================= */
-
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black p-6">
 
@@ -187,8 +197,8 @@ export default function DriverDashboard() {
             Active Ride
           </h2>
 
-          <p>Pickup: {activeRide.pickup}</p>
-          <p>Drop: {activeRide.destination}</p>
+          <p>Pickup: {activeRide.pickupLocation?.address}</p>
+          <p>Drop: {activeRide.dropLocation?.address}</p>
 
           <div className="flex gap-3 mt-4">
 
@@ -223,8 +233,8 @@ export default function DriverDashboard() {
           </h2>
 
           {rides.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 p-6 rounded-xl text-center text-gray-500">
-              No nearby rides available
+            <div className="bg-white p-6 rounded-xl text-center text-gray-500">
+              No nearby rides
             </div>
           )}
 
@@ -233,15 +243,15 @@ export default function DriverDashboard() {
             {rides.map((ride) => (
               <div
                 key={ride._id}
-                className="bg-white dark:bg-gray-900 rounded-xl shadow p-5"
+                className="bg-white rounded-xl shadow p-5"
               >
 
                 <p className="flex gap-2">
-                  <MapPin size={16}/> {ride.pickup}
+                  <MapPin size={16}/> {ride.pickupLocation?.address}
                 </p>
 
                 <p className="flex gap-2">
-                  <Navigation size={16}/> {ride.destination}
+                  <Navigation size={16}/> {ride.dropLocation?.address}
                 </p>
 
                 <p className="font-semibold text-indigo-600">
