@@ -10,7 +10,9 @@ const Navbar = () => {
   const location = useLocation();
   const dropdownRef = useRef(null);
 
+  
   /* ================= AUTH ================= */
+
 
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role") || "";
@@ -75,6 +77,7 @@ const Navbar = () => {
     localStorage.clear();
     window.location.href = "/";
   };
+
 
   /* ================= NAV ================= */
 
@@ -222,7 +225,7 @@ const Navbar = () => {
             </div>
           )}
 
-          {/* MOBILE MENU */}
+          {/* MOBILE MENU */}       
           <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden">
             {mobileOpen ? <X /> : <Menu />}
           </button>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
 import { io } from "socket.io-client";
@@ -6,7 +6,8 @@ import {
   MapPin,
   Navigation,
   PlayCircle,
-  StopCircle
+  StopCircle,
+  Clock
 } from "lucide-react";
 
 /* ================= SOCKET ================= */
@@ -21,10 +22,13 @@ export default function DriverDashboard() {
   const navigate = useNavigate();
 
   const [rides, setRides] = useState([]);
-  const [online, setOnline] = useState(true);
+  const [online, setOnline] = useState(false);
   const [loadingId, setLoadingId] = useState(null);
   const [profile, setProfile] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
+  const [timer, setTimer] = useState(0);
+
+  const timerRef = useRef(null);
 
   /* ================= AUTH ================= */
   useEffect(() => {
@@ -47,29 +51,68 @@ export default function DriverDashboard() {
     }
   };
 
-  /* ================= SOCKET CONNECT ================= */
   useEffect(() => {
-    if (profile?._id) {
-      socket.emit("driverOnline", profile._id);
-    }
-  }, [profile]);
+    loadProfile();
+  }, []);
 
-  /* ================= RECEIVE RIDES ================= */
+  /* ================= SOCKET ================= */
   useEffect(() => {
+    if (!profile?._id) return;
+
+    socket.emit("driverOnline", profile._id);
 
     socket.on("newRideRequest", (ride) => {
-      console.log("🚗 New Ride:", ride);
+      if (!online) return;
 
+      playSound();
       setRides(prev => [ride, ...prev]);
+
+      startTimer();
     });
 
-    return () => socket.off("newRideRequest");
+    socket.on("rideAssigned", (ride) => {
+      setActiveRide(ride);
+      setRides([]);
+      stopTimer();
+    });
 
-  }, []);
+    return () => {
+      socket.off("newRideRequest");
+      socket.off("rideAssigned");
+    };
+
+  }, [profile, online]);
+
+  /* ================= SOUND ================= */
+  const playSound = () => {
+    const audio = new Audio("/notification.mp3");
+    audio.play().catch(() => {});
+  };
+
+  /* ================= TIMER (AUTO EXPIRE) ================= */
+  const startTimer = () => {
+    setTimer(10);
+
+    timerRef.current = setInterval(() => {
+      setTimer(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          setRides([]); // auto remove ride
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    clearInterval(timerRef.current);
+    setTimer(0);
+  };
 
   /* ================= LOCATION ================= */
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation || !online) return;
 
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
@@ -78,6 +121,12 @@ export default function DriverDashboard() {
             lat: pos.coords.latitude,
             lng: pos.coords.longitude
           });
+
+          socket.emit("driverLocation", {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+          });
+
         } catch (err) {
           console.log("❌ Location error", err);
         }
@@ -87,12 +136,26 @@ export default function DriverDashboard() {
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+  }, [online]);
 
-  /* ================= INITIAL LOAD ================= */
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  /* ================= ONLINE TOGGLE ================= */
+  const toggleOnline = async () => {
+    try {
+      const newStatus = !online;
+
+      await api.put("/driver/online", { isOnline: newStatus });
+
+      setOnline(newStatus);
+
+      if (!newStatus) {
+        setRides([]);
+        setActiveRide(null);
+      }
+
+    } catch {
+      alert("Failed to change status");
+    }
+  };
 
   /* ================= ACCEPT ================= */
   const acceptRide = async (id) => {
@@ -100,12 +163,14 @@ export default function DriverDashboard() {
       setLoadingId(id);
 
       const res = await api.put(`/ride/${id}/accept`);
+
+      socket.emit("rideAccepted", res.data.ride);
+
       setActiveRide(res.data.ride);
-
-      /* REMOVE FROM LIST */
       setRides([]);
+      stopTimer();
 
-    } catch (err) {
+    } catch {
       alert("Ride already taken");
     } finally {
       setLoadingId(null);
@@ -139,26 +204,12 @@ export default function DriverDashboard() {
     try {
       await api.put(`/ride/${activeRide._id}/complete`);
 
-      alert("Ride Completed 🎉");
+      alert("🎉 Ride Completed");
 
       setActiveRide(null);
 
     } catch {
       alert("Complete failed");
-    }
-  };
-
-  /* ================= ONLINE ================= */
-  const toggleOnline = async () => {
-    try {
-      const newStatus = !online;
-
-      await api.put("/driver/online", { isOnline: newStatus });
-
-      setOnline(newStatus);
-
-    } catch {
-      alert("Failed");
     }
   };
 
@@ -184,14 +235,14 @@ export default function DriverDashboard() {
             online ? "bg-green-600" : "bg-gray-500"
           }`}
         >
-          {online ? "Online" : "Offline"}
+          {online ? "Online 🟢" : "Offline ⚫"}
         </button>
 
       </div>
 
       {/* ACTIVE RIDE */}
       {activeRide && (
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl shadow mb-6">
+        <div className="bg-white p-6 rounded-xl shadow mb-6">
 
           <h2 className="text-xl font-semibold mb-3">
             Active Ride
@@ -228,8 +279,9 @@ export default function DriverDashboard() {
       {/* RIDE LIST */}
       {!activeRide && (
         <>
-          <h2 className="text-xl font-semibold mb-4">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             Nearby Ride Requests
+            {timer > 0 && <span className="text-red-500 flex items-center gap-1"><Clock size={16}/> {timer}s</span>}
           </h2>
 
           {rides.length === 0 && (
@@ -243,7 +295,7 @@ export default function DriverDashboard() {
             {rides.map((ride) => (
               <div
                 key={ride._id}
-                className="bg-white rounded-xl shadow p-5"
+                className="bg-white rounded-xl shadow p-5 border-l-4 border-green-500"
               >
 
                 <p className="flex gap-2">
