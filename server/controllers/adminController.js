@@ -6,125 +6,113 @@ const mongoose = require("mongoose");
 CREATE DRIVER (ADMIN)
 ========================================================= */
 
-exports.createDriver = async (req,res)=>{
+exports.createDriver = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      phone,
+      vehicleType,
+      vehicleNumber,
+      lat,
+      lng
+    } = req.body;
 
-try{
+    /* ================= VALIDATION ================= */
 
-const {
-name,
-email,
-password,
-phone,
-vehicleType,
-vehicleNumber,
-lat,
-lng
-} = req.body;
+    if (!name || !email || !password || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, password and phone required"
+      });
+    }
 
-/* ================= VALIDATION ================= */
+    if (lat === undefined || lng === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Driver location required"
+      });
+    }
 
-if(!name || !email || !password || !phone){
-return res.status(400).json({
-success:false,
-message:"Name, email, password and phone required"
-});
-}
+    if (!/^[0-9]{10,15}$/.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone must be 10-15 digits"
+      });
+    }
 
-if(!lat || !lng){
-return res.status(400).json({
-success:false,
-message:"Driver location required"
-});
-}
+    /* ================= NORMALIZE ================= */
 
-if(!/^[0-9]{10,15}$/.test(phone)){
-return res.status(400).json({
-success:false,
-message:"Phone must be 10-15 digits"
-});
-}
+    const normalizedEmail = email.toLowerCase().trim();
 
-/* ================= NORMALIZE ================= */
+    /* ================= CHECK EXISTING ================= */
 
-const normalizedEmail = email.toLowerCase().trim();
+    const exists = await Driver.findOne({
+      $or: [{ email: normalizedEmail }, { phone }]
+    });
 
-/* ================= CHECK EXISTING ================= */
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "Driver already exists"
+      });
+    }
 
-const exists = await Driver.findOne({
-$or:[{email:normalizedEmail},{phone}]
-});
+    /* ================= HASH PASSWORD ================= */
 
-if(exists){
-return res.status(400).json({
-success:false,
-message:"Driver already exists"
-});
-}
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-/* ================= HASH PASSWORD ================= */
+    /* ================= CREATE ================= */
 
-const hashedPassword = await bcrypt.hash(password,10);
+    const driver = await Driver.create({
+      name,
+      email: normalizedEmail,
+      password: hashedPassword,
+      phone,
+      role: "driver",
 
-/* ================= CREATE ================= */
+      vehicle: {
+        type: vehicleType || "bike",
+        number: vehicleNumber || ""
+      },
 
-const driver = await Driver.create({
+      location: {
+        type: "Point",
+        coordinates: [Number(lng), Number(lat)] // ✅ correct order
+      },
 
-name,
-email: normalizedEmail,
-password:hashedPassword,
-phone,
+      lastLocationUpdate: new Date(),
 
-role: "driver", // 🔥 CRITICAL FIX
+      // 🔥 IMPORTANT FLAGS
+      isApproved: true,
+      isOnline: true,
+      isAvailable: true
+    });
 
-vehicle:{
-type:vehicleType || "bike",
-number:vehicleNumber || ""
-},
+    /* ================= RESPONSE ================= */
 
-location:{
-type:"Point",
-coordinates:[
-Number(lng),
-Number(lat)
-]
-},
+    res.status(201).json({
+      success: true,
+      message: "Driver created successfully",
+      driver: {
+        id: driver._id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone,
+        vehicle: driver.vehicle
+      }
+    });
 
-lastLocationUpdate:new Date(),
+  } catch (err) {
+    console.error("CREATE DRIVER ERROR:", err);
 
-isApproved:true,
-isOnline:true,
-isAvailable:true
-
-});
-
-/* ================= RESPONSE ================= */
-
-res.status(201).json({
-success:true,
-message:"Driver created",
-driver:{
-id: driver._id,
-name: driver.name,
-email: driver.email,
-phone: driver.phone,
-role: driver.role // ✅ IMPORTANT
-}
-});
-
-}catch(err){
-
-console.error("CREATE DRIVER ERROR:",err);
-
-res.status(500).json({
-success:false,
-message:"Failed to create driver"
-});
-}
-
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to create driver"
+    });
+  }
 };
-
-
-
 /* =========================================================
 GET ALL DRIVERS
 ========================================================= */
@@ -416,46 +404,48 @@ message:"Failed to update status"
 GET NEARBY DRIVERS
 ========================================================= */
 
-exports.getNearbyDrivers = async (req,res)=>{
+exports.getNearbyDrivers = async (req, res) => {
+  try {
+    const { lat, lng } = req.query;
 
-try{
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "User location required"
+      });
+    }
 
-const {lat,lng} = req.query;
+    const drivers = await Driver.find({
+      isOnline: true,
+      isApproved: true,
+      isAvailable: true,
 
-const drivers = await Driver.find({
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [Number(lng), Number(lat)]
+          },
+          $maxDistance: 50000 // 🔥 50 KM
+        }
+      }
 
-isOnline:true,
-isApproved:true,
-isAvailable:true,
+    }).select("-password");
 
-location:{
-$near:{
-$geometry:{
-type:"Point",
-coordinates:[Number(lng),Number(lat)]
-},
-$maxDistance:5000
-}
-}
+    res.json({
+      success: true,
+      count: drivers.length,
+      drivers
+    });
 
-}).select("-password");
+  } catch (err) {
+    console.error(err);
 
-res.json({
-success:true,
-count:drivers.length,
-drivers
-});
-
-}catch(err){
-
-console.error("NEARBY DRIVER ERROR:",err);
-
-res.status(500).json({
-success:false,
-message:"Failed to fetch nearby drivers"
-});
-}
-
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch drivers"
+    });
+  }
 };
 
 

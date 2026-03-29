@@ -1,70 +1,109 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-const driverSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-  },
-
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-    trim: true,
-  },
-
-  phone: {
-    type: String,
-    required: true,
-  },
-
-  password: {
-    type: String,
-    required: true,
-    minlength: 6,
-    select: false,
-  },
-
-  role: {
-    type: String,
-    default: "driver",
-  },
-
-  vehicle: {
-    type: {
+const driverSchema = new mongoose.Schema(
+  {
+    name: {
       type: String,
-      enum: ["bike", "auto", "car"],
+      required: true,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+
+    phone: {
+      type: String,
       required: true,
     },
-    number: String,
+
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+      select: false,
+    },
+
+    role: {
+      type: String,
+      default: "driver",
+    },
+
+    /* ================= VEHICLE ================= */
+
+    vehicle: {
+      type: {
+        type: String,
+        enum: ["bike", "auto", "car"],
+        required: true,
+      },
+      number: String,
+    },
+
+    /* ================= LOCATION (🔥 IMPORTANT) ================= */
+
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+        default: [0, 0],
+      },
+    },
+
+    lastLocationUpdate: {
+      type: Date,
+      default: Date.now,
+    },
+
+    /* ================= STATUS ================= */
+
+    isApproved: {
+      type: Boolean,
+      default: true, // for testing
+    },
+
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+
+    isAvailable: {
+      type: Boolean,
+      default: false,
+    },
+
+    currentRide: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Ride",
+      default: null,
+    },
+
+    lastActive: {
+      type: Date,
+      default: Date.now,
+    },
   },
+  { timestamps: true }
+);
 
-  isApproved: {
-    type: Boolean,
-    default: true, // ✅ for testing (important)
-  },
+/* =========================================================
+🔥 GEO INDEX (CRITICAL FOR 50KM SEARCH)
+========================================================= */
 
-  isOnline: {
-    type: Boolean,
-    default: false,
-  },
+driverSchema.index({ location: "2dsphere" });
 
-  isAvailable: {
-    type: Boolean,
-    default: false,
-  },
-
-  lastActive: {
-    type: Date,
-    default: Date.now,
-  }
-
-}, { timestamps: true });
-
-/* ================= PASSWORD HASH (NO NEXT) ================= */
+/* =========================================================
+PASSWORD HASH
+========================================================= */
 
 driverSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
@@ -80,7 +119,9 @@ driverSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password.trim(), salt);
 });
 
-/* ================= STATUS CONTROL (NO NEXT) ================= */
+/* =========================================================
+STATUS CONTROL
+========================================================= */
 
 driverSchema.pre("save", function () {
   if (!this.isOnline) {
@@ -88,7 +129,6 @@ driverSchema.pre("save", function () {
   }
 });
 
-/* ================= PASSWORD MATCH ================= */
 
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword.trim(), this.password);

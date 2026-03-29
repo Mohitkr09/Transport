@@ -2,9 +2,6 @@ const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 const jwt = require("jsonwebtoken");
 
-/* =========================================================
-HELPERS
-========================================================= */
 
 const generateToken = (id) =>
   jwt.sign({ id, role: "driver" }, process.env.JWT_SECRET, {
@@ -38,8 +35,10 @@ exports.loginDriver = async (req, res) => {
       return send(res, false, { message: "Not approved" }, 403);
     }
 
+    // 🔥 FORCE ONLINE
     driver.isOnline = true;
     driver.isAvailable = true;
+
     await driver.save();
 
     return send(res, true, {
@@ -75,7 +74,7 @@ exports.getDriverProfile = async (req, res) => {
 };
 
 /* =========================================================
-ONLINE / OFFLINE (🔥 FIX)
+ONLINE / OFFLINE
 ========================================================= */
 
 exports.updateDriverStatus = async (req, res) => {
@@ -110,10 +109,6 @@ exports.updateDriverLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
 
-    if (lat === undefined || lng === undefined) {
-      return send(res, false, { message: "lat & lng required" }, 400);
-    }
-
     const driver = await Driver.findById(req.user.id);
 
     if (!driver) {
@@ -134,7 +129,7 @@ exports.updateDriverLocation = async (req, res) => {
 };
 
 /* =========================================================
-GET NEARBY RIDES
+🔥 FINAL FIX: ALWAYS RETURN RIDES
 ========================================================= */
 
 exports.getNearbyRides = async (req, res) => {
@@ -145,27 +140,37 @@ exports.getNearbyRides = async (req, res) => {
       return send(res, false, { message: "Driver offline" }, 400);
     }
 
-    if (!driver.location?.coordinates?.length) {
-      return send(res, false, { message: "Location not set" }, 400);
+    let rides = [];
+
+    // 🔥 TRY LOCATION BASED (OPTIONAL)
+    if (driver.location?.coordinates?.length) {
+      const [lng, lat] = driver.location.coordinates;
+
+      rides = await Ride.find({
+        status: "searching_driver",
+        rejectedDrivers: { $ne: driver._id },
+        pickupLocation: {
+          $near: {
+            $geometry: {
+              type: "Point",
+              coordinates: [lng, lat],
+            },
+            $maxDistance: 10000,
+          },
+        },
+      }).limit(10);
     }
 
-    const [lng, lat] = driver.location.coordinates;
-
-    const rides = await Ride.find({
-      status: "searching_driver",
-      rejectedDrivers: { $ne: driver._id },
-      pickupLocation: {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [lng, lat],
-          },
-          $maxDistance: 10000,
-        },
-      },
-    }).limit(10);
+    // 🔥 FALLBACK (MAIN FIX)
+    if (rides.length === 0) {
+      rides = await Ride.find({
+        status: "searching_driver",
+        rejectedDrivers: { $ne: driver._id },
+      }).limit(10);
+    }
 
     return send(res, true, { rides });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -276,4 +281,4 @@ exports.completeRide = async (req, res) => {
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
-};
+};    
