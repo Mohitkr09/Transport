@@ -23,28 +23,46 @@ const notify = (userId, payload) => {
 };
 
 /* ======================================================
-GET NEARBY DRIVERS
+🔥 GET DRIVERS (FIXED WITH FALLBACK)
 ====================================================== */
 const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
-  return Driver.find({
-    isApproved: true,
-    isOnline: true,
-    isAvailable: true,
-    "vehicle.type": vehicleType,
-    location: {
-      $near: {
-        $geometry: {
-          type: "Point",
-          coordinates: [Number(lng), Number(lat)]
-        },
-        $maxDistance: 8000
+
+  let drivers = [];
+
+  // ✅ TRY WITH LOCATION (50 KM)
+  if (lat && lng) {
+    drivers = await Driver.find({
+      isApproved: true,
+      isOnline: true,
+      isAvailable: true,
+      "vehicle.type": vehicleType,
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [Number(lng), Number(lat)]
+          },
+          $maxDistance: 50000 // 🔥 50 KM
+        }
       }
-    }
-  }).select("_id name");
+    }).select("_id name");
+  }
+
+  // 🔥 FALLBACK (IMPORTANT)
+  if (drivers.length === 0) {
+    drivers = await Driver.find({
+      isApproved: true,
+      isOnline: true,
+      isAvailable: true,
+      "vehicle.type": vehicleType
+    }).select("_id name");
+  }
+
+  return drivers;
 };
 
 /* ======================================================
-CREATE RIDE (REAL-TIME)
+🔥 CREATE RIDE (FIXED)
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
@@ -75,18 +93,23 @@ exports.createRide = async (req, res) => {
       distanceKm: distance || 5,
       fare,
 
-      status: "pending",
-      requestedAt: new Date()
+      // 🔥 FIXED STATUS
+      status: "searching_driver",
+
+      requestedAt: new Date(),
+      rejectedDrivers: []
     });
 
-    /* 🔥 FIND NEARBY DRIVERS */
+    /* 🔥 FIND DRIVERS */
     const drivers = await getNearbyDrivers({
       lat: pickupLocation.lat,
       lng: pickupLocation.lng,
       vehicleType
     });
 
-    /* 🔥 SEND REAL-TIME TO DRIVERS */
+    console.log("Drivers found:", drivers.length);
+
+    /* 🔥 SEND TO DRIVERS */
     drivers.forEach(driver => {
       global.io.to(driver._id.toString()).emit("newRideRequest", {
         _id: ride._id,
@@ -103,7 +126,69 @@ exports.createRide = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      ride
+      ride,
+      driversFound: drivers.length
+    });
+
+  } catch (err) {
+    console.error("CREATE RIDE ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
+/* ======================================================
+🔥 GET NEARBY RIDES (FIXED)
+====================================================== */
+exports.getNearbyRides = async (req, res) => {
+  try {
+    const driver = await Driver.findById(req.user.id);
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found"
+      });
+    }
+
+    let rides = [];
+
+    // ✅ TRY WITH LOCATION
+    if (driver.location?.coordinates?.length) {
+      rides = await Ride.find({
+        status: "searching_driver",
+        driver: null,
+        vehicleType: driver.vehicle.type,
+        rejectedDrivers: { $ne: req.user.id },
+
+        "pickupLocation.location": {
+          $near: {
+            $geometry: {
+              type: "Point",
+              coordinates: driver.location.coordinates
+            },
+            $maxDistance: 50000
+          }
+        }
+      });
+    }
+
+    // 🔥 FALLBACK
+    if (rides.length === 0) {
+      rides = await Ride.find({
+        status: "searching_driver",
+        driver: null,
+        vehicleType: driver.vehicle.type,
+        rejectedDrivers: { $ne: req.user.id }
+      });
+    }
+
+    res.json({
+      success: true,
+      rides
     });
 
   } catch (err) {
@@ -113,42 +198,7 @@ exports.createRide = async (req, res) => {
 };
 
 /* ======================================================
-GET NEARBY RIDES (FILTERED)
-====================================================== */
-exports.getNearbyRides = async (req, res) => {
-  try {
-    const driver = await Driver.findById(req.user.id);
-
-    const rides = await Ride.find({
-      status: "pending",
-      driver: null,
-      vehicleType: driver.vehicle.type,
-
-      rejectedDrivers: { $ne: req.user.id }, // ✅ IMPORTANT
-
-      "pickupLocation.location": {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: driver.location.coordinates
-          },
-          $maxDistance: 8000
-        }
-      }
-    });
-
-    res.json({
-      success: true,
-      rides
-    });
-
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-ACCEPT RIDE (FIXED 🔥)
+ACCEPT RIDE
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
@@ -156,7 +206,7 @@ exports.acceptRide = async (req, res) => {
     const ride = await Ride.findOneAndUpdate(
       {
         _id: req.params.id,
-        status: "pending",
+        status: "searching_driver",
         driver: null
       },
       {
@@ -195,7 +245,7 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* ======================================================
-REJECT RIDE (FIXED)
+REJECT RIDE
 ====================================================== */
 exports.rejectRide = async (req, res) => {
   try {

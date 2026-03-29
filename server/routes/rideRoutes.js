@@ -2,17 +2,15 @@ const express = require("express");
 const router = express.Router();
 
 const rideController = require("../controllers/rideController");
-const { protect, adminOnly } = require("../middleware/authMiddleware");
+const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
 
 /* ======================================================
-SAFE CONTROLLER WRAPPER
+SAFE CONTROLLER WRAPPER (IMPROVED)
 ====================================================== */
 const safe = (fnName) => {
-
   const fn = rideController[fnName];
 
   if (typeof fn !== "function") {
-
     console.error(`❌ Missing controller → ${fnName}`);
 
     return (req, res) =>
@@ -26,6 +24,7 @@ const safe = (fnName) => {
     try {
       await fn(req, res, next);
     } catch (err) {
+      console.error(`🔥 Error in ${fnName}:`, err.message);
       next(err);
     }
   };
@@ -60,23 +59,23 @@ router.post("/", protect, safe("createRide"));
 router.get("/my", protect, safe("getUserRides"));
 
 /* ======================================================
-DRIVER ROUTES (IMPORTANT 🔥)
+DRIVER ROUTES (FIXED 🔥)
 ====================================================== */
 
 /* GET NEARBY RIDES */
-router.get("/nearby", protect, safe("getNearbyRides"));
+router.get("/nearby", protect, driverOnly, safe("getNearbyRides"));
 
 /* ACCEPT RIDE */
-router.put("/:id/accept", protect, safe("acceptRide"));
+router.put("/:id/accept", protect, driverOnly, safe("acceptRide"));
 
 /* REJECT RIDE */
-router.put("/:id/reject", protect, safe("rejectRide"));
+router.put("/:id/reject", protect, driverOnly, safe("rejectRide"));
 
 /* START RIDE */
-router.put("/:id/start", protect, safe("startRide"));
+router.put("/:id/start", protect, driverOnly, safe("startRide"));
 
 /* COMPLETE RIDE */
-router.put("/:id/complete", protect, safe("completeRide"));
+router.put("/:id/complete", protect, driverOnly, safe("completeRide"));
 
 /* ======================================================
 COMMON USER/DRIVER ACTIONS

@@ -95,9 +95,7 @@ const driverSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* =========================================================
-🔥 GEO INDEX (CRITICAL FOR 50KM SEARCH)
-========================================================= */
+
 
 driverSchema.index({ location: "2dsphere" });
 
@@ -119,9 +117,6 @@ driverSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password.trim(), salt);
 });
 
-/* =========================================================
-STATUS CONTROL
-========================================================= */
 
 driverSchema.pre("save", function () {
   if (!this.isOnline) {
