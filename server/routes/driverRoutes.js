@@ -1,36 +1,30 @@
 const express = require("express");
 const router = express.Router();
 
-/* =================================================
-IMPORTS
-================================================= */
-
 const driverController = require("../controllers/driverController");
 const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
 const Driver = require("../models/Driver");
 
 /* =================================================
-ASYNC HANDLER
+SAFE ASYNC HANDLER (FIXED)
 ================================================= */
-
-const asyncHandler = fn => (req, res, next) =>
+const asyncHandler = (fn) => (req, res, next) => {
+  if (typeof fn !== "function") {
+    return next(new Error("Route handler is not a function"));
+  }
   Promise.resolve(fn(req, res, next)).catch(next);
+};
 
 /* =================================================
-HEALTH CHECK
+HEALTH
 ================================================= */
-
 router.get("/health", (req, res) => {
-  res.json({
-    success: true,
-    message: "Driver API working"
-  });
+  res.json({ success: true, message: "Driver API working" });
 });
 
 /* =================================================
-AUTH ROUTES
+AUTH
 ================================================= */
-
 router.post("/login", asyncHandler(driverController.loginDriver));
 
 router.post(
@@ -38,24 +32,18 @@ router.post(
   protect,
   driverOnly,
   asyncHandler(async (req, res) => {
-
     await Driver.findByIdAndUpdate(req.user.id, {
       isOnline: false,
       isAvailable: false
     });
 
-    res.json({
-      success: true,
-      message: "Driver logged out"
-    });
-
+    res.json({ success: true, message: "Driver logged out" });
   })
 );
 
 /* =================================================
 PROFILE
 ================================================= */
-
 router.get(
   "/me",
   protect,
@@ -64,9 +52,8 @@ router.get(
 );
 
 /* =================================================
-STATUS + LOCATION
+STATUS + LOCATION (FIXED 🔥)
 ================================================= */
-
 router.put(
   "/online",
   protect,
@@ -82,10 +69,8 @@ router.put(
 );
 
 /* =================================================
-RIDES (IMPORTANT FIX)
+RIDES
 ================================================= */
-
-/* GET NEARBY RIDES */
 router.get(
   "/rides/nearby",
   protect,
@@ -93,7 +78,6 @@ router.get(
   asyncHandler(driverController.getNearbyRides)
 );
 
-/* ACCEPT RIDE */
 router.put(
   "/ride/:id/accept",
   protect,
@@ -101,7 +85,6 @@ router.put(
   asyncHandler(driverController.acceptRide)
 );
 
-/* REJECT RIDE */
 router.put(
   "/ride/:id/reject",
   protect,
@@ -109,7 +92,6 @@ router.put(
   asyncHandler(driverController.rejectRide)
 );
 
-/* START RIDE */
 router.put(
   "/ride/:id/start",
   protect,
@@ -117,7 +99,6 @@ router.put(
   asyncHandler(driverController.startRide)
 );
 
-/* COMPLETE RIDE */
 router.put(
   "/ride/:id/complete",
   protect,
@@ -126,9 +107,8 @@ router.put(
 );
 
 /* =================================================
-ADMIN ROUTES
+ADMIN
 ================================================= */
-
 router.get(
   "/all",
   protect,
@@ -151,18 +131,16 @@ router.delete(
 );
 
 /* =================================================
-ADMIN SET DRIVER LOCATION
+ADMIN LOCATION
 ================================================= */
-
 router.put(
   "/:id/set-location",
   protect,
   adminOnly,
   asyncHandler(async (req, res) => {
-
     const { lat, lng } = req.body;
 
-    if (!lat || !lng) {
+    if (lat === undefined || lng === undefined) {
       return res.status(400).json({
         success: false,
         message: "lat and lng required"
@@ -183,37 +161,26 @@ router.put(
       coordinates: [Number(lng), Number(lat)]
     };
 
-    driver.lastLocationUpdate = new Date();
     driver.isOnline = true;
     driver.isAvailable = true;
 
     await driver.save();
 
-    res.json({
-      success: true,
-      message: "Driver location updated",
-      driver
-    });
-
+    res.json({ success: true, driver });
   })
 );
 
 /* =================================================
 DEV TOOL
 ================================================= */
-
 router.put(
   "/force-available/:id",
   protect,
   adminOnly,
   asyncHandler(async (req, res) => {
-
     const driver = await Driver.findByIdAndUpdate(
       req.params.id,
-      {
-        isAvailable: true,
-        isOnline: true
-      },
+      { isAvailable: true, isOnline: true },
       { new: true }
     );
 
@@ -224,19 +191,13 @@ router.put(
       });
     }
 
-    res.json({
-      success: true,
-      message: "Driver forced available",
-      driver
-    });
-
+    res.json({ success: true, driver });
   })
 );
 
 /* =================================================
 FALLBACK
 ================================================= */
-
 router.use((req, res) => {
   res.status(404).json({
     success: false,

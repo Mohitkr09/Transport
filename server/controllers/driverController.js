@@ -15,7 +15,7 @@ const send = (res, success, data = {}, code = 200) =>
   res.status(code).json({ success, ...data });
 
 /* =========================================================
-DRIVER LOGIN (AUTO ONLINE)
+LOGIN
 ========================================================= */
 
 exports.loginDriver = async (req, res) => {
@@ -23,31 +23,23 @@ exports.loginDriver = async (req, res) => {
     let { email, password } = req.body;
 
     if (!email || !password) {
-      return send(res, false, { message: "Email and password required" }, 400);
+      return send(res, false, { message: "Email & password required" }, 400);
     }
 
     email = email.toLowerCase().trim();
 
     const driver = await Driver.findOne({ email }).select("+password");
 
-    if (!driver) {
-      return send(res, false, { message: "Invalid email or password" }, 401);
-    }
-
-    const isMatch = await driver.matchPassword(password);
-
-    if (!isMatch) {
-      return send(res, false, { message: "Invalid email or password" }, 401);
+    if (!driver || !(await driver.matchPassword(password))) {
+      return send(res, false, { message: "Invalid credentials" }, 401);
     }
 
     if (!driver.isApproved) {
-      return send(res, false, { message: "Driver not approved yet" }, 403);
+      return send(res, false, { message: "Not approved" }, 403);
     }
 
-    // ✅ FORCE ONLINE + AVAILABLE (IMPORTANT FIX)
     driver.isOnline = true;
     driver.isAvailable = true;
-
     await driver.save();
 
     return send(res, true, {
@@ -60,13 +52,58 @@ exports.loginDriver = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-UPDATE DRIVER LOCATION
+PROFILE
+========================================================= */
+
+exports.getDriverProfile = async (req, res) => {
+  try {
+    const driver = await Driver.findById(req.user.id).select("-password");
+
+    if (!driver) {
+      return send(res, false, { message: "Driver not found" }, 404);
+    }
+
+    return send(res, true, { driver });
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
+  }
+};
+
+/* =========================================================
+ONLINE / OFFLINE (🔥 FIX)
+========================================================= */
+
+exports.updateDriverStatus = async (req, res) => {
+  try {
+    const { isOnline } = req.body;
+
+    const driver = await Driver.findById(req.user.id);
+
+    if (!driver) {
+      return send(res, false, { message: "Driver not found" }, 404);
+    }
+
+    driver.isOnline = isOnline;
+    driver.isAvailable = isOnline;
+
+    await driver.save();
+
+    return send(res, true, {
+      message: `Driver is now ${isOnline ? "Online" : "Offline"}`,
+      isOnline,
+    });
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
+  }
+};
+
+/* =========================================================
+LOCATION
 ========================================================= */
 
 exports.updateDriverLocation = async (req, res) => {
@@ -83,7 +120,6 @@ exports.updateDriverLocation = async (req, res) => {
       return send(res, false, { message: "Driver not found" }, 404);
     }
 
-    // ✅ FIXED GEO FORMAT
     driver.location = {
       type: "Point",
       coordinates: [lng, lat],
@@ -98,63 +134,57 @@ exports.updateDriverLocation = async (req, res) => {
 };
 
 /* =========================================================
-GET AVAILABLE DRIVERS (FOR USER BOOKING 🔥)
+GET NEARBY RIDES
 ========================================================= */
 
-exports.getAvailableDrivers = async (req, res) => {
+exports.getNearbyRides = async (req, res) => {
   try {
-    const { lat, lng, vehicleType } = req.body;
+    const driver = await Driver.findById(req.user.id);
 
-    if (!lat || !lng) {
-      return send(res, false, { message: "Location required" }, 400);
+    if (!driver || !driver.isOnline) {
+      return send(res, false, { message: "Driver offline" }, 400);
     }
 
-    // ✅ DEBUG LOG
-    console.log("Searching drivers near:", lat, lng);
+    if (!driver.location?.coordinates?.length) {
+      return send(res, false, { message: "Location not set" }, 400);
+    }
 
-    const drivers = await Driver.find({
-      isApproved: true,
-      isOnline: true,
-      isAvailable: true,
-      location: {
+    const [lng, lat] = driver.location.coordinates;
+
+    const rides = await Ride.find({
+      status: "searching_driver",
+      rejectedDrivers: { $ne: driver._id },
+      pickupLocation: {
         $near: {
           $geometry: {
             type: "Point",
             coordinates: [lng, lat],
           },
-          $maxDistance: 10000, // ✅ increased to 10km
+          $maxDistance: 10000,
         },
       },
-      ...(vehicleType && { vehicleType }),
-    });
+    }).limit(10);
 
-    console.log("Found drivers:", drivers.length);
-
-    return send(res, true, { drivers });
+    return send(res, true, { rides });
   } catch (err) {
-    console.error(err);
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT RIDE
+ACCEPT
 ========================================================= */
 
 exports.acceptRide = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
 
-    // ✅ STRICT CHECK
-    if (!driver || !driver.isOnline || !driver.isAvailable) {
+    if (!driver || !driver.isAvailable) {
       return send(res, false, { message: "Driver not available" }, 400);
     }
 
     const ride = await Ride.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        status: "searching_driver",
-      },
+      { _id: req.params.id, status: "searching_driver" },
       {
         driver: driver._id,
         status: "accepted",
@@ -167,21 +197,62 @@ exports.acceptRide = async (req, res) => {
       return send(res, false, { message: "Ride already taken" }, 400);
     }
 
-    // ✅ MARK DRIVER BUSY
     driver.isAvailable = false;
     driver.currentRide = ride._id;
-
     await driver.save();
 
     return send(res, true, { ride });
   } catch (err) {
-    console.error(err);
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-COMPLETE RIDE
+REJECT
+========================================================= */
+
+exports.rejectRide = async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.id);
+
+    if (!ride) {
+      return send(res, false, { message: "Ride not found" }, 404);
+    }
+
+    if (!ride.rejectedDrivers.includes(req.user.id)) {
+      ride.rejectedDrivers.push(req.user.id);
+      await ride.save();
+    }
+
+    return send(res, true, { message: "Ride rejected" });
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
+  }
+};
+
+/* =========================================================
+START
+========================================================= */
+
+exports.startRide = async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.id);
+
+    if (!ride || String(ride.driver) !== req.user.id) {
+      return send(res, false, { message: "Unauthorized" }, 403);
+    }
+
+    ride.status = "ongoing";
+    await ride.save();
+
+    return send(res, true, { ride });
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
+  }
+};
+
+/* =========================================================
+COMPLETE
 ========================================================= */
 
 exports.completeRide = async (req, res) => {
@@ -192,13 +263,9 @@ exports.completeRide = async (req, res) => {
       return send(res, false, { message: "Unauthorized" }, 403);
     }
 
-    if (ride.status !== "ongoing") {
-      return send(res, false, { message: "Ride not ongoing" }, 400);
-    }
+    ride.status = "completed";
+    await ride.save();
 
-    await ride.completeRide();
-
-    // ✅ MAKE DRIVER AVAILABLE AGAIN
     const driver = await Driver.findById(req.user.id);
     driver.isAvailable = true;
     driver.currentRide = null;
@@ -207,6 +274,6 @@ exports.completeRide = async (req, res) => {
 
     return send(res, true, { message: "Ride completed" });
   } catch (err) {
-    return send(res, false, { message: err.message }, 400);
+    return send(res, false, { message: err.message }, 500);
   }
 };
