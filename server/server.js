@@ -16,7 +16,7 @@ const authRoutes = require("./routes/authRoutes");
 const driverRoutes = require("./routes/driverRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const rideRoutes = require("./routes/rideRoutes");
-const locationRoutes = require("./routes/locationRoutes"); // ✅ FIXED
+const locationRoutes = require("./routes/locationRoutes");
 
 /* ================= MODELS ================= */
 const Driver = require("./models/Driver");
@@ -55,7 +55,7 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(compression());
 
 app.use(cors({
-  origin: true,
+  origin: "*",
   credentials: true
 }));
 
@@ -64,28 +64,51 @@ app.use(morgan("dev"));
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ================= API ROUTES ================= */
+/* =================================================
+🔥 IMPORTANT: API ROUTES (MUST COME BEFORE 404)
+================================================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ride", rideRoutes);
-app.use("/api/location", locationRoutes); // ✅ IMPORTANT FIX
+app.use("/api/location", locationRoutes);
+
+/* ================= ROOT ================= */
+app.get("/", (req, res) => {
+  res.send("🚀 API Running");
+});
 
 /* ================= HEALTH ================= */
 app.get("/health", (req, res) => {
   res.json({ success: true, server: "running" });
 });
 
-/* ================= ERROR HANDLING ================= */
-app.use((req, res) => {
+/* =================================================
+❌ REMOVE OLD WRONG 404 HANDLER (IMPORTANT FIX)
+================================================= */
+/* 
+Your old code had:
+app.use((req, res) => { ... })
+
+👉 This was catching ALL routes sometimes before async errors
+*/
+
+/* =================================================
+✅ CORRECT ERROR HANDLING ORDER
+================================================= */
+
+/* 404 HANDLER */
+app.use((req, res, next) => {
   res.status(404).json({
     success: false,
     message: `Route not found → ${req.method} ${req.originalUrl}`
   });
 });
 
+/* GLOBAL ERROR HANDLER */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err.message);
+
   res.status(500).json({
     success: false,
     message: err.message || "Server Error"
@@ -120,7 +143,6 @@ io.use((socket, next) => {
 
 /* ================= SOCKET CONNECTION ================= */
 io.on("connection", async (socket) => {
-
   try {
     const userId = socket.user?.id;
     const role = socket.user?.role;
@@ -129,10 +151,8 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
-    /* ✅ JOIN ROOM */
     socket.join(userId.toString());
 
-    /* ✅ DRIVER ONLINE */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(userId, {
         socketId: socket.id,
@@ -143,7 +163,6 @@ io.on("connection", async (socket) => {
       console.log("🚗 Driver online:", userId);
     }
 
-    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       try {
         if (role === "driver") {
@@ -163,7 +182,6 @@ io.on("connection", async (socket) => {
   } catch (err) {
     console.log("⚠️ Socket error:", err.message);
   }
-
 });
 
 /* ================= START ================= */
