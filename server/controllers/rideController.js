@@ -10,26 +10,20 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 };
 
 /* ======================================================
-SOCKET NOTIFICATION
+SOCKET HELPER
 ====================================================== */
-const notify = (userId, payload) => {
-  if (!global.io || !userId) return;
-
-  global.io.to(userId.toString()).emit("notification", {
-    id: Date.now(),
-    ...payload,
-    time: new Date()
-  });
+const emitToUser = (userId, event, payload) => {
+  if (!global.io) return;
+  global.io.to(userId.toString()).emit(event, payload);
 };
 
 /* ======================================================
-🔥 GET DRIVERS (FIXED WITH FALLBACK)
+GET DRIVERS
 ====================================================== */
 const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
 
   let drivers = [];
 
-  // ✅ TRY WITH LOCATION (50 KM)
   if (lat && lng) {
     drivers = await Driver.find({
       isApproved: true,
@@ -42,13 +36,12 @@ const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
             type: "Point",
             coordinates: [Number(lng), Number(lat)]
           },
-          $maxDistance: 50000 // 🔥 50 KM
+          $maxDistance: 50000
         }
       }
     }).select("_id name");
   }
 
-  // 🔥 FALLBACK (IMPORTANT)
   if (drivers.length === 0) {
     drivers = await Driver.find({
       isApproved: true,
@@ -62,7 +55,7 @@ const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
 };
 
 /* ======================================================
-🔥 CREATE RIDE (FIXED)
+CREATE RIDE
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
@@ -93,14 +86,11 @@ exports.createRide = async (req, res) => {
       distanceKm: distance || 5,
       fare,
 
-      // 🔥 FIXED STATUS
       status: "searching_driver",
-
       requestedAt: new Date(),
       rejectedDrivers: []
     });
 
-    /* 🔥 FIND DRIVERS */
     const drivers = await getNearbyDrivers({
       lat: pickupLocation.lat,
       lng: pickupLocation.lng,
@@ -109,55 +99,40 @@ exports.createRide = async (req, res) => {
 
     console.log("Drivers found:", drivers.length);
 
-    /* 🔥 SEND TO DRIVERS */
     drivers.forEach(driver => {
       global.io.to(driver._id.toString()).emit("newRideRequest", {
-        _id: ride._id,
+        rideId: ride._id,
         pickup: pickupLocation.address,
         destination: dropLocation.address,
         fare
       });
     });
 
-    notify(req.user._id, {
-      title: "Ride Requested",
-      message: "Searching for drivers..."
+    emitToUser(req.user._id, "rideSearching", {
+      rideId: ride._id
     });
 
     res.status(201).json({
       success: true,
-      ride,
-      driversFound: drivers.length
+      ride
     });
 
   } catch (err) {
-    console.error("CREATE RIDE ERROR:", err);
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    console.error(err);
+    res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-🔥 GET NEARBY RIDES (FIXED)
+GET NEARBY RIDES
 ====================================================== */
 exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
 
-    if (!driver) {
-      return res.status(404).json({
-        success: false,
-        message: "Driver not found"
-      });
-    }
-
     let rides = [];
 
-    // ✅ TRY WITH LOCATION
-    if (driver.location?.coordinates?.length) {
+    if (driver?.location?.coordinates?.length) {
       rides = await Ride.find({
         status: "searching_driver",
         driver: null,
@@ -176,7 +151,6 @@ exports.getNearbyRides = async (req, res) => {
       });
     }
 
-    // 🔥 FALLBACK
     if (rides.length === 0) {
       rides = await Ride.find({
         status: "searching_driver",
@@ -186,42 +160,31 @@ exports.getNearbyRides = async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      rides
-    });
+    res.json({ success: true, rides });
 
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-ACCEPT RIDE
+ACCEPT RIDE (🔥 REAL-TIME FIX)
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
 
     const ride = await Ride.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        status: "searching_driver",
-        driver: null
-      },
+      { _id: req.params.id, status: "searching_driver", driver: null },
       {
         status: "accepted",
         driver: req.user.id,
         acceptedAt: new Date()
       },
       { new: true }
-    );
+    ).populate("driver", "name");
 
     if (!ride) {
-      return res.status(400).json({
-        success: false,
-        message: "Ride already taken"
-      });
+      return res.status(400).json({ success: false });
     }
 
     await Driver.findByIdAndUpdate(req.user.id, {
@@ -229,32 +192,13 @@ exports.acceptRide = async (req, res) => {
       currentRide: ride._id
     });
 
-    notify(ride.user, {
-      title: "Driver Assigned",
-      message: "Driver accepted your ride"
+    /* 🔥 REAL-TIME EVENT */
+    emitToUser(ride.user, "rideAccepted", {
+      rideId: ride._id,
+      driver: ride.driver
     });
 
-    res.json({
-      success: true,
-      ride
-    });
-
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-REJECT RIDE
-====================================================== */
-exports.rejectRide = async (req, res) => {
-  try {
-
-    await Ride.findByIdAndUpdate(req.params.id, {
-      $addToSet: { rejectedDrivers: req.user.id }
-    });
-
-    res.json({ success: true });
+    res.json({ success: true, ride });
 
   } catch {
     res.status(500).json({ success: false });
@@ -268,16 +212,16 @@ exports.startRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    if (ride.driver.toString() !== req.user.id) {
-      return res.status(403).json({ success: false });
-    }
-
     ride.status = "ongoing";
     ride.startedAt = new Date();
 
     await ride.save();
 
-    res.json({ success: true, ride });
+    emitToUser(ride.user, "rideStarted", {
+      rideId: ride._id
+    });
+
+    res.json({ success: true });
 
   } catch {
     res.status(500).json({ success: false });
@@ -299,19 +243,14 @@ exports.completeRide = async (req, res) => {
 
     await Driver.findByIdAndUpdate(ride.driver, {
       isAvailable: true,
-      currentRide: null,
-      $inc: { totalRides: 1 }
+      currentRide: null
     });
 
-    notify(ride.user, {
-      title: "Ride Completed",
-      message: "Thank you for riding!"
+    emitToUser(ride.user, "rideCompleted", {
+      rideId: ride._id
     });
 
-    res.json({
-      success: true,
-      ride
-    });
+    res.json({ success: true });
 
   } catch {
     res.status(500).json({ success: false });

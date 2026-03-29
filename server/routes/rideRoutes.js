@@ -4,9 +4,6 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
 
-/* ======================================================
-SAFE CONTROLLER WRAPPER (IMPROVED)
-====================================================== */
 const safe = (fnName) => {
   const fn = rideController[fnName];
 
