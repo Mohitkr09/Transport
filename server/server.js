@@ -64,6 +64,12 @@ app.use(morgan("dev"));
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+/* ================= DEBUG ROUTE CHECK (🔥 IMPORTANT) ================= */
+app.use("/api/driver", (req, res, next) => {
+  console.log("🔥 DRIVER ROUTE HIT:", req.originalUrl);
+  next();
+});
+
 /* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
@@ -98,10 +104,10 @@ app.use((err, req, res, next) => {
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET (FIXED) ================= */
+/* ================= SOCKET ================= */
 const io = new Server(server, {
   cors: { origin: "*" },
-  transports: ["websocket"] // 🔥 required for Render
+  transports: ["websocket"] // 🔥 REQUIRED for Render
 });
 
 global.io = io;
@@ -196,7 +202,7 @@ io.on("connection", async (socket) => {
           isAvailable: false
         });
 
-        console.log("🔴 Driver offline");
+        console.log("🔴 Driver offline:", userId);
       }
     });
 

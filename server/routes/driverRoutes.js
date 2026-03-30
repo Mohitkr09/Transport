@@ -9,8 +9,19 @@ const Driver = require("../models/Driver");
 SAFE ASYNC HANDLER
 ================================================= */
 const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
+  Promise.resolve(fn(req, res, next)).catch((err) => {
+    console.error("🔥 Route Error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  });
 };
+
+/* =================================================
+LOGGER (VERY USEFUL 🔥)
+================================================= */
+router.use((req, res, next) => {
+  console.log(`🚗 DRIVER → ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 /* =================================================
 HEALTH
@@ -31,7 +42,8 @@ router.post(
   asyncHandler(async (req, res) => {
     await Driver.findByIdAndUpdate(req.user.id, {
       isOnline: false,
-      isAvailable: false
+      isAvailable: false,
+      socketId: null
     });
 
     res.json({ success: true, message: "Driver logged out" });
@@ -39,13 +51,27 @@ router.post(
 );
 
 /* =================================================
-PROFILE
+PROFILE (🔥 YOUR MAIN FIX)
 ================================================= */
 router.get(
   "/me",
   protect,
   driverOnly,
-  asyncHandler(driverController.getDriverProfile)
+  asyncHandler(async (req, res) => {
+    const driver = await Driver.findById(req.user.id);
+
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      driver
+    });
+  })
 );
 
 /* =================================================
@@ -55,21 +81,52 @@ router.put(
   "/online",
   protect,
   driverOnly,
-  asyncHandler(driverController.updateDriverStatus)
+  asyncHandler(async (req, res) => {
+    const { isOnline } = req.body;
+
+    const driver = await Driver.findByIdAndUpdate(
+      req.user.id,
+      {
+        isOnline,
+        isAvailable: isOnline
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      driver
+    });
+  })
 );
 
 router.put(
   "/location",
   protect,
   driverOnly,
-  asyncHandler(driverController.updateDriverLocation)
+  asyncHandler(async (req, res) => {
+    const { lat, lng } = req.body;
+
+    const driver = await Driver.findById(req.user.id);
+
+    if (!driver) {
+      return res.status(404).json({ success: false });
+    }
+
+    driver.location = {
+      type: "Point",
+      coordinates: [Number(lng), Number(lat)]
+    };
+
+    await driver.save();
+
+    res.json({ success: true });
+  })
 );
 
 /* =================================================
-🔥 RIDES (FIXED ROUTES)
+RIDES (OPTIONAL IF USING rideRoutes)
 ================================================= */
-
-/* 👉 THIS FIXES YOUR MAIN ISSUE */
 router.get(
   "/nearby",
   protect,
@@ -130,46 +187,6 @@ router.delete(
 );
 
 /* =================================================
-ADMIN LOCATION
-================================================= */
-router.put(
-  "/:id/set-location",
-  protect,
-  adminOnly,
-  asyncHandler(async (req, res) => {
-    const { lat, lng } = req.body;
-
-    if (lat === undefined || lng === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "lat and lng required"
-      });
-    }
-
-    const driver = await Driver.findById(req.params.id);
-
-    if (!driver) {
-      return res.status(404).json({
-        success: false,
-        message: "Driver not found"
-      });
-    }
-
-    driver.location = {
-      type: "Point",
-      coordinates: [Number(lng), Number(lat)]
-    };
-
-    driver.isOnline = true;
-    driver.isAvailable = true;
-
-    await driver.save();
-
-    res.json({ success: true, driver });
-  })
-);
-
-/* =================================================
 DEV TOOL
 ================================================= */
 router.put(
@@ -195,7 +212,7 @@ router.put(
 );
 
 /* =================================================
-FALLBACK
+404 FALLBACK
 ================================================= */
 router.use((req, res) => {
   res.status(404).json({
