@@ -6,12 +6,9 @@ const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware
 const Driver = require("../models/Driver");
 
 /* =================================================
-SAFE ASYNC HANDLER (FIXED)
+SAFE ASYNC HANDLER
 ================================================= */
 const asyncHandler = (fn) => (req, res, next) => {
-  if (typeof fn !== "function") {
-    return next(new Error("Route handler is not a function"));
-  }
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
@@ -52,7 +49,7 @@ router.get(
 );
 
 /* =================================================
-STATUS + LOCATION (FIXED 🔥)
+STATUS + LOCATION
 ================================================= */
 router.put(
   "/online",
@@ -69,10 +66,12 @@ router.put(
 );
 
 /* =================================================
-RIDES
+🔥 RIDES (FIXED ROUTES)
 ================================================= */
+
+/* 👉 THIS FIXES YOUR MAIN ISSUE */
 router.get(
-  "/rides/nearby",
+  "/nearby",
   protect,
   driverOnly,
   asyncHandler(driverController.getNearbyRides)

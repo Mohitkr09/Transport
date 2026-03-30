@@ -4,6 +4,9 @@ const router = express.Router();
 const rideController = require("../controllers/rideController");
 const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
 
+/* ======================================================
+SAFE HANDLER (NO CRASH)
+====================================================== */
 const safe = (fnName) => {
   const fn = rideController[fnName];
 
@@ -22,13 +25,17 @@ const safe = (fnName) => {
       await fn(req, res, next);
     } catch (err) {
       console.error(`🔥 Error in ${fnName}:`, err.message);
-      next(err);
+
+      res.status(500).json({
+        success: false,
+        message: err.message || "Server error"
+      });
     }
   };
 };
 
 /* ======================================================
-REQUEST LOGGER
+LOGGER (DEBUG)
 ====================================================== */
 router.use((req, res, next) => {
   console.log(`🚗 RIDE → ${req.method} ${req.originalUrl}`);
@@ -36,7 +43,7 @@ router.use((req, res, next) => {
 });
 
 /* ======================================================
-HEALTH CHECK
+HEALTH
 ====================================================== */
 router.get("/health", (req, res) => {
   res.json({
@@ -56,51 +63,43 @@ router.post("/", protect, safe("createRide"));
 router.get("/my", protect, safe("getUserRides"));
 
 /* ======================================================
-DRIVER ROUTES (FIXED 🔥)
+🔥 DRIVER ROUTES (MAIN FIX)
 ====================================================== */
 
-/* GET NEARBY RIDES */
+/* 👉 THIS MUST MATCH FRONTEND */
 router.get("/nearby", protect, driverOnly, safe("getNearbyRides"));
 
-/* ACCEPT RIDE */
 router.put("/:id/accept", protect, driverOnly, safe("acceptRide"));
 
-/* REJECT RIDE */
 router.put("/:id/reject", protect, driverOnly, safe("rejectRide"));
 
-/* START RIDE */
 router.put("/:id/start", protect, driverOnly, safe("startRide"));
 
-/* COMPLETE RIDE */
 router.put("/:id/complete", protect, driverOnly, safe("completeRide"));
 
 /* ======================================================
-COMMON USER/DRIVER ACTIONS
+COMMON
 ====================================================== */
 
-/* CANCEL RIDE */
 router.put("/:id/cancel", protect, safe("cancelRide"));
 
-/* RATE RIDE */
 router.post("/:id/rate", protect, safe("rateRide"));
 
 /* ======================================================
-ADMIN ROUTES
+ADMIN
 ====================================================== */
 
-/* GET ALL RIDES */
 router.get("/admin/all", protect, adminOnly, safe("getAllRides"));
 
-/* ADMIN CANCEL */
 router.put("/admin/:id/cancel", protect, adminOnly, safe("adminCancelRide"));
 
 /* ======================================================
-GET SINGLE RIDE (KEEP LAST)
+GET SINGLE RIDE
 ====================================================== */
 router.get("/:id", protect, safe("getRideById"));
 
 /* ======================================================
-404 FALLBACK
+404
 ====================================================== */
 router.use((req, res) => {
   res.status(404).json({
