@@ -67,21 +67,10 @@ exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
-    /* ================= VALIDATION ================= */
-    if (!pickupLocation || !dropLocation || !vehicleType) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields"
-      });
-    }
-
-    /* ================= FARE ================= */
     const fare = calculateFare(vehicleType, distance || 5);
 
-    /* ================= CREATE RIDE ================= */
     const ride = await Ride.create({
       user: req.user._id,
-
       pickupLocation: {
         address: pickupLocation.address,
         location: {
@@ -89,7 +78,6 @@ exports.createRide = async (req, res) => {
           coordinates: [pickupLocation.lng, pickupLocation.lat]
         }
       },
-
       dropLocation: {
         address: dropLocation.address,
         location: {
@@ -97,73 +85,33 @@ exports.createRide = async (req, res) => {
           coordinates: [dropLocation.lng, dropLocation.lat]
         }
       },
-
       vehicleType,
       distanceKm: distance || 5,
       fare,
-
       status: "searching_driver",
-      requestedAt: new Date(),
       rejectedDrivers: []
     });
 
-    /* ================= FIND DRIVERS ================= */
-    let drivers = await getNearbyDrivers({
-      lat: pickupLocation.lat,
-      lng: pickupLocation.lng,
-      vehicleType
+    /* 🔥 IMPORTANT: FIND ONLINE DRIVERS */
+    const drivers = await Driver.find({
+      isOnline: true,
+      isAvailable: true
     });
 
-    console.log("🚗 Nearby drivers:", drivers.length);
+    console.log("🚗 Sending ride to drivers:", drivers.length);
 
-    /* 🔥 FALLBACK (IMPORTANT) */
-    if (!drivers.length) {
-      drivers = await Driver.find({
-        isOnline: true,
-        isAvailable: true,
-        "vehicle.type": vehicleType
-      });
-    }
-
-    /* ================= REAL-TIME EMIT ================= */
-    if (global.io && drivers.length > 0) {
-
-      const ridePayload = {
-        _id: ride._id,
-        pickupLocation: ride.pickupLocation,
-        dropLocation: ride.dropLocation,
-        fare: ride.fare,
-        vehicleType: ride.vehicleType,
-        status: ride.status
-      };
-
-      drivers.forEach((driver) => {
-        if (driver.socketId) {
-          global.io.to(driver.socketId).emit("newRideRequest", ridePayload);
-        }
-      });
-
-      console.log("📡 Ride sent to drivers");
-    }
-
-    /* ================= NOTIFY USER ================= */
-    emitToUser(req.user._id, "rideSearching", {
-      rideId: ride._id
+    /* 🔥 EMIT TO DRIVERS */
+    drivers.forEach(driver => {
+      if (driver.socketId) {
+        global.io.to(driver.socketId).emit("newRideRequest", ride);
+      }
     });
 
-    /* ================= RESPONSE ================= */
-    res.status(201).json({
-      success: true,
-      ride
-    });
+    res.status(201).json({ success: true, ride });
 
   } catch (err) {
-    console.error("❌ createRide error:", err.message);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to create ride"
-    });
+    console.error(err);
+    res.status(500).json({ success: false });
   }
 };
 /* ======================================================

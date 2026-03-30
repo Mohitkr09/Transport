@@ -64,9 +64,7 @@ app.use(morgan("dev"));
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* =================================================
-🔥 IMPORTANT: API ROUTES (MUST COME BEFORE 404)
-================================================= */
+/* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
@@ -80,39 +78,21 @@ app.get("/", (req, res) => {
 
 /* ================= HEALTH ================= */
 app.get("/health", (req, res) => {
-  res.json({ success: true, server: "running" });
+  res.json({ success: true });
 });
 
-/* =================================================
-❌ REMOVE OLD WRONG 404 HANDLER (IMPORTANT FIX)
-================================================= */
-/* 
-Your old code had:
-app.use((req, res) => { ... })
-
-👉 This was catching ALL routes sometimes before async errors
-*/
-
-/* =================================================
-✅ CORRECT ERROR HANDLING ORDER
-================================================= */
-
-/* 404 HANDLER */
-app.use((req, res, next) => {
+/* ================= 404 ================= */
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: `Route not found → ${req.method} ${req.originalUrl}`
   });
 });
 
-/* GLOBAL ERROR HANDLER */
+/* ================= ERROR ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err.message);
-
-  res.status(500).json({
-    success: false,
-    message: err.message || "Server Error"
-  });
+  res.status(500).json({ success: false });
 });
 
 /* ================= SERVER ================= */
@@ -136,7 +116,7 @@ io.use((socket, next) => {
     socket.user = decoded;
 
     next();
-  } catch (err) {
+  } catch {
     next(new Error("Unauthorized"));
   }
 });
@@ -151,8 +131,10 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
+    /* JOIN ROOM */
     socket.join(userId.toString());
 
+    /* ================= DRIVER ONLINE ================= */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(userId, {
         socketId: socket.id,
@@ -160,9 +142,59 @@ io.on("connection", async (socket) => {
         isAvailable: true
       });
 
-      console.log("🚗 Driver online:", userId);
+      console.log("🚗 Driver ready:", userId);
     }
 
+    /* =================================================
+    🔥 USER REQUEST RIDE (MAIN FIX)
+    ================================================= */
+    socket.on("requestRide", async (ride) => {
+      try {
+        console.log("📢 Ride requested");
+
+        const drivers = await Driver.find({
+          isOnline: true,
+          isAvailable: true
+        });
+
+        console.log("🚗 Drivers found:", drivers.length);
+
+        drivers.forEach((driver) => {
+          if (driver.socketId) {
+            io.to(driver.socketId).emit("newRideRequest", ride);
+          }
+        });
+
+      } catch (err) {
+        console.log("❌ requestRide error:", err.message);
+      }
+    });
+
+    /* =================================================
+    🔥 DRIVER ACCEPTED RIDE
+    ================================================= */
+    socket.on("rideAccepted", async (ride) => {
+      try {
+        console.log("✅ Ride accepted");
+
+        // notify user
+        io.to(ride.user.toString()).emit("rideAccepted", ride);
+
+        // remove from other drivers
+        const drivers = await Driver.find({ isOnline: true });
+
+        drivers.forEach((d) => {
+          if (d.socketId) {
+            io.to(d.socketId).emit("rideTaken", ride._id);
+          }
+        });
+
+      } catch (err) {
+        console.log("❌ accept error:", err.message);
+      }
+    });
+
+    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       try {
         if (role === "driver") {

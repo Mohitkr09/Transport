@@ -10,7 +10,7 @@ import {
   Clock
 } from "lucide-react";
 
-
+/* ================= SOCKET ================= */
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token")
@@ -30,7 +30,7 @@ export default function DriverDashboard() {
 
   const timerRef = useRef(null);
 
-  
+  /* ================= AUTH ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
@@ -55,18 +55,31 @@ export default function DriverDashboard() {
     loadProfile();
   }, []);
 
+  /* ================= INITIAL FETCH (IMPORTANT 🔥) ================= */
+  const fetchNearbyRides = async () => {
+    try {
+      const res = await api.get("/ride/nearby");
+      setRides(res.data.rides || []);
+    } catch (err) {
+      console.log("❌ Fetch rides error:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (online) fetchNearbyRides();
+  }, [online]);
+
   /* ================= SOCKET ================= */
   useEffect(() => {
     if (!profile?._id) return;
 
     socket.emit("driverOnline", profile._id);
 
-    /* 🔥 NEW RIDE */
+    /* NEW RIDE */
     socket.on("newRideRequest", (ride) => {
       if (!online) return;
 
       setRides(prev => {
-        // avoid duplicates
         if (prev.find(r => r._id === ride._id)) return prev;
         return [ride, ...prev];
       });
@@ -75,23 +88,21 @@ export default function DriverDashboard() {
       startTimer();
     });
 
-    /* 🔥 RIDE TAKEN BY OTHER DRIVER */
+    /* REMOVE IF TAKEN */
     socket.on("rideTaken", (rideId) => {
       setRides(prev => prev.filter(r => r._id !== rideId));
     });
 
-    /* 🔥 REJECT CLEANUP */
+    /* REMOVE IF REJECTED */
     socket.on("rideRejected", (rideId) => {
       setRides(prev => prev.filter(r => r._id !== rideId));
     });
 
-    /* 🔥 ASSIGNED TO THIS DRIVER */
+    /* ACCEPTED */
     socket.on("rideAccepted", (ride) => {
-      if (ride.driver?._id === profile._id) {
-        setActiveRide(ride);
-        setRides([]);
-        stopTimer();
-      }
+      setActiveRide(ride);
+      setRides([]);
+      stopTimer();
     });
 
     return () => {
@@ -112,7 +123,6 @@ export default function DriverDashboard() {
   /* ================= TIMER ================= */
   const startTimer = () => {
     clearInterval(timerRef.current);
-
     setTimer(10);
 
     timerRef.current = setInterval(() => {
@@ -131,34 +141,6 @@ export default function DriverDashboard() {
     clearInterval(timerRef.current);
     setTimer(0);
   };
-
-  /* ================= LOCATION ================= */
-  useEffect(() => {
-    if (!navigator.geolocation || !online) return;
-
-    const watchId = navigator.geolocation.watchPosition(
-      async (pos) => {
-        try {
-          await api.put("/driver/location", {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          });
-
-          socket.emit("driverLocation", {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          });
-
-        } catch (err) {
-          console.log("❌ Location error", err);
-        }
-      },
-      (err) => console.log(err),
-      { enableHighAccuracy: true }
-    );
-
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [online]);
 
   /* ================= ONLINE ================= */
   const toggleOnline = async () => {
@@ -203,9 +185,7 @@ export default function DriverDashboard() {
   const rejectRide = async (id) => {
     try {
       await api.put(`/ride/${id}/reject`);
-
       setRides(prev => prev.filter(r => r._id !== id));
-
     } catch {
       alert("Reject failed");
     }
@@ -225,10 +205,8 @@ export default function DriverDashboard() {
   const completeRide = async () => {
     try {
       await api.put(`/ride/${activeRide._id}/complete`);
-
       alert("🎉 Ride Completed");
       setActiveRide(null);
-
     } catch {
       alert("Complete failed");
     }
@@ -238,9 +216,7 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black p-6">
 
-      {/* HEADER */}
       <div className="flex justify-between items-center mb-6">
-
         <div>
           <h1 className="text-2xl font-bold">Driver Dashboard</h1>
           {profile && (
@@ -258,7 +234,6 @@ export default function DriverDashboard() {
         >
           {online ? "Online 🟢" : "Offline ⚫"}
         </button>
-
       </div>
 
       {/* ACTIVE RIDE */}
@@ -270,25 +245,23 @@ export default function DriverDashboard() {
           <p>Drop: {activeRide.dropLocation?.address}</p>
 
           <div className="flex gap-3 mt-4">
-
             {activeRide.status === "accepted" && (
               <button
                 onClick={startRide}
-                className="flex-1 bg-blue-600 text-white py-2 rounded-lg flex items-center justify-center gap-2"
+                className="flex-1 bg-blue-600 text-white py-2 rounded-lg"
               >
-                <PlayCircle size={18}/> Start Ride
+                Start Ride
               </button>
             )}
 
             {activeRide.status === "ongoing" && (
               <button
                 onClick={completeRide}
-                className="flex-1 bg-purple-600 text-white py-2 rounded-lg flex items-center justify-center gap-2"
+                className="flex-1 bg-purple-600 text-white py-2 rounded-lg"
               >
-                <StopCircle size={18}/> Complete Ride
+                Complete Ride
               </button>
             )}
-
           </div>
         </div>
       )}
@@ -296,13 +269,8 @@ export default function DriverDashboard() {
       {/* RIDE LIST */}
       {!activeRide && (
         <>
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <h2 className="text-xl font-semibold mb-4">
             Nearby Ride Requests
-            {timer > 0 && (
-              <span className="text-red-500 flex items-center gap-1">
-                <Clock size={16}/> {timer}s
-              </span>
-            )}
           </h2>
 
           {rides.length === 0 && (
@@ -311,50 +279,33 @@ export default function DriverDashboard() {
             </div>
           )}
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {rides.map((ride) => (
-              <div
-                key={ride._id}
-                className="bg-white rounded-xl shadow p-5 border-l-4 border-green-500"
-              >
+          {rides.map((ride) => (
+            <div key={ride._id} className="bg-white p-4 mb-4 rounded-xl shadow">
 
-                <p className="flex gap-2">
-                  <MapPin size={16}/> {ride.pickupLocation?.address}
-                </p>
+              <p><b>Pickup:</b> {ride.pickupLocation?.address}</p>
+              <p><b>Drop:</b> {ride.dropLocation?.address}</p>
+              <p className="text-indigo-600 font-bold">₹{ride.fare}</p>
 
-                <p className="flex gap-2">
-                  <Navigation size={16}/> {ride.dropLocation?.address}
-                </p>
+              <div className="flex gap-3 mt-3">
+                <button
+                  onClick={() => acceptRide(ride._id)}
+                  className="bg-green-600 text-white px-4 py-2 rounded"
+                >
+                  Accept
+                </button>
 
-                <p className="font-semibold text-indigo-600">
-                  ₹{ride.fare}
-                </p>
-
-                <div className="flex gap-3 mt-4">
-
-                  <button
-                    onClick={() => acceptRide(ride._id)}
-                    disabled={loadingId === ride._id}
-                    className="flex-1 bg-green-600 text-white py-2 rounded-lg"
-                  >
-                    {loadingId === ride._id ? "..." : "Accept"}
-                  </button>
-
-                  <button
-                    onClick={() => rejectRide(ride._id)}
-                    className="flex-1 bg-red-600 text-white py-2 rounded-lg"
-                  >
-                    Reject
-                  </button>
-
-                </div>
-
+                <button
+                  onClick={() => rejectRide(ride._id)}
+                  className="bg-red-600 text-white px-4 py-2 rounded"
+                >
+                  Reject
+                </button>
               </div>
-            ))}
-          </div>
+
+            </div>
+          ))}
         </>
       )}
-
     </div>
   );
 }

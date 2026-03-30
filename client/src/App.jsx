@@ -5,8 +5,6 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-/* ================= LAZY PAGES ================= */
-
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
@@ -19,7 +17,6 @@ const Payment = lazy(() => import("./pages/Payment"));
 const RideTracking = lazy(() => import("./pages/RideTracking"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 
-/* ADMIN */
 
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
@@ -28,9 +25,7 @@ const Analytics = lazy(() => import("./pages/admin/Analytics"));
 const Settings = lazy(() => import("./pages/admin/Settings"));
 const SupportMessages = lazy(() => import("./pages/admin/SupportMessages"));
 
-/* ======================================================
-SCROLL RESTORE
-====================================================== */
+
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -58,9 +53,6 @@ function BackendWakeup() {
   return null;
 }
 
-/* ======================================================
-ROLE REDIRECT (FIXED 🚀)
-====================================================== */
 
 function RoleRedirect() {
   const { pathname } = useLocation();
