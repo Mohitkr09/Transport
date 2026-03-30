@@ -10,14 +10,6 @@ import {
   Clock
 } from "lucide-react";
 
-/* ================= SOCKET (FIXED) ================= */
-const socket = io("http://localhost:5000", {
-  auth: {
-    token: localStorage.getItem("token")
-  },
-  transports: ["websocket"] // 🔥 important for render
-});
-
 export default function DriverDashboard() {
 
   const navigate = useNavigate();
@@ -30,6 +22,7 @@ export default function DriverDashboard() {
   const [timer, setTimer] = useState(0);
 
   const timerRef = useRef(null);
+  const socketRef = useRef(null);
 
   /* ================= AUTH ================= */
   useEffect(() => {
@@ -39,6 +32,26 @@ export default function DriverDashboard() {
     if (!token || role !== "driver") {
       navigate("/login?role=driver");
     }
+  }, []);
+
+  /* ================= SOCKET INIT (FIXED 🔥) ================= */
+  useEffect(() => {
+    const socket = io(import.meta.env.VITE_API_URL || "http://localhost:5000", {
+      auth: {
+        token: localStorage.getItem("token")
+      },
+      transports: ["websocket"]
+    });
+
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      console.log("✅ Socket connected:", socket.id);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   /* ================= PROFILE ================= */
@@ -56,7 +69,7 @@ export default function DriverDashboard() {
     loadProfile();
   }, []);
 
-  /* ================= FETCH RIDES (FALLBACK) ================= */
+  /* ================= FETCH RIDES ================= */
   const fetchNearbyRides = async () => {
     try {
       const res = await api.get("/ride/nearby");
@@ -70,15 +83,17 @@ export default function DriverDashboard() {
     if (online) fetchNearbyRides();
   }, [online]);
 
-  /* ================= SOCKET ================= */
+  /* ================= SOCKET EVENTS ================= */
   useEffect(() => {
-    if (!profile?._id) return;
+    const socket = socketRef.current;
+    if (!socket || !profile?._id) return;
 
+    /* 🔥 REGISTER DRIVER */
     socket.emit("driverOnline", profile._id);
 
-    /* NEW RIDE */
+    /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
-      if (!online) return;
+      console.log("🔥 Ride received:", ride);
 
       setRides(prev => {
         if (prev.find(r => r._id === ride._id)) return prev;
@@ -89,19 +104,14 @@ export default function DriverDashboard() {
       startTimer();
     });
 
-    /* REMOVE IF TAKEN */
+    /* 🔥 REMOVE IF TAKEN */
     socket.on("rideTaken", (rideId) => {
       setRides(prev => prev.filter(r => r._id !== rideId));
     });
 
-    /* REMOVE IF REJECTED */
-    socket.on("rideRejected", (rideId) => {
-      setRides(prev => prev.filter(r => r._id !== rideId));
-    });
-
-    /* ACCEPTED (FIXED 🔥) */
+    /* 🔥 ACCEPTED */
     socket.on("rideAccepted", (ride) => {
-      if (ride?.driver?._id === profile._id || ride?.driver === profile._id) {
+      if (ride?.driver === profile._id || ride?.driver?._id === profile._id) {
         setActiveRide(ride);
         setRides([]);
         stopTimer();
@@ -111,7 +121,6 @@ export default function DriverDashboard() {
     return () => {
       socket.off("newRideRequest");
       socket.off("rideTaken");
-      socket.off("rideRejected");
       socket.off("rideAccepted");
     };
 
@@ -171,7 +180,7 @@ export default function DriverDashboard() {
 
       const res = await api.put(`/ride/${id}/accept`);
 
-      socket.emit("rideAccepted", res.data.ride);
+      socketRef.current.emit("rideAccepted", res.data.ride);
 
       setActiveRide(res.data.ride);
       setRides([]);
@@ -219,101 +228,31 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black p-6">
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Driver Dashboard</h1>
-          {profile && (
-            <p className="text-gray-500 text-sm">
-              Welcome {profile.name}
-            </p>
-          )}
-        </div>
+      <h1 className="text-2xl font-bold mb-4">Driver Dashboard</h1>
 
-        <button
-          onClick={toggleOnline}
-          className={`px-4 py-2 rounded-lg text-white ${
-            online ? "bg-green-600" : "bg-gray-500"
-          }`}
-        >
-          {online ? "Online 🟢" : "Offline ⚫"}
-        </button>
-      </div>
+      <button
+        onClick={toggleOnline}
+        className={`mb-4 px-4 py-2 text-white rounded ${
+          online ? "bg-green-600" : "bg-gray-500"
+        }`}
+      >
+        {online ? "Online 🟢" : "Offline ⚫"}
+      </button>
 
-      {/* ACTIVE RIDE */}
-      {activeRide && (
-        <div className="bg-white p-6 rounded-xl shadow mb-6">
-          <h2 className="text-xl font-semibold mb-3">Active Ride</h2>
-
-          <p>Pickup: {activeRide.pickupLocation?.address}</p>
-          <p>Drop: {activeRide.dropLocation?.address}</p>
-
-          <div className="flex gap-3 mt-4">
-            {activeRide.status === "accepted" && (
-              <button
-                onClick={startRide}
-                className="flex-1 bg-blue-600 text-white py-2 rounded-lg"
-              >
-                <PlayCircle size={18}/> Start Ride
-              </button>
-            )}
-
-            {activeRide.status === "ongoing" && (
-              <button
-                onClick={completeRide}
-                className="flex-1 bg-purple-600 text-white py-2 rounded-lg"
-              >
-                <StopCircle size={18}/> Complete Ride
-              </button>
-            )}
-          </div>
-        </div>
+      {rides.length === 0 && !activeRide && (
+        <p>No nearby rides</p>
       )}
 
-      {/* RIDE LIST */}
-      {!activeRide && (
-        <>
-          <h2 className="text-xl font-semibold mb-4">
-            Nearby Ride Requests
-            {timer > 0 && (
-              <span className="text-red-500 ml-2">
-                ({timer}s)
-              </span>
-            )}
-          </h2>
+      {rides.map(ride => (
+        <div key={ride._id} className="bg-white p-4 mb-4 rounded shadow">
+          <p>{ride.pickupLocation?.address}</p>
+          <p>{ride.dropLocation?.address}</p>
 
-          {rides.length === 0 && (
-            <div className="bg-white p-6 rounded-xl text-center text-gray-500">
-              No nearby rides
-            </div>
-          )}
+          <button onClick={() => acceptRide(ride._id)}>Accept</button>
+          <button onClick={() => rejectRide(ride._id)}>Reject</button>
+        </div>
+      ))}
 
-          {rides.map((ride) => (
-            <div key={ride._id} className="bg-white p-4 mb-4 rounded-xl shadow">
-              <p><b>Pickup:</b> {ride.pickupLocation?.address}</p>
-              <p><b>Drop:</b> {ride.dropLocation?.address}</p>
-              <p className="text-indigo-600 font-bold">₹{ride.fare}</p>
-
-              <div className="flex gap-3 mt-3">
-                <button
-                  onClick={() => acceptRide(ride._id)}
-                  disabled={loadingId === ride._id}
-                  className="bg-green-600 text-white px-4 py-2 rounded"
-                >
-                  {loadingId === ride._id ? "..." : "Accept"}
-                </button>
-
-                <button
-                  onClick={() => rejectRide(ride._id)}
-                  className="bg-red-600 text-white px-4 py-2 rounded"
-                >
-                  Reject
-                </button>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
     </div>
   );
 }

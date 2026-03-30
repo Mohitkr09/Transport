@@ -98,9 +98,10 @@ app.use((err, req, res, next) => {
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET (FIXED) ================= */
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: { origin: "*" },
+  transports: ["websocket"] // 🔥 required for Render
 });
 
 global.io = io;
@@ -127,14 +128,13 @@ io.on("connection", async (socket) => {
     const userId = socket.user?.id;
     const role = socket.user?.role;
 
-    console.log("🟢 Connected:", role, userId);
+    console.log("🟢 Connected:", role, userId, socket.id);
 
     if (!userId) return;
 
-    /* JOIN ROOM */
     socket.join(userId.toString());
 
-    /* ================= DRIVER ONLINE ================= */
+    /* 🔥 DRIVER REGISTER */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(userId, {
         socketId: socket.id,
@@ -142,72 +142,61 @@ io.on("connection", async (socket) => {
         isAvailable: true
       });
 
-      console.log("🚗 Driver ready:", userId);
+      console.log("🚗 Driver socket saved:", socket.id);
     }
 
-    /* =================================================
-    🔥 USER REQUEST RIDE (MAIN FIX)
-    ================================================= */
+    /* 🔥 MANUAL ONLINE */
+    socket.on("driverOnline", async (driverId) => {
+      await Driver.findByIdAndUpdate(driverId, {
+        socketId: socket.id,
+        isOnline: true,
+        isAvailable: true
+      });
+
+      console.log("🚗 Driver manually online:", socket.id);
+    });
+
+    /* 🔥 REQUEST RIDE */
     socket.on("requestRide", async (ride) => {
-      try {
-        console.log("📢 Ride requested");
+      const drivers = await Driver.find({
+        isOnline: true,
+        isAvailable: true
+      });
 
-        const drivers = await Driver.find({
-          isOnline: true,
-          isAvailable: true
-        });
+      console.log("🚗 Drivers found:", drivers.length);
 
-        console.log("🚗 Drivers found:", drivers.length);
+      drivers.forEach(driver => {
+        console.log("👉 sending to:", driver.socketId);
 
-        drivers.forEach((driver) => {
-          if (driver.socketId) {
-            io.to(driver.socketId).emit("newRideRequest", ride);
-          }
-        });
-
-      } catch (err) {
-        console.log("❌ requestRide error:", err.message);
-      }
-    });
-
-    /* =================================================
-    🔥 DRIVER ACCEPTED RIDE
-    ================================================= */
-    socket.on("rideAccepted", async (ride) => {
-      try {
-        console.log("✅ Ride accepted");
-
-        // notify user
-        io.to(ride.user.toString()).emit("rideAccepted", ride);
-
-        // remove from other drivers
-        const drivers = await Driver.find({ isOnline: true });
-
-        drivers.forEach((d) => {
-          if (d.socketId) {
-            io.to(d.socketId).emit("rideTaken", ride._id);
-          }
-        });
-
-      } catch (err) {
-        console.log("❌ accept error:", err.message);
-      }
-    });
-
-    /* ================= DISCONNECT ================= */
-    socket.on("disconnect", async () => {
-      try {
-        if (role === "driver") {
-          await Driver.findByIdAndUpdate(userId, {
-            socketId: null,
-            isOnline: false,
-            isAvailable: false
-          });
-
-          console.log("🔴 Driver offline:", userId);
+        if (driver.socketId) {
+          io.to(driver.socketId).emit("newRideRequest", ride);
         }
-      } catch (err) {
-        console.log("⚠️ Disconnect error:", err.message);
+      });
+    });
+
+    /* 🔥 ACCEPT */
+    socket.on("rideAccepted", async (ride) => {
+      io.to(ride.user.toString()).emit("rideAccepted", ride);
+
+      const drivers = await Driver.find({ isOnline: true });
+
+      drivers.forEach(d => {
+        if (d.socketId) {
+          io.to(d.socketId).emit("rideTaken", ride._id);
+        }
+      });
+    });
+
+    /* 🔥 DISCONNECT */
+    socket.on("disconnect", async () => {
+      if (role === "driver") {
+        await Driver.findByIdAndUpdate(userId, {
+          socketId: null,
+          isOnline: false,
+          isAvailable: false
+        });
+
+        console.log("🔴 Driver offline");
       }
     });
 
