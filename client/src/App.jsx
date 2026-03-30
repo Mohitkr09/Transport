@@ -59,7 +59,7 @@ function BackendWakeup() {
 }
 
 /* ======================================================
-ROLE REDIRECT (IMPROVED)
+ROLE REDIRECT (FIXED 🚀)
 ====================================================== */
 
 function RoleRedirect() {
@@ -71,20 +71,28 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    // Prevent redirect loop
-    if (pathname === "/login" || pathname === "/register") return;
+    // ❌ prevent redirect loop
+    if (
+      pathname.startsWith("/login") ||
+      pathname.startsWith("/register")
+    ) return;
 
+    // ✅ FIX: use navigate instead of reload
     if (role === "driver" && !pathname.startsWith("/driver")) {
-      window.location.replace("/driver/dashboard");
+      window.history.replaceState(null, "", "/driver/dashboard");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     }
 
     if (role === "admin" && !pathname.startsWith("/admin")) {
-      window.location.replace("/admin/dashboard");
+      window.history.replaceState(null, "", "/admin/dashboard");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     }
 
     if (role === "user" && pathname.startsWith("/admin")) {
-      window.location.replace("/");
+      window.history.replaceState(null, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     }
+
   }, [pathname]);
 
   return null;

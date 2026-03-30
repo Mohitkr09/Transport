@@ -30,7 +30,7 @@ export default function DriverDashboard() {
 
   const timerRef = useRef(null);
 
-  /* ================= AUTH ================= */
+  
   useEffect(() => {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
