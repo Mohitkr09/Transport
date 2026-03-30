@@ -2,7 +2,9 @@ const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 const jwt = require("jsonwebtoken");
 
-
+/* =========================================================
+TOKEN
+========================================================= */
 const generateToken = (id) =>
   jwt.sign({ id, role: "driver" }, process.env.JWT_SECRET, {
     expiresIn: "7d",
@@ -12,9 +14,23 @@ const send = (res, success, data = {}, code = 200) =>
   res.status(code).json({ success, ...data });
 
 /* =========================================================
+SOCKET HELPERS
+========================================================= */
+const emitToUser = (userId, event, payload) => {
+  if (!global.io) return;
+  global.io.to(userId.toString()).emit(event, payload);
+};
+
+const emitToDriver = async (driverId, event, payload) => {
+  const driver = await Driver.findById(driverId);
+  if (driver?.socketId) {
+    global.io.to(driver.socketId).emit(event, payload);
+  }
+};
+
+/* =========================================================
 LOGIN
 ========================================================= */
-
 exports.loginDriver = async (req, res) => {
   try {
     let { email, password } = req.body;
@@ -35,7 +51,6 @@ exports.loginDriver = async (req, res) => {
       return send(res, false, { message: "Not approved" }, 403);
     }
 
-    // 🔥 FORCE ONLINE
     driver.isOnline = true;
     driver.isAvailable = true;
 
@@ -58,7 +73,6 @@ exports.loginDriver = async (req, res) => {
 /* =========================================================
 PROFILE
 ========================================================= */
-
 exports.getDriverProfile = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id).select("-password");
@@ -76,7 +90,6 @@ exports.getDriverProfile = async (req, res) => {
 /* =========================================================
 ONLINE / OFFLINE
 ========================================================= */
-
 exports.updateDriverStatus = async (req, res) => {
   try {
     const { isOnline } = req.body;
@@ -89,6 +102,10 @@ exports.updateDriverStatus = async (req, res) => {
 
     driver.isOnline = isOnline;
     driver.isAvailable = isOnline;
+
+    if (!isOnline) {
+      driver.currentRide = null;
+    }
 
     await driver.save();
 
@@ -104,7 +121,6 @@ exports.updateDriverStatus = async (req, res) => {
 /* =========================================================
 LOCATION
 ========================================================= */
-
 exports.updateDriverLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
@@ -129,9 +145,8 @@ exports.updateDriverLocation = async (req, res) => {
 };
 
 /* =========================================================
-🔥 FINAL FIX: ALWAYS RETURN RIDES
+GET RIDES (REAL-TIME + FALLBACK)
 ========================================================= */
-
 exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
@@ -142,14 +157,14 @@ exports.getNearbyRides = async (req, res) => {
 
     let rides = [];
 
-    // 🔥 TRY LOCATION BASED (OPTIONAL)
     if (driver.location?.coordinates?.length) {
       const [lng, lat] = driver.location.coordinates;
 
       rides = await Ride.find({
         status: "searching_driver",
+        driver: null,
         rejectedDrivers: { $ne: driver._id },
-        pickupLocation: {
+        "pickupLocation.location": {
           $near: {
             $geometry: {
               type: "Point",
@@ -161,25 +176,23 @@ exports.getNearbyRides = async (req, res) => {
       }).limit(10);
     }
 
-    // 🔥 FALLBACK (MAIN FIX)
     if (rides.length === 0) {
       rides = await Ride.find({
         status: "searching_driver",
+        driver: null,
         rejectedDrivers: { $ne: driver._id },
       }).limit(10);
     }
 
     return send(res, true, { rides });
-
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT
+ACCEPT RIDE (🔥 CORE LOGIC)
 ========================================================= */
-
 exports.acceptRide = async (req, res) => {
   try {
     const driver = await Driver.findById(req.user.id);
@@ -189,14 +202,18 @@ exports.acceptRide = async (req, res) => {
     }
 
     const ride = await Ride.findOneAndUpdate(
-      { _id: req.params.id, status: "searching_driver" },
+      {
+        _id: req.params.id,
+        status: "searching_driver",
+        driver: null,
+      },
       {
         driver: driver._id,
         status: "accepted",
         acceptedAt: new Date(),
       },
       { new: true }
-    );
+    ).populate("driver", "name");
 
     if (!ride) {
       return send(res, false, { message: "Ride already taken" }, 400);
@@ -206,6 +223,18 @@ exports.acceptRide = async (req, res) => {
     driver.currentRide = ride._id;
     await driver.save();
 
+    /* 🔥 NOTIFY USER */
+    emitToUser(ride.user, "rideAccepted", ride);
+
+    /* 🔥 REMOVE FROM OTHER DRIVERS */
+    const drivers = await Driver.find({ isOnline: true });
+
+    drivers.forEach((d) => {
+      if (d.socketId) {
+        global.io.to(d.socketId).emit("rideTaken", ride._id);
+      }
+    });
+
     return send(res, true, { ride });
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
@@ -213,9 +242,8 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* =========================================================
-REJECT
+REJECT RIDE
 ========================================================= */
-
 exports.rejectRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
@@ -229,6 +257,12 @@ exports.rejectRide = async (req, res) => {
       await ride.save();
     }
 
+    const driver = await Driver.findById(req.user.id);
+
+    if (driver?.socketId) {
+      global.io.to(driver.socketId).emit("rideRejected", ride._id);
+    }
+
     return send(res, true, { message: "Ride rejected" });
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
@@ -236,9 +270,8 @@ exports.rejectRide = async (req, res) => {
 };
 
 /* =========================================================
-START
+START RIDE
 ========================================================= */
-
 exports.startRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
@@ -248,7 +281,10 @@ exports.startRide = async (req, res) => {
     }
 
     ride.status = "ongoing";
+    ride.startedAt = new Date();
     await ride.save();
+
+    emitToUser(ride.user, "rideStarted", ride);
 
     return send(res, true, { ride });
   } catch (err) {
@@ -257,9 +293,8 @@ exports.startRide = async (req, res) => {
 };
 
 /* =========================================================
-COMPLETE
+COMPLETE RIDE
 ========================================================= */
-
 exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
@@ -269,16 +304,18 @@ exports.completeRide = async (req, res) => {
     }
 
     ride.status = "completed";
+    ride.completedAt = new Date();
     await ride.save();
 
     const driver = await Driver.findById(req.user.id);
     driver.isAvailable = true;
     driver.currentRide = null;
-
     await driver.save();
+
+    emitToUser(ride.user, "rideCompleted", ride);
 
     return send(res, true, { message: "Ride completed" });
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
-};    
+};

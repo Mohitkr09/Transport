@@ -10,7 +10,7 @@ import {
   Clock
 } from "lucide-react";
 
-/* ================= SOCKET ================= */
+
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token")
@@ -61,24 +61,44 @@ export default function DriverDashboard() {
 
     socket.emit("driverOnline", profile._id);
 
+    /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
       if (!online) return;
 
-      playSound();
-      setRides(prev => [ride, ...prev]);
+      setRides(prev => {
+        // avoid duplicates
+        if (prev.find(r => r._id === ride._id)) return prev;
+        return [ride, ...prev];
+      });
 
+      playSound();
       startTimer();
     });
 
-    socket.on("rideAssigned", (ride) => {
-      setActiveRide(ride);
-      setRides([]);
-      stopTimer();
+    /* 🔥 RIDE TAKEN BY OTHER DRIVER */
+    socket.on("rideTaken", (rideId) => {
+      setRides(prev => prev.filter(r => r._id !== rideId));
+    });
+
+    /* 🔥 REJECT CLEANUP */
+    socket.on("rideRejected", (rideId) => {
+      setRides(prev => prev.filter(r => r._id !== rideId));
+    });
+
+    /* 🔥 ASSIGNED TO THIS DRIVER */
+    socket.on("rideAccepted", (ride) => {
+      if (ride.driver?._id === profile._id) {
+        setActiveRide(ride);
+        setRides([]);
+        stopTimer();
+      }
     });
 
     return () => {
       socket.off("newRideRequest");
-      socket.off("rideAssigned");
+      socket.off("rideTaken");
+      socket.off("rideRejected");
+      socket.off("rideAccepted");
     };
 
   }, [profile, online]);
@@ -89,15 +109,17 @@ export default function DriverDashboard() {
     audio.play().catch(() => {});
   };
 
-  /* ================= TIMER (AUTO EXPIRE) ================= */
+  /* ================= TIMER ================= */
   const startTimer = () => {
+    clearInterval(timerRef.current);
+
     setTimer(10);
 
     timerRef.current = setInterval(() => {
       setTimer(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current);
-          setRides([]); // auto remove ride
+          setRides([]);
           return 0;
         }
         return prev - 1;
@@ -138,7 +160,7 @@ export default function DriverDashboard() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [online]);
 
-  /* ================= ONLINE TOGGLE ================= */
+  /* ================= ONLINE ================= */
   const toggleOnline = async () => {
     try {
       const newStatus = !online;
@@ -205,7 +227,6 @@ export default function DriverDashboard() {
       await api.put(`/ride/${activeRide._id}/complete`);
 
       alert("🎉 Ride Completed");
-
       setActiveRide(null);
 
     } catch {
@@ -243,10 +264,7 @@ export default function DriverDashboard() {
       {/* ACTIVE RIDE */}
       {activeRide && (
         <div className="bg-white p-6 rounded-xl shadow mb-6">
-
-          <h2 className="text-xl font-semibold mb-3">
-            Active Ride
-          </h2>
+          <h2 className="text-xl font-semibold mb-3">Active Ride</h2>
 
           <p>Pickup: {activeRide.pickupLocation?.address}</p>
           <p>Drop: {activeRide.dropLocation?.address}</p>
@@ -272,7 +290,6 @@ export default function DriverDashboard() {
             )}
 
           </div>
-
         </div>
       )}
 
@@ -281,7 +298,11 @@ export default function DriverDashboard() {
         <>
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             Nearby Ride Requests
-            {timer > 0 && <span className="text-red-500 flex items-center gap-1"><Clock size={16}/> {timer}s</span>}
+            {timer > 0 && (
+              <span className="text-red-500 flex items-center gap-1">
+                <Clock size={16}/> {timer}s
+              </span>
+            )}
           </h2>
 
           {rides.length === 0 && (
@@ -291,7 +312,6 @@ export default function DriverDashboard() {
           )}
 
           <div className="grid md:grid-cols-2 gap-4">
-
             {rides.map((ride) => (
               <div
                 key={ride._id}
@@ -331,7 +351,6 @@ export default function DriverDashboard() {
 
               </div>
             ))}
-
           </div>
         </>
       )}

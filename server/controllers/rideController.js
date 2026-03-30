@@ -10,18 +10,24 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 };
 
 /* ======================================================
-SOCKET HELPER
+SOCKET HELPERS
 ====================================================== */
 const emitToUser = (userId, event, payload) => {
   if (!global.io) return;
   global.io.to(userId.toString()).emit(event, payload);
 };
 
+const emitToDriver = async (driverId, event, payload) => {
+  const driver = await Driver.findById(driverId);
+  if (driver?.socketId) {
+    global.io.to(driver.socketId).emit(event, payload);
+  }
+};
+
 /* ======================================================
 GET DRIVERS
 ====================================================== */
 const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
-
   let drivers = [];
 
   if (lat && lng) {
@@ -39,7 +45,7 @@ const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
           $maxDistance: 50000
         }
       }
-    }).select("_id name");
+    });
   }
 
   if (drivers.length === 0) {
@@ -48,21 +54,31 @@ const getNearbyDrivers = async ({ lat, lng, vehicleType }) => {
       isOnline: true,
       isAvailable: true,
       "vehicle.type": vehicleType
-    }).select("_id name");
+    });
   }
 
   return drivers;
 };
 
 /* ======================================================
-CREATE RIDE
+CREATE RIDE (🔥 FIXED REAL-TIME)
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
+    /* ================= VALIDATION ================= */
+    if (!pickupLocation || !dropLocation || !vehicleType) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
+    }
+
+    /* ================= FARE ================= */
     const fare = calculateFare(vehicleType, distance || 5);
 
+    /* ================= CREATE RIDE ================= */
     const ride = await Ride.create({
       user: req.user._id,
 
@@ -91,90 +107,76 @@ exports.createRide = async (req, res) => {
       rejectedDrivers: []
     });
 
-    const drivers = await getNearbyDrivers({
+    /* ================= FIND DRIVERS ================= */
+    let drivers = await getNearbyDrivers({
       lat: pickupLocation.lat,
       lng: pickupLocation.lng,
       vehicleType
     });
 
-    console.log("Drivers found:", drivers.length);
+    console.log("🚗 Nearby drivers:", drivers.length);
 
-    drivers.forEach(driver => {
-      global.io.to(driver._id.toString()).emit("newRideRequest", {
-        rideId: ride._id,
-        pickup: pickupLocation.address,
-        destination: dropLocation.address,
-        fare
+    /* 🔥 FALLBACK (IMPORTANT) */
+    if (!drivers.length) {
+      drivers = await Driver.find({
+        isOnline: true,
+        isAvailable: true,
+        "vehicle.type": vehicleType
       });
-    });
+    }
 
+    /* ================= REAL-TIME EMIT ================= */
+    if (global.io && drivers.length > 0) {
+
+      const ridePayload = {
+        _id: ride._id,
+        pickupLocation: ride.pickupLocation,
+        dropLocation: ride.dropLocation,
+        fare: ride.fare,
+        vehicleType: ride.vehicleType,
+        status: ride.status
+      };
+
+      drivers.forEach((driver) => {
+        if (driver.socketId) {
+          global.io.to(driver.socketId).emit("newRideRequest", ridePayload);
+        }
+      });
+
+      console.log("📡 Ride sent to drivers");
+    }
+
+    /* ================= NOTIFY USER ================= */
     emitToUser(req.user._id, "rideSearching", {
       rideId: ride._id
     });
 
+    /* ================= RESPONSE ================= */
     res.status(201).json({
       success: true,
       ride
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false });
+    console.error("❌ createRide error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create ride"
+    });
   }
 };
-
 /* ======================================================
-GET NEARBY RIDES
-====================================================== */
-exports.getNearbyRides = async (req, res) => {
-  try {
-    const driver = await Driver.findById(req.user.id);
-
-    let rides = [];
-
-    if (driver?.location?.coordinates?.length) {
-      rides = await Ride.find({
-        status: "searching_driver",
-        driver: null,
-        vehicleType: driver.vehicle.type,
-        rejectedDrivers: { $ne: req.user.id },
-
-        "pickupLocation.location": {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: driver.location.coordinates
-            },
-            $maxDistance: 50000
-          }
-        }
-      });
-    }
-
-    if (rides.length === 0) {
-      rides = await Ride.find({
-        status: "searching_driver",
-        driver: null,
-        vehicleType: driver.vehicle.type,
-        rejectedDrivers: { $ne: req.user.id }
-      });
-    }
-
-    res.json({ success: true, rides });
-
-  } catch {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-ACCEPT RIDE (🔥 REAL-TIME FIX)
+ACCEPT RIDE (🔥 RACE SAFE)
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
-
     const ride = await Ride.findOneAndUpdate(
-      { _id: req.params.id, status: "searching_driver", driver: null },
+      {
+        _id: req.params.id,
+        status: "searching_driver",
+        driver: null
+      },
       {
         status: "accepted",
         driver: req.user.id,
@@ -184,7 +186,7 @@ exports.acceptRide = async (req, res) => {
     ).populate("driver", "name");
 
     if (!ride) {
-      return res.status(400).json({ success: false });
+      return res.status(400).json({ success: false, message: "Already taken" });
     }
 
     await Driver.findByIdAndUpdate(req.user.id, {
@@ -192,13 +194,39 @@ exports.acceptRide = async (req, res) => {
       currentRide: ride._id
     });
 
-    /* 🔥 REAL-TIME EVENT */
-    emitToUser(ride.user, "rideAccepted", {
-      rideId: ride._id,
-      driver: ride.driver
+    /* 🔥 NOTIFY USER */
+    emitToUser(ride.user, "rideAccepted", ride);
+
+    /* 🔥 REMOVE FROM OTHER DRIVERS */
+    const drivers = await Driver.find({ isOnline: true });
+
+    drivers.forEach(d => {
+      if (d.socketId) {
+        global.io.to(d.socketId).emit("rideTaken", ride._id);
+      }
     });
 
     res.json({ success: true, ride });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+/* ======================================================
+REJECT RIDE (🔥 IMPROVED)
+====================================================== */
+exports.rejectRide = async (req, res) => {
+  try {
+    const ride = await Ride.findByIdAndUpdate(
+      req.params.id,
+      {
+        $addToSet: { rejectedDrivers: req.user.id }
+      },
+      { new: true }
+    );
+
+    res.json({ success: true });
 
   } catch {
     res.status(500).json({ success: false });
@@ -217,11 +245,9 @@ exports.startRide = async (req, res) => {
 
     await ride.save();
 
-    emitToUser(ride.user, "rideStarted", {
-      rideId: ride._id
-    });
+    emitToUser(ride.user, "rideStarted", ride);
 
-    res.json({ success: true });
+    res.json({ success: true, ride });
 
   } catch {
     res.status(500).json({ success: false });
@@ -233,7 +259,6 @@ COMPLETE RIDE
 ====================================================== */
 exports.completeRide = async (req, res) => {
   try {
-
     const ride = await Ride.findById(req.params.id);
 
     ride.status = "completed";
@@ -246,9 +271,7 @@ exports.completeRide = async (req, res) => {
       currentRide: null
     });
 
-    emitToUser(ride.user, "rideCompleted", {
-      rideId: ride._id
-    });
+    emitToUser(ride.user, "rideCompleted", ride);
 
     res.json({ success: true });
 
