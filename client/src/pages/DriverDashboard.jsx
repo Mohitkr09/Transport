@@ -10,11 +10,12 @@ import {
   Clock
 } from "lucide-react";
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET (FIXED) ================= */
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token")
-  }
+  },
+  transports: ["websocket"] // 🔥 important for render
 });
 
 export default function DriverDashboard() {
@@ -55,7 +56,7 @@ export default function DriverDashboard() {
     loadProfile();
   }, []);
 
-  /* ================= INITIAL FETCH (IMPORTANT 🔥) ================= */
+  /* ================= FETCH RIDES (FALLBACK) ================= */
   const fetchNearbyRides = async () => {
     try {
       const res = await api.get("/ride/nearby");
@@ -98,11 +99,13 @@ export default function DriverDashboard() {
       setRides(prev => prev.filter(r => r._id !== rideId));
     });
 
-    /* ACCEPTED */
+    /* ACCEPTED (FIXED 🔥) */
     socket.on("rideAccepted", (ride) => {
-      setActiveRide(ride);
-      setRides([]);
-      stopTimer();
+      if (ride?.driver?._id === profile._id || ride?.driver === profile._id) {
+        setActiveRide(ride);
+        setRides([]);
+        stopTimer();
+      }
     });
 
     return () => {
@@ -216,6 +219,7 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black p-6">
 
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Driver Dashboard</h1>
@@ -250,7 +254,7 @@ export default function DriverDashboard() {
                 onClick={startRide}
                 className="flex-1 bg-blue-600 text-white py-2 rounded-lg"
               >
-                Start Ride
+                <PlayCircle size={18}/> Start Ride
               </button>
             )}
 
@@ -259,7 +263,7 @@ export default function DriverDashboard() {
                 onClick={completeRide}
                 className="flex-1 bg-purple-600 text-white py-2 rounded-lg"
               >
-                Complete Ride
+                <StopCircle size={18}/> Complete Ride
               </button>
             )}
           </div>
@@ -271,6 +275,11 @@ export default function DriverDashboard() {
         <>
           <h2 className="text-xl font-semibold mb-4">
             Nearby Ride Requests
+            {timer > 0 && (
+              <span className="text-red-500 ml-2">
+                ({timer}s)
+              </span>
+            )}
           </h2>
 
           {rides.length === 0 && (
@@ -281,7 +290,6 @@ export default function DriverDashboard() {
 
           {rides.map((ride) => (
             <div key={ride._id} className="bg-white p-4 mb-4 rounded-xl shadow">
-
               <p><b>Pickup:</b> {ride.pickupLocation?.address}</p>
               <p><b>Drop:</b> {ride.dropLocation?.address}</p>
               <p className="text-indigo-600 font-bold">₹{ride.fare}</p>
@@ -289,9 +297,10 @@ export default function DriverDashboard() {
               <div className="flex gap-3 mt-3">
                 <button
                   onClick={() => acceptRide(ride._id)}
+                  disabled={loadingId === ride._id}
                   className="bg-green-600 text-white px-4 py-2 rounded"
                 >
-                  Accept
+                  {loadingId === ride._id ? "..." : "Accept"}
                 </button>
 
                 <button
@@ -301,7 +310,6 @@ export default function DriverDashboard() {
                   Reject
                 </button>
               </div>
-
             </div>
           ))}
         </>
