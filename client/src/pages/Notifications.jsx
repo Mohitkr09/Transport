@@ -37,17 +37,10 @@ export default function Notifications() {
         api.get("/api/ride/my")
       ]);
 
-      setNotifications(
-        Array.isArray(nRes.data)
-          ? nRes.data
-          : nRes.data?.notifications || []
-      );
+      // ✅ FIXED (important)
+      setNotifications(nRes.data.notifications || []);
 
-      setRides(
-        Array.isArray(rRes.data?.rides)
-          ? rRes.data.rides
-          : []
-      );
+      setRides(rRes.data.rides || []);
 
     } catch (err) {
       console.error(err?.response?.data || err.message);
@@ -83,17 +76,21 @@ export default function Notifications() {
     const socket = io(SOCKET_URL, {
       auth: { token },
       transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1500
+      reconnection: true
     });
 
     socketRef.current = socket;
 
+    // 🔔 REAL-TIME NOTIFICATION
     socket.on("notification", data => {
       setNotifications(prev => [data, ...prev]);
+
+      // optional sound 🔊
+      const audio = new Audio("/notification.mp3");
+      audio.play().catch(()=>{});
     });
 
+    // 🚗 REAL-TIME RIDE UPDATE
     socket.on("rideStatusUpdate", ride => {
       setRides(prev =>
         prev.map(r => (r._id === ride._id ? ride : r))
@@ -107,14 +104,18 @@ export default function Notifications() {
 
 
   /* ================= MARK READ ================= */
-  const markRead = async id => {
+  const markRead = async (id) => {
+
+    // optimistic UI
     setNotifications(prev =>
       prev.map(n => n._id === id ? { ...n, read: true } : n)
     );
 
     try {
       await api.put(`/api/notifications/${id}/read`);
-    } catch {}
+    } catch (err) {
+      console.log(err.message);
+    }
   };
 
 
@@ -154,23 +155,22 @@ export default function Notifications() {
 
   /* ================= UI ================= */
   return (
-    <div className="min-h-screen p-6 bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-gray-950 dark:to-gray-900">
+    <div className="min-h-screen p-6 bg-gradient-to-br from-slate-50 via-white to-slate-100">
 
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-10">
-
+      <div className="flex justify-between mb-10">
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-4xl font-bold text-indigo-600">
             Activity Center
           </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Track notifications and ride updates
+          <p className="text-gray-500 text-sm">
+            Real-time updates ⚡
           </p>
         </div>
 
         <button
           onClick={loadData}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white shadow hover:shadow-lg hover:scale-105 active:scale-95 transition"
+          className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white"
         >
           <RefreshCcw size={16}/> Refresh
         </button>
@@ -180,7 +180,7 @@ export default function Notifications() {
 
       {/* ERROR */}
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-600">
+        <div className="mb-6 p-3 bg-red-100 text-red-600 rounded">
           {error}
         </div>
       )}
@@ -188,19 +188,14 @@ export default function Notifications() {
 
 
       {/* TABS */}
-      <div className="flex gap-8 border-b border-gray-200 dark:border-gray-800 mb-10">
+      <div className="flex gap-6 border-b mb-6">
 
         <Tab active={tab==="notifications"} onClick={()=>setTab("notifications")}>
-          Notifications
-          {notifications.filter(n=>!n.read).length > 0 && (
-            <span className="ml-2 text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">
-              {notifications.filter(n=>!n.read).length}
-            </span>
-          )}
+          Notifications ({notifications.filter(n=>!n.read).length})
         </Tab>
 
         <Tab active={tab==="rides"} onClick={()=>setTab("rides")}>
-          Ride History
+          Rides
         </Tab>
 
       </div>
@@ -209,40 +204,28 @@ export default function Notifications() {
 
       {/* NOTIFICATIONS */}
       {tab === "notifications" && (
-        <div className="grid gap-5">
+        <div className="space-y-4">
 
           {notifications.length === 0 && (
-            <Empty icon={<Bell size={42}/>} title="No notifications" desc="You're all caught up."/>
+            <p>No notifications</p>
           )}
 
-          {notifications.map(n=>(
+          {notifications.map(n => (
             <div
               key={n._id}
               onClick={()=>markRead(n._id)}
-              className={`relative group rounded-2xl p-5 flex gap-4 cursor-pointer border backdrop-blur-xl shadow-sm transition
-              ${n.read
-                ? "bg-white/70 dark:bg-gray-900/60 border-gray-200 dark:border-gray-800"
-                : "bg-indigo-50/80 border-indigo-200 dark:bg-indigo-900/20"}
-              hover:shadow-lg hover:-translate-y-[2px]`}
+              className={`p-4 rounded-lg border cursor-pointer ${
+                n.read ? "bg-white" : "bg-indigo-50"
+              }`}
             >
-
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 group-hover:scale-110 transition">
-                <Bell/>
-              </div>
-
-              <div className="flex-1">
-                <p className="font-semibold">{n.title}</p>
-                <p className="text-sm text-gray-500">{n.message}</p>
-                <p className="text-xs text-gray-400 mt-2">
-                  {new Date(n.createdAt).toLocaleString()}
-                </p>
-              </div>
-
-              {!n.read && (
-                <span className="absolute top-4 right-4 w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"/>
-              )}
+              <p className="font-semibold">{n.title}</p>
+              <p className="text-sm text-gray-500">{n.message}</p>
+              <p className="text-xs text-gray-400">
+                {new Date(n.createdAt).toLocaleString()}
+              </p>
             </div>
           ))}
+
         </div>
       )}
 
@@ -250,38 +233,26 @@ export default function Notifications() {
 
       {/* RIDES */}
       {tab === "rides" && (
-        <div className="grid gap-5">
+        <div className="space-y-4">
 
-          {rides.length === 0 && (
-            <Empty icon={<Car size={42}/>} title="No rides yet" desc="Book your first ride."/>
-          )}
+          {rides.length === 0 && <p>No rides</p>}
 
-          {rides.map(ride=>(
-            <div
-              key={ride._id}
-              className="group rounded-2xl p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-lg hover:-translate-y-[2px] transition flex justify-between items-center"
-            >
-
+          {rides.map(ride => (
+            <div key={ride._id} className="p-4 border rounded-lg flex justify-between">
               <div>
-                <p className="font-semibold">{ride.pickupLocation?.address}</p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p>{ride.pickupLocation?.address}</p>
+                <p className="text-sm text-gray-500">
                   → {ride.dropLocation?.address}
                 </p>
-
-                <div className="flex gap-4 mt-3 text-xs text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <Clock size={14}/>
-                    {new Date(ride.createdAt).toLocaleDateString()}
-                  </span>
-                  <span className="font-semibold text-gray-700 dark:text-gray-300">
-                    ₹{ride.fare}
-                  </span>
-                </div>
+                <p className="text-xs">
+                  ₹{ride.fare}
+                </p>
               </div>
 
               <Status status={ride.status}/>
             </div>
           ))}
+
         </div>
       )}
 
@@ -295,23 +266,8 @@ export default function Notifications() {
 const Tab = ({ children, active, onClick }) => (
   <button
     onClick={onClick}
-    className={`relative pb-3 font-semibold text-sm transition
-    ${active ? "text-indigo-600" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}
+    className={active ? "text-indigo-600 font-semibold" : "text-gray-500"}
   >
     {children}
-    {active && (
-      <span className="absolute left-0 bottom-0 w-full h-[3px] bg-indigo-600 rounded-full"/>
-    )}
   </button>
-);
-
-
-
-/* EMPTY */
-const Empty = ({ icon, title, desc }) => (
-  <div className="text-center py-24 text-gray-400">
-    <div className="mx-auto mb-6 w-fit opacity-80">{icon}</div>
-    <p className="font-semibold text-lg text-gray-600 dark:text-gray-300">{title}</p>
-    <p className="text-sm mt-1">{desc}</p>
-  </div>
 );

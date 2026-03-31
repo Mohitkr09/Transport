@@ -17,6 +17,7 @@ const driverRoutes = require("./routes/driverRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const rideRoutes = require("./routes/rideRoutes");
 const locationRoutes = require("./routes/locationRoutes");
+const notificationRoutes = require("./routes/notificationRoutes"); // ✅ FIX
 
 /* ================= MODELS ================= */
 const Driver = require("./models/Driver");
@@ -64,18 +65,13 @@ app.use(morgan("dev"));
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ================= DEBUG ROUTE CHECK (🔥 IMPORTANT) ================= */
-app.use("/api/driver", (req, res, next) => {
-  console.log("🔥 DRIVER ROUTE HIT:", req.originalUrl);
-  next();
-});
-
 /* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ride", rideRoutes);
 app.use("/api/location", locationRoutes);
+app.use("/api/notifications", notificationRoutes); // ✅ FIX (MOST IMPORTANT)
 
 /* ================= ROOT ================= */
 app.get("/", (req, res) => {
@@ -107,7 +103,7 @@ const server = http.createServer(app);
 /* ================= SOCKET ================= */
 const io = new Server(server, {
   cors: { origin: "*" },
-  transports: ["websocket"] // 🔥 REQUIRED for Render
+  transports: ["websocket"] // ✅ required for Render
 });
 
 global.io = io;
@@ -138,52 +134,50 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
+    // ✅ USER ROOM (IMPORTANT FOR NOTIFICATIONS)
     socket.join(userId.toString());
 
-    /* 🔥 DRIVER REGISTER */
+    /* ================= DRIVER ONLINE ================= */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(userId, {
         socketId: socket.id,
         isOnline: true,
         isAvailable: true
       });
-
-      console.log("🚗 Driver socket saved:", socket.id);
     }
 
-    /* 🔥 MANUAL ONLINE */
-    socket.on("driverOnline", async (driverId) => {
-      await Driver.findByIdAndUpdate(driverId, {
-        socketId: socket.id,
-        isOnline: true,
-        isAvailable: true
-      });
-
-      console.log("🚗 Driver manually online:", socket.id);
-    });
-
-    /* 🔥 REQUEST RIDE */
+    /* ================= RIDE REQUEST ================= */
     socket.on("requestRide", async (ride) => {
       const drivers = await Driver.find({
         isOnline: true,
         isAvailable: true
       });
 
-      console.log("🚗 Drivers found:", drivers.length);
-
       drivers.forEach(driver => {
-        console.log("👉 sending to:", driver.socketId);
-
         if (driver.socketId) {
           io.to(driver.socketId).emit("newRideRequest", ride);
         }
       });
     });
 
-    /* 🔥 ACCEPT */
+    /* ================= RIDE ACCEPTED ================= */
     socket.on("rideAccepted", async (ride) => {
+      // Notify user
       io.to(ride.user.toString()).emit("rideAccepted", ride);
 
+      // 🔥 ALSO CREATE NOTIFICATION
+      const Notification = require("./models/Notification");
+
+      await Notification.create({
+        user: ride.user,
+        ride: ride._id,
+        driver: ride.driver,
+        title: "Ride Accepted",
+        message: "Your driver is on the way 🚗",
+        type: "ride"
+      });
+
+      // Notify all drivers
       const drivers = await Driver.find({ isOnline: true });
 
       drivers.forEach(d => {
@@ -193,7 +187,7 @@ io.on("connection", async (socket) => {
       });
     });
 
-    /* 🔥 DISCONNECT */
+    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       if (role === "driver") {
         await Driver.findByIdAndUpdate(userId, {

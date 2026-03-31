@@ -1,14 +1,12 @@
-const router = require("express").Router();
 const Notification = require("../models/Notification");
-const { protect } = require("../middleware/authMiddleware");
 
 /* =========================================
 GET USER NOTIFICATIONS
 ========================================= */
-router.get("/", protect, async (req, res) => {
+exports.getNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find({
-      user: req.user._id,
+      user: req.user.id,
       isDeleted: false,
     })
       .sort({ createdAt: -1 })
@@ -28,13 +26,13 @@ router.get("/", protect, async (req, res) => {
       message: "Failed to fetch notifications",
     });
   }
-});
+};
 
 
 /* =========================================
-MARK SINGLE AS READ
+MARK SINGLE NOTIFICATION AS READ
 ========================================= */
-router.patch("/read/:id", protect, async (req, res) => {
+exports.markAsRead = async (req, res) => {
   try {
     const notification = await Notification.findById(req.params.id);
 
@@ -45,8 +43,7 @@ router.patch("/read/:id", protect, async (req, res) => {
       });
     }
 
-    // 🔐 SECURITY CHECK
-    if (notification.user.toString() !== req.user._id.toString()) {
+    if (notification.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Not authorized",
@@ -70,16 +67,16 @@ router.patch("/read/:id", protect, async (req, res) => {
       message: "Failed to update notification",
     });
   }
-});
+};
 
 
 /* =========================================
 MARK ALL AS READ
 ========================================= */
-router.patch("/read-all", protect, async (req, res) => {
+exports.markAllAsRead = async (req, res) => {
   try {
     await Notification.updateMany(
-      { user: req.user._id, read: false },
+      { user: req.user.id, read: false },
       { read: true, readAt: new Date() }
     );
 
@@ -94,13 +91,13 @@ router.patch("/read-all", protect, async (req, res) => {
       message: "Failed to update notifications",
     });
   }
-});
+};
 
 
 /* =========================================
-DELETE (SOFT DELETE)
+DELETE NOTIFICATION (SOFT DELETE)
 ========================================= */
-router.delete("/:id", protect, async (req, res) => {
+exports.deleteNotification = async (req, res) => {
   try {
     const notification = await Notification.findById(req.params.id);
 
@@ -111,8 +108,7 @@ router.delete("/:id", protect, async (req, res) => {
       });
     }
 
-    // 🔐 SECURITY CHECK
-    if (notification.user.toString() !== req.user._id.toString()) {
+    if (notification.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Not authorized",
@@ -127,37 +123,46 @@ router.delete("/:id", protect, async (req, res) => {
       message: "Notification deleted",
     });
   } catch (error) {
-    console.error("DELETE ERROR:", error);
+    console.error("DELETE NOTIFICATION ERROR:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete notification",
     });
   }
-});
+};
 
 
 /* =========================================
-UNREAD COUNT (FOR BADGE 🔴)
+CREATE NOTIFICATION (INTERNAL USE)
 ========================================= */
-router.get("/unread-count", protect, async (req, res) => {
+exports.createNotification = async ({
+  user,
+  ride = null,
+  driver = null,
+  title,
+  message,
+  type = "system",
+  metadata = {},
+  io = null, // socket.io instance
+}) => {
   try {
-    const count = await Notification.countDocuments({
-      user: req.user._id,
-      read: false,
-      isDeleted: false,
+    const notification = await Notification.create({
+      user,
+      ride,
+      driver,
+      title,
+      message,
+      type,
+      metadata,
     });
 
-    res.status(200).json({
-      success: true,
-      count,
-    });
+    // 🔥 REAL-TIME PUSH
+    if (io) {
+      io.to(user.toString()).emit("new_notification", notification);
+    }
+
+    return notification;
   } catch (error) {
-    console.error("UNREAD COUNT ERROR:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get unread count",
-    });
+    console.error("CREATE NOTIFICATION ERROR:", error);
   }
-});
-
-module.exports = router;
+};
