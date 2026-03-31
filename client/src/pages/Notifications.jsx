@@ -8,7 +8,9 @@ import {
   CheckCircle,
   XCircle,
   Info,
-  RefreshCcw
+  RefreshCcw,
+  Moon,
+  Sun
 } from "lucide-react";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
@@ -24,6 +26,21 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [dark, setDark] = useState(
+    localStorage.getItem("theme") === "dark"
+  );
+
+  /* ================= THEME TOGGLE ================= */
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [dark]);
+
 
 
   /* ================= LOAD DATA ================= */
@@ -37,20 +54,10 @@ export default function Notifications() {
         api.get("/api/ride/my")
       ]);
 
-      // ✅ FIXED (important)
       setNotifications(nRes.data.notifications || []);
-
       setRides(rRes.data.rides || []);
 
     } catch (err) {
-      console.error(err?.response?.data || err.message);
-
-      if (err?.response?.status === 401) {
-        localStorage.removeItem("token");
-        window.location.href = "/login";
-        return;
-      }
-
       setError("Failed to load activity");
     } finally {
       setLoading(false);
@@ -59,7 +66,6 @@ export default function Notifications() {
 
 
 
-  /* ================= INITIAL LOAD ================= */
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
@@ -75,22 +81,15 @@ export default function Notifications() {
 
     const socket = io(SOCKET_URL, {
       auth: { token },
-      transports: ["websocket"],
-      reconnection: true
+      transports: ["websocket"]
     });
 
     socketRef.current = socket;
 
-    // 🔔 REAL-TIME NOTIFICATION
     socket.on("notification", data => {
       setNotifications(prev => [data, ...prev]);
-
-      // optional sound 🔊
-      const audio = new Audio("/notification.mp3");
-      audio.play().catch(()=>{});
     });
 
-    // 🚗 REAL-TIME RIDE UPDATE
     socket.on("rideStatusUpdate", ride => {
       setRides(prev =>
         prev.map(r => (r._id === ride._id ? ride : r))
@@ -102,85 +101,69 @@ export default function Notifications() {
 
 
 
-
   /* ================= MARK READ ================= */
   const markRead = async (id) => {
-
-    // optimistic UI
     setNotifications(prev =>
       prev.map(n => n._id === id ? { ...n, read: true } : n)
     );
 
-    try {
-      await api.put(`/api/notifications/${id}/read`);
-    } catch (err) {
-      console.log(err.message);
-    }
-  };
-
-
-
-  /* ================= STATUS BADGE ================= */
-  const Status = ({ status }) => {
-
-    const map = {
-      completed: ["bg-green-100 text-green-600", <CheckCircle size={14}/>],
-      cancelled: ["bg-red-100 text-red-600", <XCircle size={14}/>],
-      ongoing: ["bg-blue-100 text-blue-600", <RefreshCcw size={14}/>],
-      confirmed: ["bg-indigo-100 text-indigo-600", <CheckCircle size={14}/>],
-      requested: ["bg-yellow-100 text-yellow-700", <Clock size={14}/>]
-    };
-
-    const [style, icon] =
-      map[status] || ["bg-gray-100 text-gray-600", <Info size={14}/>];
-
-    return (
-      <span className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${style}`}>
-        {icon} {status}
-      </span>
-    );
+    await api.put(`/api/notifications/${id}/read`);
   };
 
 
 
   /* ================= LOADING ================= */
-  if (loading)
+  if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center dark:bg-gray-900">
         <div className="animate-spin h-12 w-12 border-4 border-indigo-600 border-t-transparent rounded-full"/>
       </div>
     );
+  }
 
 
 
-  /* ================= UI ================= */
   return (
-    <div className="min-h-screen p-6 bg-gradient-to-br from-slate-50 via-white to-slate-100">
+    <div className="min-h-screen p-4 md:p-8 bg-gradient-to-br from-slate-50 to-white dark:from-gray-900 dark:to-gray-950 transition-all">
 
       {/* HEADER */}
-      <div className="flex justify-between mb-10">
+      <div className="flex flex-col md:flex-row md:justify-between gap-4 mb-8">
+
         <div>
-          <h1 className="text-4xl font-bold text-indigo-600">
+          <h1 className="text-3xl md:text-4xl font-bold text-indigo-600">
             Activity Center
           </h1>
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Real-time updates ⚡
           </p>
         </div>
 
-        <button
-          onClick={loadData}
-          className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white"
-        >
-          <RefreshCcw size={16}/> Refresh
-        </button>
+        <div className="flex gap-3">
+
+          {/* DARK MODE TOGGLE */}
+          <button
+            onClick={() => setDark(!dark)}
+            className="p-2 rounded-xl bg-gray-200 dark:bg-gray-800 hover:scale-105 transition"
+          >
+            {dark ? <Sun size={18}/> : <Moon size={18}/>}
+          </button>
+
+          {/* REFRESH */}
+          <button
+            onClick={loadData}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:scale-105 transition"
+          >
+            <RefreshCcw size={16}/> Refresh
+          </button>
+
+        </div>
       </div>
 
 
 
       {/* ERROR */}
       {error && (
-        <div className="mb-6 p-3 bg-red-100 text-red-600 rounded">
+        <div className="mb-4 p-3 rounded bg-red-100 text-red-600">
           {error}
         </div>
       )}
@@ -188,14 +171,19 @@ export default function Notifications() {
 
 
       {/* TABS */}
-      <div className="flex gap-6 border-b mb-6">
+      <div className="flex gap-6 border-b mb-6 dark:border-gray-700">
 
         <Tab active={tab==="notifications"} onClick={()=>setTab("notifications")}>
-          Notifications ({notifications.filter(n=>!n.read).length})
+          🔔 Notifications
+          {notifications.filter(n=>!n.read).length > 0 && (
+            <span className="ml-2 bg-indigo-600 text-white text-xs px-2 rounded-full">
+              {notifications.filter(n=>!n.read).length}
+            </span>
+          )}
         </Tab>
 
         <Tab active={tab==="rides"} onClick={()=>setTab("rides")}>
-          Rides
+          🚗 Rides
         </Tab>
 
       </div>
@@ -204,25 +192,32 @@ export default function Notifications() {
 
       {/* NOTIFICATIONS */}
       {tab === "notifications" && (
-        <div className="space-y-4">
+        <div className="grid gap-4">
 
           {notifications.length === 0 && (
-            <p>No notifications</p>
+            <Empty title="No notifications" />
           )}
 
           {notifications.map(n => (
             <div
               key={n._id}
               onClick={()=>markRead(n._id)}
-              className={`p-4 rounded-lg border cursor-pointer ${
-                n.read ? "bg-white" : "bg-indigo-50"
-              }`}
+              className={`p-4 rounded-2xl border cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1
+              ${n.read
+                ? "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                : "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200"}`}
             >
-              <p className="font-semibold">{n.title}</p>
-              <p className="text-sm text-gray-500">{n.message}</p>
-              <p className="text-xs text-gray-400">
-                {new Date(n.createdAt).toLocaleString()}
-              </p>
+              <div className="flex gap-3 items-start">
+                <Bell className="text-indigo-600"/>
+
+                <div className="flex-1">
+                  <p className="font-semibold dark:text-white">{n.title}</p>
+                  <p className="text-sm text-gray-500">{n.message}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {new Date(n.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              </div>
             </div>
           ))}
 
@@ -233,18 +228,23 @@ export default function Notifications() {
 
       {/* RIDES */}
       {tab === "rides" && (
-        <div className="space-y-4">
+        <div className="grid gap-4">
 
-          {rides.length === 0 && <p>No rides</p>}
+          {rides.length === 0 && <Empty title="No rides yet" />}
 
           {rides.map(ride => (
-            <div key={ride._id} className="p-4 border rounded-lg flex justify-between">
+            <div
+              key={ride._id}
+              className="p-4 rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 flex flex-col md:flex-row md:justify-between gap-3 hover:shadow-lg transition"
+            >
               <div>
-                <p>{ride.pickupLocation?.address}</p>
+                <p className="font-semibold dark:text-white">
+                  {ride.pickupLocation?.address}
+                </p>
                 <p className="text-sm text-gray-500">
                   → {ride.dropLocation?.address}
                 </p>
-                <p className="text-xs">
+                <p className="text-xs mt-1 text-gray-400">
                   ₹{ride.fare}
                 </p>
               </div>
@@ -266,8 +266,40 @@ export default function Notifications() {
 const Tab = ({ children, active, onClick }) => (
   <button
     onClick={onClick}
-    className={active ? "text-indigo-600 font-semibold" : "text-gray-500"}
+    className={`pb-2 text-sm font-semibold transition ${
+      active
+        ? "text-indigo-600 border-b-2 border-indigo-600"
+        : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+    }`}
   >
     {children}
   </button>
+);
+
+
+
+/* STATUS */
+const Status = ({ status }) => {
+  const map = {
+    completed: "text-green-600",
+    cancelled: "text-red-600",
+    ongoing: "text-blue-600",
+    confirmed: "text-indigo-600",
+    requested: "text-yellow-600"
+  };
+
+  return (
+    <span className={`text-sm font-semibold ${map[status] || "text-gray-500"}`}>
+      {status}
+    </span>
+  );
+};
+
+
+
+/* EMPTY */
+const Empty = ({ title }) => (
+  <div className="text-center py-16 text-gray-400">
+    <p className="text-lg">{title}</p>
+  </div>
 );

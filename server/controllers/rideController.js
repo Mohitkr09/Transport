@@ -17,14 +17,18 @@ const emitToUser = (userId, event, payload) => {
   global.io.to(userId.toString()).emit(event, payload);
 };
 
+const emitToRide = (rideId, event, payload) => {
+  if (!global.io) return;
+  global.io.to(rideId.toString()).emit(event, payload);
+};
+
 /* ======================================================
-CREATE RIDE (🔥 FIXED CORE ISSUE)
+CREATE RIDE
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
-    /* ================= VALIDATION ================= */
     if (
       !pickupLocation?.lat ||
       !pickupLocation?.lng ||
@@ -39,7 +43,6 @@ exports.createRide = async (req, res) => {
 
     const fare = calculateFare(vehicleType, distance || 5);
 
-    /* ================= MODEL-COMPATIBLE FORMAT ================= */
     const ride = await Ride.create({
       user: req.user._id,
 
@@ -74,13 +77,11 @@ exports.createRide = async (req, res) => {
       rejectedDrivers: []
     });
 
-    /* ================= SEND TO DRIVERS ================= */
+    /* 🔥 NOTIFY DRIVERS */
     const drivers = await Driver.find({
       isOnline: true,
       isAvailable: true
     });
-
-    console.log("🚗 Drivers found:", drivers.length);
 
     drivers.forEach(driver => {
       if (driver.socketId) {
@@ -97,47 +98,12 @@ exports.createRide = async (req, res) => {
 };
 
 /* ======================================================
-GET NEARBY RIDES
-====================================================== */
-exports.getNearbyRides = async (req, res) => {
-  try {
-    const rides = await Ride.find({
-      status: "searching_driver",
-      driver: null,
-      rejectedDrivers: { $ne: req.user.id }
-    })
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    res.json({ success: true, rides });
-
-  } catch (err) {
-    console.error("❌ nearby:", err.message);
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-GET USER RIDES
-====================================================== */
-exports.getUserRides = async (req, res) => {
-  try {
-    const rides = await Ride.find({ user: req.user.id })
-      .sort({ createdAt: -1 });
-
-    res.json({ success: true, rides });
-
-  } catch {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-GET SINGLE RIDE
+GET RIDE
 ====================================================== */
 exports.getRideById = async (req, res) => {
   try {
-    const ride = await Ride.findById(req.params.id);
+    const ride = await Ride.findById(req.params.id)
+      .populate("driver", "name phone");
 
     if (!ride) {
       return res.status(404).json({ success: false });
@@ -151,7 +117,7 @@ exports.getRideById = async (req, res) => {
 };
 
 /* ======================================================
-ACCEPT RIDE (SAFE + MODEL METHOD)
+ACCEPT RIDE (🔥 REAL-TIME FIX)
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
@@ -165,15 +131,33 @@ exports.acceptRide = async (req, res) => {
       return res.status(400).json({ success: false, message: "Taken" });
     }
 
-    await ride.assignDriver(req.user.id);
-    await ride.acceptRide();
+    /* ASSIGN DRIVER */
+    ride.driver = req.user._id;
+    ride.status = "accepted";
 
-    await Driver.findByIdAndUpdate(req.user.id, {
+    await ride.save();
+
+    await Driver.findByIdAndUpdate(req.user._id, {
       isAvailable: false,
       currentRide: ride._id
     });
 
-    emitToUser(ride.user, "rideAccepted", ride);
+    /* 🔥 EMIT TO USER + TRACKING PAGE */
+    emitToRide(ride._id, "rideAccepted", {
+      rideId: ride._id,
+      driver: {
+        name: req.user.name,
+        phone: req.user.phone
+      }
+    });
+
+    emitToUser(ride.user, "rideAccepted", {
+      rideId: ride._id,
+      driver: {
+        name: req.user.name,
+        phone: req.user.phone
+      }
+    });
 
     /* REMOVE FROM OTHER DRIVERS */
     const drivers = await Driver.find({ isOnline: true });
@@ -193,17 +177,34 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* ======================================================
-REJECT RIDE
+DRIVER LOCATION UPDATE (🔥 VERY IMPORTANT)
 ====================================================== */
-exports.rejectRide = async (req, res) => {
+exports.updateDriverLocation = async (req, res) => {
   try {
-    const ride = await Ride.findById(req.params.id);
+    const { lat, lng, rideId } = req.body;
 
-    await ride.rejectDriver(req.user.id);
+    if (!lat || !lng || !rideId) {
+      return res.status(400).json({ success: false });
+    }
+
+    /* SAVE LOCATION */
+    await Ride.findByIdAndUpdate(rideId, {
+      driverLocation: {
+        type: "Point",
+        coordinates: [lng, lat]
+      }
+    });
+
+    /* 🔥 EMIT REAL-TIME LOCATION */
+    emitToRide(rideId, "driverMoved", {
+      lat,
+      lng
+    });
 
     res.json({ success: true });
 
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false });
   }
 };
@@ -215,11 +216,12 @@ exports.startRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    await ride.startRide();
+    ride.status = "ongoing";
+    await ride.save();
 
-    emitToUser(ride.user, "rideStarted", ride);
+    emitToRide(ride._id, "rideStarted", ride);
 
-    res.json({ success: true, ride });
+    res.json({ success: true });
 
   } catch {
     res.status(500).json({ success: false });
@@ -233,14 +235,15 @@ exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    await ride.completeRide();
+    ride.status = "completed";
+    await ride.save();
 
     await Driver.findByIdAndUpdate(ride.driver, {
       isAvailable: true,
       currentRide: null
     });
 
-    emitToUser(ride.user, "rideCompleted", ride);
+    emitToRide(ride._id, "rideCompleted", ride);
 
     res.json({ success: true });
 
@@ -249,33 +252,14 @@ exports.completeRide = async (req, res) => {
   }
 };
 
-/* ======================================================
-CANCEL RIDE
+/* =====================================================
+REJECT RIDE
 ====================================================== */
-exports.cancelRide = async (req, res) => {
+exports.rejectRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    await ride.cancelRide("user", "Cancelled by user");
-
-    res.json({ success: true });
-
-  } catch {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-RATE RIDE
-====================================================== */
-exports.rateRide = async (req, res) => {
-  try {
-    const { rating } = req.body;
-
-    const ride = await Ride.findById(req.params.id);
-
-    ride.rating = rating;
-
+    ride.rejectedDrivers.push(req.user._id);
     await ride.save();
 
     res.json({ success: true });

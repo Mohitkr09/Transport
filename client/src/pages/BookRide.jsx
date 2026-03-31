@@ -2,10 +2,23 @@ import React, { useState, useEffect, useRef } from "react";
 import api from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
-import { MapPin } from "lucide-react";
 
-/* CONFIG */
+import {
+  GoogleMap,
+  Marker,
+  DirectionsRenderer,
+  useJsApiLoader
+} from "@react-google-maps/api";
+
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
+
+/* ✅ FIX (DO NOT CHANGE THIS) */
+const libraries = ["places"];
+
+const containerStyle = {
+  width: "100%",
+  height: "100%"
+};
 
 /* VEHICLES */
 import bikeImg from "../assets/services/bike.png";
@@ -21,10 +34,8 @@ const vehicles = [
 export default function BookRide() {
 
   const navigate = useNavigate();
-
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
-  const abortRef = useRef(null);
 
   const [step, setStep] = useState(1);
 
@@ -34,96 +45,133 @@ export default function BookRide() {
   const [pickupCoords, setPickupCoords] = useState(null);
   const [dropCoords, setDropCoords] = useState(null);
 
+  const [pickupSuggestions, setPickupSuggestions] = useState([]);
+  const [dropSuggestions, setDropSuggestions] = useState([]);
+
   const [vehicleType, setVehicleType] = useState(null);
   const [vehiclePrices, setVehiclePrices] = useState([]);
 
   const [distance, setDistance] = useState(null);
   const [eta, setEta] = useState(null);
 
-  const [pickupSuggestions, setPickupSuggestions] = useState([]);
-  const [dropSuggestions, setDropSuggestions] = useState([]);
+  const [directions, setDirections] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  /* ================= MAP ================= */
+
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
+    libraries
+  });
+
   /* ================= SOCKET ================= */
+
   useEffect(() => {
-    socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket"]
-    });
-
-    socketRef.current.on("rideSearching", () => {
-      setMessage("🔍 Searching for driver...");
-    });
-
-    socketRef.current.on("rideAccepted", () => {
-      setMessage("🚗 Driver found!");
-    });
-
+    socketRef.current = io(SOCKET_URL, { transports: ["websocket"] });
     return () => socketRef.current?.disconnect();
   }, []);
 
-  /* ================= SEARCH ================= */
+  /* ================= 📍 CURRENT LOCATION ================= */
+
+  const handleCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      return setMessage("Geolocation not supported");
+    }
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+
+      setPickupCoords({ lat, lng });
+
+      // reverse geocode
+      const geocoder = new window.google.maps.Geocoder();
+
+      geocoder.geocode({ location: { lat, lng } }, (res) => {
+        if (res[0]) {
+          setPickup(res[0].formatted_address);
+        }
+      });
+
+    }, () => {
+      setMessage("Location permission denied");
+    });
+  };
+
+  /* ================= AUTOCOMPLETE ================= */
+
   const fetchSuggestions = (query, setter) => {
-    if (!query || query.length < 3) return setter([]);
+    if (!query) return setter([]);
 
     clearTimeout(debounceRef.current);
 
-    debounceRef.current = setTimeout(async () => {
-      try {
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
+    debounceRef.current = setTimeout(() => {
+      const service = new window.google.maps.places.AutocompleteService();
 
-        const res = await api.get(`/location/search?q=${query}`, {
-          signal: abortRef.current.signal
-        });
+      service.getPlacePredictions({ input: query }, (res) => {
+        setter(res || []);
+      });
+    }, 300);
+  };
 
-        setter(res.data?.results || []);
-      } catch {
-        setter([]);
-      }
-    }, 400);
+  const getCoords = (placeId, setter) => {
+    const geocoder = new window.google.maps.Geocoder();
+
+    geocoder.geocode({ placeId }, (res) => {
+      const loc = res[0].geometry.location;
+      setter({ lat: loc.lat(), lng: loc.lng() });
+    });
   };
 
   /* ================= ROUTE ================= */
-  const drawRoute = async (start, end) => {
-    const res = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`
+
+  const calculateRoute = () => {
+    const service = new window.google.maps.DirectionsService();
+
+    service.route(
+      {
+        origin: pickupCoords,
+        destination: dropCoords,
+        travelMode: "DRIVING"
+      },
+      (result, status) => {
+        if (status === "OK") {
+          setDirections(result);
+
+          const leg = result.routes[0].legs[0];
+
+          const km = leg.distance.value / 1000;
+          const mins = leg.duration.value / 60;
+
+          setDistance(km.toFixed(1));
+          setEta(Math.round(mins));
+
+          setVehiclePrices(
+            vehicles.map(v => ({
+              ...v,
+              price: Math.round(km * v.rate)
+            }))
+          );
+        }
+      }
     );
-
-    const data = await res.json();
-
-    const km = data.routes[0].distance / 1000;
-    const mins = data.routes[0].duration / 60;
-
-    setDistance(km.toFixed(1));
-    setEta(mins.toFixed(0));
-
-    const prices = vehicles.map(v => ({
-      ...v,
-      price: Math.round(km * v.rate)
-    }));
-
-    setVehiclePrices(prices);
   };
 
   useEffect(() => {
-    if (pickupCoords && dropCoords) {
-      drawRoute(pickupCoords, dropCoords);
+    if (pickupCoords && dropCoords && isLoaded) {
+      calculateRoute();
     }
-  }, [pickupCoords, dropCoords]);
+  }, [pickupCoords, dropCoords, isLoaded]);
 
-  /* ================= BOOK RIDE ================= */
+  /* ================= BOOK ================= */
+
   const handleBookRide = async () => {
-
-    if (!vehicleType) {
-      setMessage("Select vehicle first");
-      return;
-    }
+    if (!vehicleType) return setMessage("Select vehicle");
 
     try {
       setLoading(true);
-      setMessage("🔍 Searching for driver...");
 
       const res = await api.post("/ride", {
         pickupLocation: { address: pickup, ...pickupCoords },
@@ -134,70 +182,79 @@ export default function BookRide() {
 
       const rideId = res.data?.ride?._id;
 
-      if (!rideId) throw new Error("Ride failed");
-
-      // ✅ REDIRECT TO TRACKING PAGE
-      navigate(`/ride/${rideId}`);
+      navigate(`/track/${rideId}`, { replace: true });
 
     } catch (err) {
       console.error(err);
-      setMessage("❌ No drivers available");
+      setMessage("❌ Booking failed");
     } finally {
       setLoading(false);
     }
   };
 
+  if (!isLoaded) return <p>Loading map...</p>;
+
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-gray-100">
+    <div className="h-screen flex flex-col lg:flex-row">
 
       {/* MAP */}
       <div className="lg:w-2/3 h-[40vh] lg:h-screen">
-        <iframe
-          title="map"
-          src="https://maps.google.com/maps?q=india&t=&z=5&output=embed"
-          className="w-full h-full"
-        />
+        <GoogleMap
+          mapContainerStyle={containerStyle}
+          center={pickupCoords || { lat: 28.6139, lng: 77.2090 }}
+          zoom={13}
+        >
+          {pickupCoords && <Marker position={pickupCoords} />}
+          {dropCoords && <Marker position={dropCoords} />}
+          {directions && <DirectionsRenderer directions={directions} />}
+        </GoogleMap>
       </div>
 
       {/* PANEL */}
-      <div className="lg:w-1/3 bg-white p-6 shadow-xl">
+      <div className="lg:w-1/3 bg-white p-6">
 
-        <h2 className="text-2xl font-bold mb-6">Book Ride</h2>
+        <h2 className="text-2xl font-bold mb-4">Book Ride</h2>
 
         {/* STEP 1 */}
         {step === 1 && (
           <>
-            <LocationInput {...{
-              icon: <MapPin size={18} />,
-              label: "Pickup",
+            <button
+              onClick={handleCurrentLocation}
+              className="mb-3 w-full py-2 bg-gray-200 rounded-xl"
+            >
+              📍 Use Current Location
+            </button>
+
+            <InputBox {...{
               value: pickup,
               setValue: setPickup,
               suggestions: pickupSuggestions,
               setSuggestions: setPickupSuggestions,
               setCoords: setPickupCoords,
-              fetchSuggestions
+              fetchSuggestions,
+              getCoords,
+              placeholder: "Pickup"
             }} />
 
-            <LocationInput {...{
-              icon: <MapPin size={18} />,
-              label: "Drop",
+            <InputBox {...{
               value: drop,
               setValue: setDrop,
               suggestions: dropSuggestions,
               setSuggestions: setDropSuggestions,
               setCoords: setDropCoords,
-              fetchSuggestions
+              fetchSuggestions,
+              getCoords,
+              placeholder: "Drop"
             }} />
 
             <button
               onClick={() => {
                 if (!pickupCoords || !dropCoords) {
-                  setMessage("Enter locations");
-                  return;
+                  return setMessage("Enter locations");
                 }
                 setStep(2);
               }}
-              className="mt-6 w-full py-4 bg-indigo-600 text-white rounded-xl"
+              className="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl"
             >
               Confirm Ride
             </button>
@@ -207,21 +264,17 @@ export default function BookRide() {
         {/* STEP 2 */}
         {step === 2 && (
           <>
-            <button onClick={() => setStep(1)} className="mb-4 text-sm">
-              ← Change Locations
-            </button>
+            <button onClick={() => setStep(1)}>← Change</button>
 
             {vehiclePrices.map(v => (
               <div
                 key={v.id}
                 onClick={() => setVehicleType(v.id)}
-                className={`p-4 rounded-xl border mb-3 cursor-pointer ${
-                  vehicleType === v.id
-                    ? "border-indigo-600 bg-indigo-50"
-                    : ""
+                className={`p-4 mb-3 border rounded-xl cursor-pointer ${
+                  vehicleType === v.id ? "border-indigo-600 bg-indigo-50" : ""
                 }`}
               >
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between">
                   <div className="flex gap-3">
                     <img src={v.img} className="h-10" />
                     <div>
@@ -236,32 +289,29 @@ export default function BookRide() {
 
             <button
               onClick={handleBookRide}
-              className="w-full py-4 bg-green-600 text-white rounded-xl"
+              className="w-full py-3 bg-green-600 text-white rounded-xl"
             >
               {loading ? "Booking..." : "Confirm Booking"}
             </button>
           </>
         )}
 
-        {message && <p className="mt-3">{message}</p>}
-
+        {message && <p className="mt-2 text-red-500">{message}</p>}
       </div>
     </div>
   );
 }
 
-/* INPUT COMPONENT */
-const LocationInput = ({
-  icon, label, value, setValue,
-  suggestions, setSuggestions, setCoords, fetchSuggestions
+/* INPUT */
+const InputBox = ({
+  value, setValue, suggestions, setSuggestions,
+  setCoords, fetchSuggestions, getCoords, placeholder
 }) => (
-  <div className="relative mt-3">
-
-    <div className="absolute left-3 top-4">{icon}</div>
+  <div className="relative mb-3">
 
     <input
-      className="w-full pl-10 py-4 border rounded-xl"
-      placeholder={label}
+      className="w-full p-3 border rounded-xl"
+      placeholder={placeholder}
       value={value}
       onChange={(e) => {
         setValue(e.target.value);
@@ -269,19 +319,18 @@ const LocationInput = ({
       }}
     />
 
-    {suggestions.map((p, i) => (
+    {suggestions.map((s, i) => (
       <div
         key={i}
         onClick={() => {
-          setValue(p.display);
-          setCoords({ lat: p.lat, lng: p.lng });
+          setValue(s.description);
+          getCoords(s.place_id, setCoords);
           setSuggestions([]);
         }}
-        className="p-2 cursor-pointer"
+        className="p-2 bg-white border cursor-pointer hover:bg-gray-100"
       >
-        {p.display}
+        {s.description}
       </div>
     ))}
-
   </div>
 );
