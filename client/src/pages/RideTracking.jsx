@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import api from "../utils/api";
 import { io } from "socket.io-client";
 import { CheckCircle, WifiOff } from "lucide-react";
-
 import {
   GoogleMap,
   Marker,
@@ -12,12 +11,6 @@ import {
 } from "@react-google-maps/api";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-const libraries = ["places"];
-
-const containerStyle = {
-  width: "100%",
-  height: "100vh"
-};
 
 export default function RideTracking() {
 
@@ -27,12 +20,10 @@ export default function RideTracking() {
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
 
   const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
-    libraries
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY
   });
 
   /* ================= FETCH ================= */
@@ -46,16 +37,11 @@ export default function RideTracking() {
 
       const c = data?.driverLocation?.coordinates;
       if (c) {
-        setDriverPos({
-          lat: c[1],
-          lng: c[0]
-        });
+        setDriverPos({ lat: c[1], lng: c[0] });
       }
 
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      console.log(err);
     }
   };
 
@@ -63,15 +49,19 @@ export default function RideTracking() {
     fetchRide();
   }, [rideId]);
 
+  /* 🔥 AUTO SYNC */
+  useEffect(() => {
+    const interval = setInterval(fetchRide, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   /* ================= SOCKET ================= */
 
   useEffect(() => {
 
-    const token = localStorage.getItem("token");
-
     const socket = io(SOCKET_URL, {
-      auth: { token },
-      transports: ["websocket"]
+      auth: { token: localStorage.getItem("token") },
+      transports: ["websocket", "polling"]
     });
 
     socketRef.current = socket;
@@ -83,18 +73,10 @@ export default function RideTracking() {
 
     socket.on("disconnect", () => setConnected(false));
 
-    socket.on("driverMoved", (data) => {
-      setDriverPos(prev => {
-        if (!prev) return data;
-
-        return {
-          lat: prev.lat + (data.lat - prev.lat) * 0.2,
-          lng: prev.lng + (data.lng - prev.lng) * 0.2
-        };
-      });
-    });
-
+    /* ✅ FIXED ACCEPT EVENT */
     socket.on("rideAccepted", (data) => {
+      console.log("✅ rideAccepted:", data);
+
       if (data.rideId === rideId) {
         setRide(prev => ({
           ...prev,
@@ -112,109 +94,54 @@ export default function RideTracking() {
       setRide(prev => ({ ...prev, status: "completed" }));
     });
 
+    /* DRIVER LIVE LOCATION */
+    socket.on("driverMoved", ({ lat, lng }) => {
+      setDriverPos(prev => {
+        if (!prev) return { lat, lng };
+
+        return {
+          lat: prev.lat + (lat - prev.lat) * 0.3,
+          lng: prev.lng + (lng - prev.lng) * 0.3
+        };
+      });
+    });
+
     return () => socket.disconnect();
 
   }, [rideId]);
 
-  /* ================= ROUTES API ================= */
-
-  const decodePolyline = (encoded) => {
-    let points = [];
-    let index = 0, lat = 0, lng = 0;
-
-    while (index < encoded.length) {
-      let b, shift = 0, result = 0;
-
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-
-      lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
-
-      shift = 0;
-      result = 0;
-
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-
-      lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
-
-      points.push({
-        lat: lat / 1e5,
-        lng: lng / 1e5
-      });
-    }
-
-    return points;
-  };
-
-  const fetchRoute = async (origin, destination) => {
-    try {
-      const res = await fetch(
-        "https://routes.googleapis.com/directions/v2:computeRoutes",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": import.meta.env.VITE_GOOGLE_MAPS_KEY,
-            "X-Goog-FieldMask":
-              "routes.polyline.encodedPolyline"
-          },
-          body: JSON.stringify({
-            origin: {
-              location: {
-                latLng: {
-                  latitude: origin.lat,
-                  longitude: origin.lng
-                }
-              }
-            },
-            destination: {
-              location: {
-                latLng: {
-                  latitude: destination.lat,
-                  longitude: destination.lng
-                }
-              }
-            },
-            travelMode: "DRIVE"
-          })
-        }
-      );
-
-      const data = await res.json();
-
-      if (!data.routes || !data.routes.length) return;
-
-      const encoded = data.routes[0].polyline.encodedPolyline;
-
-      setRoutePath(decodePolyline(encoded));
-
-    } catch (err) {
-      console.error("Route error:", err);
-    }
-  };
+  /* ================= ROUTE ================= */
 
   useEffect(() => {
-    if (driverPos && ride) {
-      const pickup = {
-        lat: ride.pickupLocation.location.coordinates[1],
-        lng: ride.pickupLocation.location.coordinates[0]
-      };
+    if (!driverPos || !ride) return;
 
-      fetchRoute(driverPos, pickup);
-    }
-  }, [driverPos]);
+    const pickup = {
+      lat: ride.pickupLocation.location.coordinates[1],
+      lng: ride.pickupLocation.location.coordinates[0]
+    };
 
-  /* ================= LOADING ================= */
+    const directionsService = new window.google.maps.DirectionsService();
 
-  if (loading || !isLoaded) return <Loader />;
-  if (!ride) return <Center>Ride not found</Center>;
+    directionsService.route(
+      {
+        origin: driverPos,
+        destination: pickup,
+        travelMode: "DRIVING"
+      },
+      (result, status) => {
+        if (status === "OK") {
+          const path = result.routes[0].overview_path.map(p => ({
+            lat: p.lat(),
+            lng: p.lng()
+          }));
+          setRoutePath(path);
+        }
+      }
+    );
+
+  }, [driverPos, ride]);
+
+  if (!ride || !isLoaded) return <Loader />;
 
   const pickup = {
     lat: ride.pickupLocation.location.coordinates[1],
@@ -226,59 +153,42 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
-  const showDriver = ride.status !== "searching_driver";
+  const showDriver = ["accepted", "ongoing", "completed"].includes(ride.status);
 
   const statusText = {
-    searching_driver: "🔍 Searching Driver...",
-    accepted: "🚗 Driver On The Way",
-    ongoing: "🛣 Ride In Progress",
-    completed: "✅ Ride Completed"
+    searching_driver: "🔍 Finding nearby driver...",
+    accepted: "🚗 Driver is coming",
+    ongoing: "🛣 Ride started",
+    completed: "✅ Ride completed"
   };
-
-  /* ================= UI ================= */
 
   return (
     <div className="h-screen w-full relative">
 
+      {/* SEARCHING */}
       {ride.status === "searching_driver" && (
-        <div className="absolute inset-0 bg-black/70 z-50 flex flex-col items-center justify-center text-white">
-          <h2 className="text-2xl font-bold animate-pulse">
-            🔍 Searching for driver...
-          </h2>
+        <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center text-white text-xl">
+          🔍 Searching for driver...
         </div>
       )}
 
-      <GoogleMap
-        mapContainerStyle={containerStyle}
-        center={pickup}
-        zoom={14}
-      >
-
+      <GoogleMap mapContainerStyle={{ width: "100%", height: "100%" }} zoom={14} center={pickup}>
         <Marker position={pickup} />
         <Marker position={drop} />
 
         {showDriver && driverPos && (
           <Marker
             position={driverPos}
-            icon={{
-              url: "https://maps.google.com/mapfiles/ms/icons/cab.png"
-            }}
+            icon={{ url: "https://maps.google.com/mapfiles/ms/icons/cab.png" }}
           />
         )}
 
-        {/* ✅ REAL ROAD ROUTE */}
         {routePath.length > 0 && (
-          <Polyline
-            path={routePath}
-            options={{
-              strokeColor: "#4f46e5",
-              strokeWeight: 5
-            }}
-          />
+          <Polyline path={routePath} options={{ strokeColor: "#4f46e5", strokeWeight: 5 }} />
         )}
-
       </GoogleMap>
 
+      {/* TOP BAR */}
       <div className="absolute top-0 w-full p-4 bg-black/60 text-white flex justify-between">
         <span className="flex items-center gap-2">
           <CheckCircle size={18} />
@@ -287,6 +197,7 @@ export default function RideTracking() {
         {!connected && <WifiOff />}
       </div>
 
+      {/* BOTTOM PANEL */}
       <div className="absolute bottom-0 w-full bg-white p-4 rounded-t-2xl shadow-lg">
         <h2 className="font-bold text-lg">
           {ride.driver?.name || "Assigning Driver..."}
@@ -310,11 +221,6 @@ export default function RideTracking() {
 }
 
 /* HELPERS */
-
-const Center = ({ children }) => (
-  <div className="h-screen flex items-center justify-center">{children}</div>
-);
-
 const Loader = () => (
   <div className="h-screen flex items-center justify-center">
     Loading tracking...
