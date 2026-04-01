@@ -2,13 +2,17 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import api from "../utils/api";
 import { io } from "socket.io-client";
-import { CheckCircle, WifiOff } from "lucide-react";
+
+/* ✅ GLOBAL MAP LOADER */
+import { useGoogleMaps } from "../config/googleMaps";
+
 import {
   GoogleMap,
   Marker,
-  Polyline,
-  useJsApiLoader
+  Polyline
 } from "@react-google-maps/api";
+
+import { CheckCircle, WifiOff } from "lucide-react";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
@@ -17,14 +21,12 @@ export default function RideTracking() {
   const { rideId } = useParams();
   const socketRef = useRef(null);
 
+  const { isLoaded, loadError } = useGoogleMaps(); // ✅ FIX
+
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
   const [connected, setConnected] = useState(false);
-
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY
-  });
 
   /* ================= FETCH ================= */
 
@@ -35,9 +37,9 @@ export default function RideTracking() {
 
       setRide(data);
 
-      const c = data?.driverLocation?.coordinates;
-      if (c) {
-        setDriverPos({ lat: c[1], lng: c[0] });
+      if (data?.driverLocation?.coordinates) {
+        const [lng, lat] = data.driverLocation.coordinates;
+        setDriverPos({ lat, lng });
       }
 
     } catch (err) {
@@ -49,19 +51,18 @@ export default function RideTracking() {
     fetchRide();
   }, [rideId]);
 
-  /* 🔥 AUTO SYNC */
+  /* AUTO REFRESH */
   useEffect(() => {
-    const interval = setInterval(fetchRide, 4000);
+    const interval = setInterval(fetchRide, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [rideId]);
 
   /* ================= SOCKET ================= */
 
   useEffect(() => {
-
     const socket = io(SOCKET_URL, {
       auth: { token: localStorage.getItem("token") },
-      transports: ["websocket", "polling"]
+      transports: ["websocket"]
     });
 
     socketRef.current = socket;
@@ -73,16 +74,20 @@ export default function RideTracking() {
 
     socket.on("disconnect", () => setConnected(false));
 
-    /* ✅ FIXED ACCEPT EVENT */
     socket.on("rideAccepted", (data) => {
-      console.log("✅ rideAccepted:", data);
-
       if (data.rideId === rideId) {
         setRide(prev => ({
           ...prev,
           status: "accepted",
           driver: data.driver
         }));
+
+        if (data.location) {
+          setDriverPos({
+            lat: data.location.coordinates[1],
+            lng: data.location.coordinates[0]
+          });
+        }
       }
     });
 
@@ -94,14 +99,15 @@ export default function RideTracking() {
       setRide(prev => ({ ...prev, status: "completed" }));
     });
 
-    /* DRIVER LIVE LOCATION */
+    /* 🔥 LIVE DRIVER MOVEMENT */
     socket.on("driverMoved", ({ lat, lng }) => {
       setDriverPos(prev => {
         if (!prev) return { lat, lng };
 
+        // smooth movement
         return {
-          lat: prev.lat + (lat - prev.lat) * 0.3,
-          lng: prev.lng + (lng - prev.lng) * 0.3
+          lat: prev.lat + (lat - prev.lat) * 0.4,
+          lng: prev.lng + (lng - prev.lng) * 0.4
         };
       });
     });
@@ -113,19 +119,27 @@ export default function RideTracking() {
   /* ================= ROUTE ================= */
 
   useEffect(() => {
-    if (!driverPos || !ride) return;
+    if (!driverPos || !ride || !window.google) return;
 
     const pickup = {
       lat: ride.pickupLocation.location.coordinates[1],
       lng: ride.pickupLocation.location.coordinates[0]
     };
 
-    const directionsService = new window.google.maps.DirectionsService();
+    const drop = {
+      lat: ride.dropLocation.location.coordinates[1],
+      lng: ride.dropLocation.location.coordinates[0]
+    };
 
-    directionsService.route(
+    const destination =
+      ride.status === "ongoing" ? drop : pickup;
+
+    const service = new window.google.maps.DirectionsService();
+
+    service.route(
       {
         origin: driverPos,
-        destination: pickup,
+        destination,
         travelMode: "DRIVING"
       },
       (result, status) => {
@@ -141,6 +155,9 @@ export default function RideTracking() {
 
   }, [driverPos, ride]);
 
+  /* ================= UI ================= */
+
+  if (loadError) return <p className="text-red-500">Map failed to load</p>;
   if (!ride || !isLoaded) return <Loader />;
 
   const pickup = {
@@ -155,36 +172,39 @@ export default function RideTracking() {
 
   const showDriver = ["accepted", "ongoing", "completed"].includes(ride.status);
 
-  const statusText = {
-    searching_driver: "🔍 Finding nearby driver...",
-    accepted: "🚗 Driver is coming",
-    ongoing: "🛣 Ride started",
-    completed: "✅ Ride completed"
-  };
-
   return (
     <div className="h-screen w-full relative">
 
-      {/* SEARCHING */}
+      {/* SEARCH OVERLAY */}
       {ride.status === "searching_driver" && (
         <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center text-white text-xl">
           🔍 Searching for driver...
         </div>
       )}
 
-      <GoogleMap mapContainerStyle={{ width: "100%", height: "100%" }} zoom={14} center={pickup}>
+      {/* MAP */}
+      <GoogleMap
+        mapContainerStyle={{ width: "100%", height: "100%" }}
+        zoom={14}
+        center={driverPos || pickup}
+      >
         <Marker position={pickup} />
         <Marker position={drop} />
 
         {showDriver && driverPos && (
           <Marker
             position={driverPos}
-            icon={{ url: "https://maps.google.com/mapfiles/ms/icons/cab.png" }}
+            icon={{
+              url: "https://maps.google.com/mapfiles/ms/icons/cab.png"
+            }}
           />
         )}
 
         {routePath.length > 0 && (
-          <Polyline path={routePath} options={{ strokeColor: "#4f46e5", strokeWeight: 5 }} />
+          <Polyline
+            path={routePath}
+            options={{ strokeColor: "#4f46e5", strokeWeight: 5 }}
+          />
         )}
       </GoogleMap>
 
@@ -192,16 +212,24 @@ export default function RideTracking() {
       <div className="absolute top-0 w-full p-4 bg-black/60 text-white flex justify-between">
         <span className="flex items-center gap-2">
           <CheckCircle size={18} />
-          {statusText[ride.status]}
+          {ride.status === "accepted" && "Driver is coming 🚗"}
+          {ride.status === "ongoing" && "Ride in progress 🛣"}
+          {ride.status === "completed" && "Ride completed ✅"}
         </span>
         {!connected && <WifiOff />}
       </div>
 
-      {/* BOTTOM PANEL */}
+      {/* DRIVER PANEL */}
       <div className="absolute bottom-0 w-full bg-white p-4 rounded-t-2xl shadow-lg">
         <h2 className="font-bold text-lg">
           {ride.driver?.name || "Assigning Driver..."}
         </h2>
+
+        {ride.status === "accepted" && (
+          <p className="text-green-600 text-sm">
+            ✔ Driver accepted your ride
+          </p>
+        )}
 
         <p className="text-sm text-gray-500 mt-1">
           📍 {ride.pickupLocation.address}
@@ -220,7 +248,6 @@ export default function RideTracking() {
   );
 }
 
-/* HELPERS */
 const Loader = () => (
   <div className="h-screen flex items-center justify-center">
     Loading tracking...

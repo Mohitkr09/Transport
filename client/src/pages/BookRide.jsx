@@ -3,15 +3,16 @@ import api from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 
+/* ✅ IMPORT GLOBAL MAP LOADER */
+import { useGoogleMaps } from "../config/googleMaps";
+
 import {
   GoogleMap,
   Marker,
-  DirectionsRenderer,
-  useJsApiLoader
+  DirectionsRenderer
 } from "@react-google-maps/api";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-const libraries = ["places"];
 
 const containerStyle = {
   width: "100%",
@@ -35,6 +36,8 @@ export default function BookRide() {
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
 
+  const { isLoaded, loadError } = useGoogleMaps(); // ✅ FIX
+
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
 
@@ -56,27 +59,15 @@ export default function BookRide() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
-    libraries
-  });
-
   /* ================= SOCKET ================= */
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"]
-    });
-
+    const socket = io(SOCKET_URL, { transports: ["websocket"] });
     socketRef.current = socket;
-
-    socket.on("connect", () => {
-      console.log("✅ Socket connected");
-    });
 
     return () => socket.disconnect();
   }, []);
 
-  /* ================= LOCATION ================= */
+  /* ================= CURRENT LOCATION ================= */
   const handleCurrentLocation = () => {
     navigator.geolocation.getCurrentPosition((pos) => {
       const lat = pos.coords.latitude;
@@ -148,7 +139,7 @@ export default function BookRide() {
     );
   };
 
-  /* ================= FETCH DRIVERS ================= */
+  /* ================= DRIVERS ================= */
   const fetchNearbyDrivers = async () => {
     try {
       const res = await api.get("/driver/nearby", {
@@ -160,7 +151,7 @@ export default function BookRide() {
 
       setDrivers(res.data.drivers || []);
     } catch (err) {
-      console.log("Driver error:", err);
+      console.log(err);
     }
   };
 
@@ -194,6 +185,9 @@ export default function BookRide() {
     }
   };
 
+  /* ================= UI ================= */
+
+  if (loadError) return <p className="text-red-500">Map failed to load</p>;
   if (!isLoaded) return <p>Loading map...</p>;
 
   return (
@@ -206,11 +200,10 @@ export default function BookRide() {
           center={pickupCoords || { lat: 28.6139, lng: 77.209 }}
           zoom={13}
         >
-
           {pickupCoords && <Marker position={pickupCoords} />}
           {dropCoords && <Marker position={dropCoords} />}
 
-          {/* 🚗 DRIVER ICONS */}
+          {/* DRIVERS */}
           {drivers.map((d) => (
             <Marker
               key={d._id}
@@ -219,8 +212,7 @@ export default function BookRide() {
                 lng: d.location.coordinates[0]
               }}
               icon={{
-                url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
-                scaledSize: new window.google.maps.Size(40, 40)
+                url: "https://maps.google.com/mapfiles/ms/icons/cab.png"
               }}
             />
           ))}

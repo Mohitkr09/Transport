@@ -1,6 +1,9 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useRef, Suspense, lazy } from "react";
 
+/* ✅ CORRECT IMPORT (based on your folder) */
+import { GoogleMapsProvider } from "./config/googleMaps";
+
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -17,7 +20,6 @@ const Payment = lazy(() => import("./pages/Payment"));
 const RideTracking = lazy(() => import("./pages/RideTracking"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 
-
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
 const Drivers = lazy(() => import("./pages/admin/Drivers"));
@@ -25,7 +27,7 @@ const Analytics = lazy(() => import("./pages/admin/Analytics"));
 const Settings = lazy(() => import("./pages/admin/Settings"));
 const SupportMessages = lazy(() => import("./pages/admin/SupportMessages"));
 
-
+/* ================= SCROLL ================= */
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -33,9 +35,7 @@ function ScrollToTop() {
   return null;
 }
 
-/* ======================================================
-BACKEND WAKEUP
-====================================================== */
+/* ================= BACKEND WAKEUP ================= */
 
 function BackendWakeup() {
   const called = useRef(false);
@@ -53,6 +53,7 @@ function BackendWakeup() {
   return null;
 }
 
+/* ================= ROLE REDIRECT ================= */
 
 function RoleRedirect() {
   const { pathname } = useLocation();
@@ -63,13 +64,11 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    // ❌ prevent redirect loop
     if (
       pathname.startsWith("/login") ||
       pathname.startsWith("/register")
     ) return;
 
-    // ✅ FIX: use navigate instead of reload
     if (role === "driver" && !pathname.startsWith("/driver")) {
       window.history.replaceState(null, "", "/driver/dashboard");
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -90,9 +89,7 @@ function RoleRedirect() {
   return null;
 }
 
-/* ======================================================
-PAGE TITLE
-====================================================== */
+/* ================= TITLE ================= */
 
 function TitleManager() {
   const { pathname } = useLocation();
@@ -113,9 +110,7 @@ function TitleManager() {
   return null;
 }
 
-/* ======================================================
-LOADER
-====================================================== */
+/* ================= LOADER ================= */
 
 function PageLoader() {
   return (
@@ -125,9 +120,7 @@ function PageLoader() {
   );
 }
 
-/* ======================================================
-LAYOUT
-====================================================== */
+/* ================= LAYOUT ================= */
 
 function Layout({ children }) {
   const { pathname } = useLocation();
@@ -153,107 +146,105 @@ function Layout({ children }) {
   );
 }
 
-/* ======================================================
-404
-====================================================== */
+/* ================= 404 ================= */
 
 function NotFound() {
   return <Navigate to="/" replace />;
 }
 
-/* ======================================================
-APP ROOT
-====================================================== */
+/* ================= APP ROOT ================= */
 
 export default function App() {
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
-      <ScrollToTop />
-      <BackendWakeup />
-      <TitleManager />
-      <RoleRedirect />
+    <GoogleMapsProvider> {/* ✅ FIXED BASED ON YOUR STRUCTURE */}
+      <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
+        <ScrollToTop />
+        <BackendWakeup />
+        <TitleManager />
+        <RoleRedirect />
 
-      <Layout>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
 
-            {/* PUBLIC */}
-            <Route path="/" element={<Home />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+              {/* PUBLIC */}
+              <Route path="/" element={<Home />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
 
-            {/* USER */}
-            <Route
-              path="/book"
-              element={
-                <ProtectedRoute allowedRoles={["user"]}>
-                  <BookRide />
-                </ProtectedRoute>
-              }
-            />
+              {/* USER */}
+              <Route
+                path="/book"
+                element={
+                  <ProtectedRoute allowedRoles={["user"]}>
+                    <BookRide />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/notifications"
-              element={
-                <ProtectedRoute allowedRoles={["user"]}>
-                  <Notifications />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/notifications"
+                element={
+                  <ProtectedRoute allowedRoles={["user"]}>
+                    <Notifications />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/track/:rideId"
-              element={
-                <ProtectedRoute allowedRoles={["user"]}>
-                  <RideTracking />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/track/:rideId"
+                element={
+                  <ProtectedRoute allowedRoles={["user"]}>
+                    <RideTracking />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* DRIVER */}
-            <Route
-              path="/driver/dashboard"
-              element={
-                <ProtectedRoute allowedRoles={["driver"]}>
-                  <DriverDashboard />
-                </ProtectedRoute>
-              }
-            />
+              {/* DRIVER */}
+              <Route
+                path="/driver/dashboard"
+                element={
+                  <ProtectedRoute allowedRoles={["driver"]}>
+                    <DriverDashboard />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/driver/requests"
-              element={
-                <ProtectedRoute allowedRoles={["driver"]}>
-                  <DriverRequests />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/driver/requests"
+                element={
+                  <ProtectedRoute allowedRoles={["driver"]}>
+                    <DriverRequests />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* ADMIN */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <AdminLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="drivers" element={<Drivers />} />
-              <Route path="analytics" element={<Analytics />} />
-              <Route path="support" element={<SupportMessages />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
+              {/* ADMIN */}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute allowedRoles={["admin"]}>
+                    <AdminLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="drivers" element={<Drivers />} />
+                <Route path="analytics" element={<Analytics />} />
+                <Route path="support" element={<SupportMessages />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
 
-            {/* FALLBACK */}
-            <Route path="*" element={<NotFound />} />
+              {/* FALLBACK */}
+              <Route path="*" element={<NotFound />} />
 
-          </Routes>
-        </Suspense>
-      </Layout>
-    </div>
+            </Routes>
+          </Suspense>
+        </Layout>
+      </div>
+    </GoogleMapsProvider>
   );
 }

@@ -1,5 +1,8 @@
 import React, { useMemo } from "react";
-import { GoogleMap, Marker, useJsApiLoader, Polyline } from "@react-google-maps/api";
+import { GoogleMap, Marker, Polyline } from "@react-google-maps/api";
+
+/* ✅ FIXED IMPORT PATH */
+import { useGoogleMaps } from "../config/googleMaps";
 
 const containerStyle = {
   width: "100%",
@@ -8,13 +11,30 @@ const containerStyle = {
 
 export default function LiveMap({ userLocation, driverLocation, routePath }) {
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY
-  });
+  /* ✅ GLOBAL LOADER */
+  const { isLoaded, loadError } = useGoogleMaps();
 
-  const center = useMemo(() => userLocation, [userLocation]);
+  const center = useMemo(() => {
+    return userLocation || driverLocation || { lat: 20.5937, lng: 78.9629 }; // fallback (India center)
+  }, [userLocation, driverLocation]);
 
-  if (!isLoaded) return <p>Loading Map...</p>;
+  /* ❌ ERROR HANDLING */
+  if (loadError) {
+    return (
+      <div className="h-[400px] flex items-center justify-center text-red-500">
+        Failed to load Google Maps
+      </div>
+    );
+  }
+
+  /* ⏳ LOADING */
+  if (!isLoaded) {
+    return (
+      <div className="h-[400px] flex items-center justify-center">
+        Loading Map...
+      </div>
+    );
+  }
 
   return (
     <GoogleMap
@@ -22,12 +42,15 @@ export default function LiveMap({ userLocation, driverLocation, routePath }) {
       center={center}
       zoom={14}
     >
-      {/* USER */}
+      {/* 👤 USER LOCATION */}
       {userLocation && (
-        <Marker position={userLocation} label="You" />
+        <Marker
+          position={userLocation}
+          label="You"
+        />
       )}
 
-      {/* DRIVER */}
+      {/* 🚗 DRIVER LOCATION */}
       {driverLocation && (
         <Marker
           position={driverLocation}
@@ -38,8 +61,8 @@ export default function LiveMap({ userLocation, driverLocation, routePath }) {
         />
       )}
 
-      {/* ROUTE LINE */}
-      {routePath && (
+      {/* 🛣 ROUTE PATH */}
+      {routePath && routePath.length > 0 && (
         <Polyline
           path={routePath}
           options={{
