@@ -13,34 +13,56 @@ export default function DriverDashboard() {
 
   /* ================= SOCKET ================= */
   useEffect(() => {
-    const socket = io(io(import.meta.env.VITE_API_URL || "http://localhost:5000"), {
+
+    const SOCKET_URL =
+      import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+    const socket = io(SOCKET_URL, {
       auth: {
-        token: localStorage.getItem("token")
+        token: localStorage.getItem("token"),
       },
-      transports: ["websocket"]
+      transports: ["websocket"], // ✅ correct
+      reconnection: true,
+      reconnectionAttempts: 5,
     });
 
     socketRef.current = socket;
 
+    /* CONNECT */
     socket.on("connect", () => {
       console.log("✅ Socket connected:", socket.id);
     });
 
-    /* 🔥 REAL-TIME RIDE */
+    socket.on("connect_error", (err) => {
+      console.log("❌ Socket error:", err.message);
+    });
+
+    /* ================= REAL-TIME EVENTS ================= */
+
+    // 🔥 NEW RIDE FROM SERVER
     socket.on("newRideRequest", (ride) => {
       console.log("🔥 New Ride:", ride);
 
-      setRides(prev => {
-        if (prev.find(r => r._id === ride._id)) return prev;
+      setRides((prev) => {
+        if (prev.find((r) => r._id === ride._id)) return prev;
         return [ride, ...prev];
       });
     });
 
+    // 🚫 IF RIDE TAKEN BY OTHER DRIVER
     socket.on("rideTaken", (rideId) => {
-      setRides(prev => prev.filter(r => r._id !== rideId));
+      setRides((prev) => prev.filter((r) => r._id !== rideId));
     });
 
-    return () => socket.disconnect();
+    // ✅ IF YOU ACCEPTED
+    socket.on("rideAccepted", (ride) => {
+      setRides([]);
+      alert("Ride confirmed 🚗");
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   /* ================= LOAD PROFILE ================= */
@@ -63,7 +85,9 @@ export default function DriverDashboard() {
     try {
       const res = await api.get("/ride/nearby");
       setRides(res.data.rides || []);
-    } catch {}
+    } catch (err) {
+      console.log(err);
+    }
   };
 
   useEffect(() => {
@@ -79,7 +103,7 @@ export default function DriverDashboard() {
 
       setOnline(newStatus);
 
-      if (newStatus && socketRef.current) {
+      if (newStatus && socketRef.current && profile) {
         socketRef.current.emit("driverOnline", profile._id);
       }
 
@@ -97,7 +121,11 @@ export default function DriverDashboard() {
 
       const res = await api.put(`/ride/${id}/accept`);
 
-      socketRef.current.emit("rideAccepted", res.data.ride);
+      // 🔥 IMPORTANT: match backend event
+      socketRef.current.emit("driverAcceptRide", {
+        rideId: id,
+        driver: profile,
+      });
 
       setRides([]);
       alert("Ride Accepted ✅");
@@ -113,7 +141,7 @@ export default function DriverDashboard() {
   const rejectRide = async (id) => {
     try {
       await api.put(`/ride/${id}/reject`);
-      setRides(prev => prev.filter(r => r._id !== id));
+      setRides((prev) => prev.filter((r) => r._id !== id));
     } catch {
       alert("Error rejecting ride");
     }

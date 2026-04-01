@@ -52,11 +52,12 @@ app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(helmet());
 app.use(compression());
 
 app.use(cors({
-  origin: "*",
+  origin: "*",   // 👉 For production, replace with frontend URL
+  methods: ["GET", "POST"],
   credentials: true
 }));
 
@@ -100,18 +101,25 @@ app.use((err, req, res, next) => {
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET (FIXED) ================= */
 const io = new Server(server, {
-  cors: { origin: "*" },
-  transports: ["websocket"]
+  cors: {
+    origin: "*",   // ⚠️ Replace with frontend URL in production
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ["websocket", "polling"], // ✅ IMPORTANT FIX
 });
 
+/* GLOBAL ACCESS */
 global.io = io;
 
 /* ================= SOCKET AUTH ================= */
 io.use((socket, next) => {
   try {
-    const token = socket.handshake.auth?.token;
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(" ")[1];
 
     if (!token) return next(new Error("No token"));
 
@@ -119,7 +127,8 @@ io.use((socket, next) => {
     socket.user = decoded;
 
     next();
-  } catch {
+  } catch (err) {
+    console.log("❌ Socket Auth Error:", err.message);
     next(new Error("Unauthorized"));
   }
 });
@@ -146,25 +155,23 @@ io.on("connection", async (socket) => {
       });
     }
 
-    /* ================= JOIN RIDE ROOM (🔥 MOST IMPORTANT) ================= */
+    /* ================= JOIN RIDE ROOM ================= */
     socket.on("joinRide", (rideId) => {
+      if (!rideId) return;
       console.log("📦 Joined ride room:", rideId);
       socket.join(rideId);
     });
 
-    /* ================= DRIVER LOCATION UPDATE ================= */
+    /* ================= DRIVER LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
-      if (!rideId || !lat || !lng) return;
+      if (!rideId || lat == null || lng == null) return;
 
       io.to(rideId).emit("driverMoved", { lat, lng });
     });
 
     /* ================= DRIVER ACCEPT ================= */
-    socket.on("driverAcceptRide", async ({ rideId, driver }) => {
-      io.to(rideId).emit("rideAccepted", {
-        rideId,
-        driver
-      });
+    socket.on("driverAcceptRide", ({ rideId, driver }) => {
+      io.to(rideId).emit("rideAccepted", { rideId, driver });
     });
 
     /* ================= DRIVER START ================= */
@@ -179,14 +186,14 @@ io.on("connection", async (socket) => {
 
     /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
+      console.log("🔴 Disconnected:", userId);
+
       if (role === "driver") {
         await Driver.findByIdAndUpdate(userId, {
           socketId: null,
           isOnline: false,
           isAvailable: false
         });
-
-        console.log("🔴 Driver offline:", userId);
       }
     });
 
@@ -195,7 +202,7 @@ io.on("connection", async (socket) => {
   }
 });
 
-/* ================= START ================= */
+/* ================= PORT FIX (RENDER) ================= */
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {

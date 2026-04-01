@@ -11,8 +11,6 @@ import {
 } from "@react-google-maps/api";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-
-/* ✅ FIX (DO NOT CHANGE THIS) */
 const libraries = ["places"];
 
 const containerStyle = {
@@ -56,6 +54,8 @@ export default function BookRide() {
 
   const [directions, setDirections] = useState(null);
 
+  const [drivers, setDrivers] = useState([]); // 🚗 NEW
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -69,35 +69,40 @@ export default function BookRide() {
   /* ================= SOCKET ================= */
 
   useEffect(() => {
-    socketRef.current = io(SOCKET_URL, { transports: ["websocket"] });
-    return () => socketRef.current?.disconnect();
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket"]
+    });
+
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      console.log("✅ Socket connected");
+    });
+
+    // 🔥 REAL-TIME DRIVER UPDATE
+    socket.on("driversUpdate", (updatedDrivers) => {
+      setDrivers(updatedDrivers);
+    });
+
+    return () => socket.disconnect();
   }, []);
 
   /* ================= 📍 CURRENT LOCATION ================= */
 
   const handleCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      return setMessage("Geolocation not supported");
-    }
-
-    navigator.geolocation.getCurrentPosition(async (pos) => {
+    navigator.geolocation.getCurrentPosition((pos) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
 
       setPickupCoords({ lat, lng });
 
-      // reverse geocode
       const geocoder = new window.google.maps.Geocoder();
 
       geocoder.geocode({ location: { lat, lng } }, (res) => {
-        if (res[0]) {
-          setPickup(res[0].formatted_address);
-        }
+        if (res[0]) setPickup(res[0].formatted_address);
       });
 
-    }, () => {
-      setMessage("Location permission denied");
-    });
+    }, () => setMessage("Location permission denied"));
   };
 
   /* ================= AUTOCOMPLETE ================= */
@@ -159,9 +164,27 @@ export default function BookRide() {
     );
   };
 
+  /* ================= FETCH DRIVERS ================= */
+
+  const fetchNearbyDrivers = async () => {
+    try {
+      const res = await api.get("/driver/nearby", {
+        params: {
+          lat: pickupCoords.lat,
+          lng: pickupCoords.lng
+        }
+      });
+
+      setDrivers(res.data.drivers || []);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   useEffect(() => {
     if (pickupCoords && dropCoords && isLoaded) {
       calculateRoute();
+      fetchNearbyDrivers(); // 🚗 SHOW DRIVERS
     }
   }, [pickupCoords, dropCoords, isLoaded]);
 
@@ -184,8 +207,7 @@ export default function BookRide() {
 
       navigate(`/track/${rideId}`, { replace: true });
 
-    } catch (err) {
-      console.error(err);
+    } catch {
       setMessage("❌ Booking failed");
     } finally {
       setLoading(false);
@@ -204,8 +226,29 @@ export default function BookRide() {
           center={pickupCoords || { lat: 28.6139, lng: 77.2090 }}
           zoom={13}
         >
+
+          {/* 📍 Pickup */}
           {pickupCoords && <Marker position={pickupCoords} />}
+
+          {/* 📍 Drop */}
           {dropCoords && <Marker position={dropCoords} />}
+
+          {/* 🚗 DRIVERS */}
+          {drivers.map((driver) => (
+            <Marker
+              key={driver._id}
+              position={{
+                lat: driver.location.coordinates[1],
+                lng: driver.location.coordinates[0]
+              }}
+              icon={{
+                url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
+                scaledSize: new window.google.maps.Size(40, 40)
+              }}
+            />
+          ))}
+
+          {/* ROUTE */}
           {directions && <DirectionsRenderer directions={directions} />}
         </GoogleMap>
       </div>
