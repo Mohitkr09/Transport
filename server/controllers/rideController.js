@@ -17,13 +17,18 @@ const emitToUser = (userId, event, payload) => {
   global.io.to(userId.toString()).emit(event, payload);
 };
 
+const emitToDriver = (socketId, event, payload) => {
+  if (!global.io || !socketId) return;
+  global.io.to(socketId).emit(event, payload);
+};
+
 const emitToRide = (rideId, event, payload) => {
   if (!global.io) return;
   global.io.to(rideId.toString()).emit(event, payload);
 };
 
 /* ======================================================
-CREATE RIDE (🔥 IMPROVED DRIVER MATCHING)
+CREATE RIDE (🔥 FIXED + REALTIME)
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
@@ -42,7 +47,10 @@ exports.createRide = async (req, res) => {
         address: pickupLocation.address,
         location: {
           type: "Point",
-          coordinates: [Number(pickupLocation.lng), Number(pickupLocation.lat)]
+          coordinates: [
+            Number(pickupLocation.lng),
+            Number(pickupLocation.lat)
+          ]
         }
       },
 
@@ -50,14 +58,20 @@ exports.createRide = async (req, res) => {
         address: dropLocation.address,
         location: {
           type: "Point",
-          coordinates: [Number(dropLocation.lng), Number(dropLocation.lat)]
+          coordinates: [
+            Number(dropLocation.lng),
+            Number(dropLocation.lat)
+          ]
         }
       },
 
       vehicleType,
       distanceKm: distance || 5,
       fare,
+
+      /* 🔥 FIXED STATUS */
       status: "searching_driver",
+
       rejectedDrivers: []
     });
 
@@ -79,11 +93,11 @@ exports.createRide = async (req, res) => {
       }
     });
 
-    /* 🔥 SEND RIDE TO DRIVERS */
-    drivers.forEach(driver => {
-      if (driver.socketId) {
-        global.io.to(driver.socketId).emit("newRideRequest", ride);
-      }
+    console.log(`🚗 Found ${drivers.length} drivers`);
+
+    /* 🔥 SEND TO DRIVERS */
+    drivers.forEach((driver) => {
+      emitToDriver(driver.socketId, "newRideRequest", ride);
     });
 
     res.status(201).json({ success: true, ride });
@@ -106,13 +120,13 @@ exports.getRideById = async (req, res) => {
 
     res.json({ success: true, ride });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-GET NEARBY RIDES (🔥 FIXED 500 ERROR)
+GET NEARBY RIDES (🔥 FIXED)
 ====================================================== */
 exports.getNearbyRides = async (req, res) => {
   try {
@@ -127,11 +141,11 @@ exports.getNearbyRides = async (req, res) => {
 
     const rides = await Ride.find({
       status: "searching_driver",
-      pickupLocation: {
+      "pickupLocation.location": {
         $near: {
           $geometry: {
             type: "Point",
-            coordinates: [parseFloat(lng), parseFloat(lat)] // ✅ FIX
+            coordinates: [parseFloat(lng), parseFloat(lat)]
           },
           $maxDistance: 5000
         }
@@ -142,27 +156,33 @@ exports.getNearbyRides = async (req, res) => {
 
   } catch (err) {
     console.error("❌ Nearby rides error:", err.message);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 /* ======================================================
-ACCEPT RIDE
+ACCEPT RIDE (🔥 RACE CONDITION SAFE)
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
-    const ride = await Ride.findOne({
-      _id: req.params.id,
-      status: "searching_driver"
-    });
+    const ride = await Ride.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: "searching_driver"
+      },
+      {
+        status: "accepted",
+        driver: req.user._id
+      },
+      { new: true }
+    );
 
     if (!ride) {
-      return res.status(400).json({ success: false, message: "Taken" });
+      return res.status(400).json({
+        success: false,
+        message: "Ride already taken"
+      });
     }
-
-    ride.driver = req.user._id;
-    ride.status = "accepted";
-    await ride.save();
 
     await Driver.findByIdAndUpdate(req.user._id, {
       isAvailable: false,
@@ -173,19 +193,18 @@ exports.acceptRide = async (req, res) => {
     emitToRide(ride._id, "rideAccepted", ride);
     emitToUser(ride.user, "rideAccepted", ride);
 
-    /* REMOVE FROM OTHER DRIVERS */
     global.io.emit("rideTaken", ride._id);
 
     res.json({ success: true, ride });
 
   } catch (err) {
-    console.error(err);
+    console.error("❌ acceptRide:", err.message);
     res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-REJECT RIDE (🔥 IMPROVED)
+REJECT RIDE
 ====================================================== */
 exports.rejectRide = async (req, res) => {
   try {
@@ -193,7 +212,6 @@ exports.rejectRide = async (req, res) => {
 
     if (!ride) return res.status(404).json({ success: false });
 
-    /* ADD TO REJECTED */
     if (!ride.rejectedDrivers.includes(req.user._id)) {
       ride.rejectedDrivers.push(req.user._id);
       await ride.save();
@@ -202,33 +220,6 @@ exports.rejectRide = async (req, res) => {
     res.json({ success: true });
 
   } catch {
-    res.status(500).json({ success: false });
-  }
-};
-
-/* ======================================================
-DRIVER LOCATION UPDATE
-====================================================== */
-exports.updateDriverLocation = async (req, res) => {
-  try {
-    const { lat, lng, rideId } = req.body;
-
-    if (!lat || !lng || !rideId) {
-      return res.status(400).json({ success: false });
-    }
-
-    await Ride.findByIdAndUpdate(rideId, {
-      driverLocation: {
-        type: "Point",
-        coordinates: [lng, lat]
-      }
-    });
-
-    emitToRide(rideId, "driverMoved", { lat, lng });
-
-    res.json({ success: true });
-
-  } catch (err) {
     res.status(500).json({ success: false });
   }
 };
