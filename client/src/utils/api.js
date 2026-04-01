@@ -10,17 +10,17 @@ if (!BASE) {
   throw new Error("❌ VITE_API_URL missing");
 }
 
-/* normalize URL */
+/* normalize */
 const BASE_URL = BASE.replace(/\/$/, ""); // remove trailing slash
-const ROOT_URL = BASE_URL.replace(/\/api$/, ""); // remove /api for health
+const ROOT_URL = BASE_URL.replace(/\/api$/, ""); // for health check
 
 /* ======================================================
 AXIOS INSTANCE
 ====================================================== */
 
 const api = axios.create({
-  baseURL: BASE_URL, // ✅ MUST include /api
-  timeout: 20000,
+  baseURL: BASE_URL, // ✅ should include /api
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json"
   }
@@ -32,14 +32,13 @@ REQUEST INTERCEPTOR
 
 api.interceptors.request.use(
   (config) => {
-
     const token = localStorage.getItem("token");
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    /* 🔥 FIX: prevent double /api */
+    /* 🔥 FIX: avoid double /api */
     if (config.url?.startsWith("/api")) {
       config.url = config.url.replace(/^\/api/, "");
     }
@@ -68,7 +67,6 @@ api.interceptors.response.use(
   },
 
   async (error) => {
-
     const original = error?.config;
 
     console.error(
@@ -78,31 +76,33 @@ api.interceptors.response.use(
     );
 
     /* ================= AUTH ERROR ================= */
-
     if (error.response?.status === 401) {
       localStorage.clear();
       window.location.href = "/login";
       return Promise.reject(error);
     }
 
-    /* ================= WAKEUP FIX ================= */
-
+    /* ================= RENDER WAKE FIX ================= */
     if (
       error.response?.status === 404 &&
       original &&
       !original._retry
     ) {
-
       original._retry = true;
 
       try {
-        /* 🔥 FIX: correct health endpoint */
+        console.log("🔄 Waking backend...");
         await fetch(`${ROOT_URL}/health`);
       } catch {}
 
-      await new Promise(r => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1200));
 
       return api(original);
+    }
+
+    /* ================= HANDLE 403 CLEANLY ================= */
+    if (error.response?.status === 403) {
+      console.warn("⛔ Access denied (403)");
     }
 
     return Promise.reject(error);
@@ -128,7 +128,7 @@ export const logout = () => {
 };
 
 /* ======================================================
-SAFE API HELPERS (RECOMMENDED)
+API METHODS
 ====================================================== */
 
 export const get = (url, config = {}) => api.get(url, config);

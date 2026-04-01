@@ -243,9 +243,7 @@ exports.startRide = async (req, res) => {
   }
 };
 
-/* ======================================================
-COMPLETE RIDE
-====================================================== */
+
 exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);

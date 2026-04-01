@@ -16,7 +16,7 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 /* =================================================
-LOGGER (VERY USEFUL 🔥)
+LOGGER
 ================================================= */
 router.use((req, res, next) => {
   console.log(`🚗 DRIVER → ${req.method} ${req.originalUrl}`);
@@ -51,7 +51,7 @@ router.post(
 );
 
 /* =================================================
-PROFILE (🔥 YOUR MAIN FIX)
+PROFILE
 ================================================= */
 router.get(
   "/me",
@@ -67,10 +67,7 @@ router.get(
       });
     }
 
-    res.json({
-      success: true,
-      driver
-    });
+    res.json({ success: true, driver });
   })
 );
 
@@ -93,10 +90,7 @@ router.put(
       { new: true }
     );
 
-    res.json({
-      success: true,
-      driver
-    });
+    res.json({ success: true, driver });
   })
 );
 
@@ -106,6 +100,13 @@ router.put(
   driverOnly,
   asyncHandler(async (req, res) => {
     const { lat, lng } = req.body;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "lat & lng required"
+      });
+    }
 
     const driver = await Driver.findById(req.user.id);
 
@@ -125,15 +126,42 @@ router.put(
 );
 
 /* =================================================
-RIDES (OPTIONAL IF USING rideRoutes)
+🔥 PUBLIC NEARBY DRIVERS (FIXED)
 ================================================= */
+/* 🚀 THIS IS THE MOST IMPORTANT FIX */
 router.get(
   "/nearby",
-  protect,
-  driverOnly,
-  asyncHandler(driverController.getNearbyRides)
+  asyncHandler(async (req, res) => {
+    const { lat, lng } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "lat & lng required"
+      });
+    }
+
+    const drivers = await Driver.find({
+      isOnline: true,
+      isAvailable: true,
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [parseFloat(lng), parseFloat(lat)]
+          },
+          $maxDistance: 5000
+        }
+      }
+    }).select("location");
+
+    res.json({ success: true, drivers });
+  })
 );
 
+/* =================================================
+RIDE ACTIONS
+================================================= */
 router.put(
   "/ride/:id/accept",
   protect,
@@ -200,19 +228,12 @@ router.put(
       { new: true }
     );
 
-    if (!driver) {
-      return res.status(404).json({
-        success: false,
-        message: "Driver not found"
-      });
-    }
-
     res.json({ success: true, driver });
   })
 );
 
 /* =================================================
-404 FALLBACK
+404
 ================================================= */
 router.use((req, res) => {
   res.status(404).json({

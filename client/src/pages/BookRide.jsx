@@ -35,8 +35,6 @@ export default function BookRide() {
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
 
-  const [step, setStep] = useState(1);
-
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
 
@@ -53,13 +51,10 @@ export default function BookRide() {
   const [eta, setEta] = useState(null);
 
   const [directions, setDirections] = useState(null);
-
-  const [drivers, setDrivers] = useState([]); // 🚗 NEW
+  const [drivers, setDrivers] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-
-  /* ================= MAP ================= */
 
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
@@ -67,10 +62,9 @@ export default function BookRide() {
   });
 
   /* ================= SOCKET ================= */
-
   useEffect(() => {
     const socket = io(SOCKET_URL, {
-      transports: ["websocket"]
+      transports: ["websocket", "polling"]
     });
 
     socketRef.current = socket;
@@ -79,16 +73,10 @@ export default function BookRide() {
       console.log("✅ Socket connected");
     });
 
-    // 🔥 REAL-TIME DRIVER UPDATE
-    socket.on("driversUpdate", (updatedDrivers) => {
-      setDrivers(updatedDrivers);
-    });
-
     return () => socket.disconnect();
   }, []);
 
-  /* ================= 📍 CURRENT LOCATION ================= */
-
+  /* ================= LOCATION ================= */
   const handleCurrentLocation = () => {
     navigator.geolocation.getCurrentPosition((pos) => {
       const lat = pos.coords.latitude;
@@ -106,7 +94,6 @@ export default function BookRide() {
   };
 
   /* ================= AUTOCOMPLETE ================= */
-
   const fetchSuggestions = (query, setter) => {
     if (!query) return setter([]);
 
@@ -114,7 +101,6 @@ export default function BookRide() {
 
     debounceRef.current = setTimeout(() => {
       const service = new window.google.maps.places.AutocompleteService();
-
       service.getPlacePredictions({ input: query }, (res) => {
         setter(res || []);
       });
@@ -131,7 +117,6 @@ export default function BookRide() {
   };
 
   /* ================= ROUTE ================= */
-
   const calculateRoute = () => {
     const service = new window.google.maps.DirectionsService();
 
@@ -146,7 +131,6 @@ export default function BookRide() {
           setDirections(result);
 
           const leg = result.routes[0].legs[0];
-
           const km = leg.distance.value / 1000;
           const mins = leg.duration.value / 60;
 
@@ -165,7 +149,6 @@ export default function BookRide() {
   };
 
   /* ================= FETCH DRIVERS ================= */
-
   const fetchNearbyDrivers = async () => {
     try {
       const res = await api.get("/driver/nearby", {
@@ -177,19 +160,18 @@ export default function BookRide() {
 
       setDrivers(res.data.drivers || []);
     } catch (err) {
-      console.log(err);
+      console.log("Driver error:", err);
     }
   };
 
   useEffect(() => {
     if (pickupCoords && dropCoords && isLoaded) {
       calculateRoute();
-      fetchNearbyDrivers(); // 🚗 SHOW DRIVERS
+      fetchNearbyDrivers();
     }
   }, [pickupCoords, dropCoords, isLoaded]);
 
   /* ================= BOOK ================= */
-
   const handleBookRide = async () => {
     if (!vehicleType) return setMessage("Select vehicle");
 
@@ -203,12 +185,10 @@ export default function BookRide() {
         distance
       });
 
-      const rideId = res.data?.ride?._id;
-
-      navigate(`/track/${rideId}`, { replace: true });
+      navigate(`/track/${res.data.ride._id}`);
 
     } catch {
-      setMessage("❌ Booking failed");
+      setMessage("Booking failed");
     } finally {
       setLoading(false);
     }
@@ -223,23 +203,20 @@ export default function BookRide() {
       <div className="lg:w-2/3 h-[40vh] lg:h-screen">
         <GoogleMap
           mapContainerStyle={containerStyle}
-          center={pickupCoords || { lat: 28.6139, lng: 77.2090 }}
+          center={pickupCoords || { lat: 28.6139, lng: 77.209 }}
           zoom={13}
         >
 
-          {/* 📍 Pickup */}
           {pickupCoords && <Marker position={pickupCoords} />}
-
-          {/* 📍 Drop */}
           {dropCoords && <Marker position={dropCoords} />}
 
-          {/* 🚗 DRIVERS */}
-          {drivers.map((driver) => (
+          {/* 🚗 DRIVER ICONS */}
+          {drivers.map((d) => (
             <Marker
-              key={driver._id}
+              key={d._id}
               position={{
-                lat: driver.location.coordinates[1],
-                lng: driver.location.coordinates[0]
+                lat: d.location.coordinates[1],
+                lng: d.location.coordinates[0]
               }}
               icon={{
                 url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
@@ -248,7 +225,6 @@ export default function BookRide() {
             />
           ))}
 
-          {/* ROUTE */}
           {directions && <DirectionsRenderer directions={directions} />}
         </GoogleMap>
       </div>
@@ -256,90 +232,60 @@ export default function BookRide() {
       {/* PANEL */}
       <div className="lg:w-1/3 bg-white p-6">
 
-        <h2 className="text-2xl font-bold mb-4">Book Ride</h2>
+        <h2 className="text-2xl font-bold mb-4">🚗 Book Ride</h2>
 
-        {/* STEP 1 */}
-        {step === 1 && (
-          <>
-            <button
-              onClick={handleCurrentLocation}
-              className="mb-3 w-full py-2 bg-gray-200 rounded-xl"
-            >
-              📍 Use Current Location
-            </button>
+        <button
+          onClick={handleCurrentLocation}
+          className="mb-3 w-full py-2 bg-gray-200 rounded-xl"
+        >
+          📍 Use Current Location
+        </button>
 
-            <InputBox {...{
-              value: pickup,
-              setValue: setPickup,
-              suggestions: pickupSuggestions,
-              setSuggestions: setPickupSuggestions,
-              setCoords: setPickupCoords,
-              fetchSuggestions,
-              getCoords,
-              placeholder: "Pickup"
-            }} />
+        <InputBox {...{
+          value: pickup,
+          setValue: setPickup,
+          suggestions: pickupSuggestions,
+          setSuggestions: setPickupSuggestions,
+          setCoords: setPickupCoords,
+          fetchSuggestions,
+          getCoords,
+          placeholder: "Pickup"
+        }} />
 
-            <InputBox {...{
-              value: drop,
-              setValue: setDrop,
-              suggestions: dropSuggestions,
-              setSuggestions: setDropSuggestions,
-              setCoords: setDropCoords,
-              fetchSuggestions,
-              getCoords,
-              placeholder: "Drop"
-            }} />
+        <InputBox {...{
+          value: drop,
+          setValue: setDrop,
+          suggestions: dropSuggestions,
+          setSuggestions: setDropSuggestions,
+          setCoords: setDropCoords,
+          fetchSuggestions,
+          getCoords,
+          placeholder: "Drop"
+        }} />
 
-            <button
-              onClick={() => {
-                if (!pickupCoords || !dropCoords) {
-                  return setMessage("Enter locations");
-                }
-                setStep(2);
-              }}
-              className="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl"
-            >
-              Confirm Ride
-            </button>
-          </>
-        )}
+        {vehiclePrices.map(v => (
+          <div
+            key={v.id}
+            onClick={() => setVehicleType(v.id)}
+            className={`p-3 mb-2 border rounded-xl cursor-pointer ${
+              vehicleType === v.id ? "bg-indigo-100 border-indigo-500" : ""
+            }`}
+          >
+            <div className="flex justify-between">
+              <span>{v.label} ({eta} min)</span>
+              <span>₹{v.price}</span>
+            </div>
+          </div>
+        ))}
 
-        {/* STEP 2 */}
-        {step === 2 && (
-          <>
-            <button onClick={() => setStep(1)}>← Change</button>
+        <button
+          onClick={handleBookRide}
+          className="w-full mt-3 py-3 bg-green-600 text-white rounded-xl"
+        >
+          {loading ? "Booking..." : "Confirm Booking"}
+        </button>
 
-            {vehiclePrices.map(v => (
-              <div
-                key={v.id}
-                onClick={() => setVehicleType(v.id)}
-                className={`p-4 mb-3 border rounded-xl cursor-pointer ${
-                  vehicleType === v.id ? "border-indigo-600 bg-indigo-50" : ""
-                }`}
-              >
-                <div className="flex justify-between">
-                  <div className="flex gap-3">
-                    <img src={v.img} className="h-10" />
-                    <div>
-                      <p>{v.label}</p>
-                      <p className="text-xs">{eta} min</p>
-                    </div>
-                  </div>
-                  <p>₹{v.price}</p>
-                </div>
-              </div>
-            ))}
-
-            <button
-              onClick={handleBookRide}
-              className="w-full py-3 bg-green-600 text-white rounded-xl"
-            >
-              {loading ? "Booking..." : "Confirm Booking"}
-            </button>
-          </>
-        )}
-
-        {message && <p className="mt-2 text-red-500">{message}</p>}
+        {message && <p className="text-red-500 mt-2">{message}</p>}
       </div>
     </div>
   );
@@ -351,7 +297,6 @@ const InputBox = ({
   setCoords, fetchSuggestions, getCoords, placeholder
 }) => (
   <div className="relative mb-3">
-
     <input
       className="w-full p-3 border rounded-xl"
       placeholder={placeholder}

@@ -7,21 +7,19 @@ export default function DriverRequests() {
   const [rides, setRides] = useState([]);
   const [loadingId, setLoadingId] = useState(null);
   const [newRide, setNewRide] = useState(null);
+  const [coords, setCoords] = useState(null);
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
 
-  const SOCKET_URL =
-    import.meta.env.VITE_API_URL || "http://localhost:5000";
-
   /* ================= SOCKET ================= */
   useEffect(() => {
 
-    const socket = io(SOCKET_URL, {
+    const socket = io(import.meta.env.VITE_SOCKET_URL, {
       auth: {
         token: localStorage.getItem("token"),
       },
-      transports: ["websocket"],
+      transports: ["websocket", "polling"], // 🔥 important
     });
 
     socketRef.current = socket;
@@ -37,8 +35,8 @@ export default function DriverRequests() {
     /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
 
-      audioRef.current?.play(); // 🔊 sound
-      setNewRide(ride); // popup
+      audioRef.current?.play();
+      setNewRide(ride);
 
       setRides((prev) => {
         if (prev.find((r) => r._id === ride._id)) return prev;
@@ -56,14 +54,36 @@ export default function DriverRequests() {
     return () => socket.disconnect();
   }, []);
 
+  /* ================= GET DRIVER LOCATION ================= */
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setCoords({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude
+      });
+    });
+  }, []);
+
+  /* ================= SEND LOCATION (IMPORTANT) ================= */
+  useEffect(() => {
+    if (!coords) return;
+
+    const interval = setInterval(async () => {
+      try {
+        await api.put("/driver/location", coords);
+      } catch {}
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [coords]);
+
   /* ================= FETCH RIDES ================= */
   const fetchRequests = async () => {
     try {
+      if (!coords) return;
+
       const res = await api.get("/ride/nearby", {
-        params: {
-          lat: 28.6139, // 👉 replace with driver location
-          lng: 77.2090
-        }
+        params: coords
       });
 
       setRides(res.data.rides || []);
@@ -74,7 +94,7 @@ export default function DriverRequests() {
 
   useEffect(() => {
     fetchRequests();
-  }, []);
+  }, [coords]);
 
   /* ================= ACTION ================= */
   const handleAction = async (id, action) => {
@@ -82,17 +102,18 @@ export default function DriverRequests() {
       setLoadingId(id);
 
       if (action === "accept") {
-        const res = await api.put(`/ride/${id}/accept`);
+
+        await api.put(`/ride/${id}/accept`);
 
         socketRef.current.emit("driverAcceptRide", {
-          rideId: id,
-          driver: res.data.driver,
+          rideId: id
         });
 
         setRides([]);
         setNewRide(null);
 
       } else {
+
         await api.put(`/ride/${id}/reject`);
 
         setRides((prev) => prev.filter((r) => r._id !== id));
@@ -141,8 +162,6 @@ export default function DriverRequests() {
               key={ride._id}
               className="bg-white rounded-2xl p-5 shadow-md hover:shadow-xl transition"
             >
-
-              {/* TOP */}
               <div className="flex justify-between mb-2">
                 <span className="text-gray-600 text-sm">Ride</span>
                 <span className="font-bold text-green-600">
@@ -150,7 +169,6 @@ export default function DriverRequests() {
                 </span>
               </div>
 
-              {/* LOCATIONS */}
               <p className="text-gray-800 mb-1">
                 📍 {ride.pickupLocation?.address}
               </p>
@@ -159,7 +177,6 @@ export default function DriverRequests() {
                 ➡️ {ride.dropLocation?.address}
               </p>
 
-              {/* ACTIONS */}
               <div className="flex gap-3">
                 <button
                   onClick={() => handleAction(ride._id, "accept")}
@@ -176,7 +193,6 @@ export default function DriverRequests() {
                   Reject
                 </button>
               </div>
-
             </div>
           ))}
         </div>
