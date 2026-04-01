@@ -44,24 +44,44 @@ connectDB()
     process.exit(1);
   });
 
-/* ================= INIT APP ================= */
+/* ================= INIT ================= */
 const app = express();
 app.set("trust proxy", 1);
 
 /* ================= MIDDLEWARE ================= */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 app.use(helmet());
 app.use(compression());
+app.use(morgan("dev"));
+
+/* ======================================================
+🔥 FINAL CORS FIX (SAFE + FLEXIBLE)
+====================================================== */
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://transport-mpb5.onrender.com"
+];
 
 app.use(cors({
-  origin: "*",   // 👉 For production, replace with frontend URL
-  methods: ["GET", "POST"],
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow Postman / mobile
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("CORS blocked"));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
 
-app.use(morgan("dev"));
+/* ❌ REMOVE THIS (CAUSE OF CRASH) */
+/*
+app.options("*", cors());
+*/
 
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -95,23 +115,27 @@ app.use((req, res) => {
 /* ================= ERROR ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err.message);
-  res.status(500).json({ success: false });
+  res.status(500).json({
+    success: false,
+    message: err.message
+  });
 });
 
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET (FIXED) ================= */
+/* ======================================================
+🔥 SOCKET.IO (FINAL FIX)
+====================================================== */
 const io = new Server(server, {
   cors: {
-    origin: "*",   // ⚠️ Replace with frontend URL in production
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ["websocket", "polling"], // ✅ IMPORTANT FIX
+  transports: ["websocket", "polling"]
 });
 
-/* GLOBAL ACCESS */
 global.io = io;
 
 /* ================= SOCKET AUTH ================= */
@@ -133,7 +157,7 @@ io.use((socket, next) => {
   }
 });
 
-/* ================= SOCKET CONNECTION ================= */
+/* ================= SOCKET ================= */
 io.on("connection", async (socket) => {
   try {
     const userId = socket.user?.id;
@@ -143,10 +167,8 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
-    /* ================= USER ROOM ================= */
     socket.join(userId.toString());
 
-    /* ================= DRIVER ONLINE ================= */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(userId, {
         socketId: socket.id,
@@ -155,36 +177,27 @@ io.on("connection", async (socket) => {
       });
     }
 
-    /* ================= JOIN RIDE ROOM ================= */
     socket.on("joinRide", (rideId) => {
       if (!rideId) return;
-      console.log("📦 Joined ride room:", rideId);
       socket.join(rideId);
     });
 
-    /* ================= DRIVER LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
-      if (!rideId || lat == null || lng == null) return;
-
       io.to(rideId).emit("driverMoved", { lat, lng });
     });
 
-    /* ================= DRIVER ACCEPT ================= */
     socket.on("driverAcceptRide", ({ rideId, driver }) => {
       io.to(rideId).emit("rideAccepted", { rideId, driver });
     });
 
-    /* ================= DRIVER START ================= */
     socket.on("driverStartRide", ({ rideId }) => {
       io.to(rideId).emit("rideStarted");
     });
 
-    /* ================= DRIVER COMPLETE ================= */
     socket.on("driverCompleteRide", ({ rideId }) => {
       io.to(rideId).emit("rideCompleted");
     });
 
-    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
@@ -202,7 +215,7 @@ io.on("connection", async (socket) => {
   }
 });
 
-/* ================= PORT FIX (RENDER) ================= */
+/* ================= PORT ================= */
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
