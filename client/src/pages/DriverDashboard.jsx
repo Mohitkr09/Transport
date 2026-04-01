@@ -8,8 +8,10 @@ export default function DriverDashboard() {
   const [online, setOnline] = useState(false);
   const [profile, setProfile] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
+  const [newRideAlert, setNewRideAlert] = useState(null);
 
   const socketRef = useRef(null);
+  const audioRef = useRef(null);
 
   /* ================= SOCKET ================= */
   useEffect(() => {
@@ -21,14 +23,11 @@ export default function DriverDashboard() {
       auth: {
         token: localStorage.getItem("token"),
       },
-      transports: ["websocket"], // ✅ correct
-      reconnection: true,
-      reconnectionAttempts: 5,
+      transports: ["websocket"],
     });
 
     socketRef.current = socket;
 
-    /* CONNECT */
     socket.on("connect", () => {
       console.log("✅ Socket connected:", socket.id);
     });
@@ -37,35 +36,38 @@ export default function DriverDashboard() {
       console.log("❌ Socket error:", err.message);
     });
 
-    /* ================= REAL-TIME EVENTS ================= */
-
-    // 🔥 NEW RIDE FROM SERVER
+    /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
+
       console.log("🔥 New Ride:", ride);
+
+      // play sound
+      audioRef.current?.play();
+
+      // popup alert
+      setNewRideAlert(ride);
 
       setRides((prev) => {
         if (prev.find((r) => r._id === ride._id)) return prev;
         return [ride, ...prev];
       });
+
+      // auto hide popup
+      setTimeout(() => setNewRideAlert(null), 8000);
     });
 
-    // 🚫 IF RIDE TAKEN BY OTHER DRIVER
     socket.on("rideTaken", (rideId) => {
       setRides((prev) => prev.filter((r) => r._id !== rideId));
     });
 
-    // ✅ IF YOU ACCEPTED
-    socket.on("rideAccepted", (ride) => {
+    socket.on("rideAccepted", () => {
       setRides([]);
-      alert("Ride confirmed 🚗");
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, []);
 
-  /* ================= LOAD PROFILE ================= */
+  /* ================= PROFILE ================= */
   const loadProfile = async () => {
     try {
       const res = await api.get("/driver/me");
@@ -80,10 +82,15 @@ export default function DriverDashboard() {
     loadProfile();
   }, []);
 
-  /* ================= FETCH RIDES (FALLBACK) ================= */
+  /* ================= FETCH RIDES ================= */
   const fetchRides = async () => {
     try {
-      const res = await api.get("/ride/nearby");
+      const res = await api.get("/ride/nearby", {
+        params: {
+          lat: profile?.location?.coordinates?.[1],
+          lng: profile?.location?.coordinates?.[0]
+        }
+      });
       setRides(res.data.rides || []);
     } catch (err) {
       console.log(err);
@@ -91,10 +98,10 @@ export default function DriverDashboard() {
   };
 
   useEffect(() => {
-    if (online) fetchRides();
-  }, [online]);
+    if (online && profile) fetchRides();
+  }, [online, profile]);
 
-  /* ================= GO ONLINE ================= */
+  /* ================= ONLINE ================= */
   const toggleOnline = async () => {
     try {
       const newStatus = !online;
@@ -102,10 +109,6 @@ export default function DriverDashboard() {
       await api.put("/driver/online", { isOnline: newStatus });
 
       setOnline(newStatus);
-
-      if (newStatus && socketRef.current && profile) {
-        socketRef.current.emit("driverOnline", profile._id);
-      }
 
       if (!newStatus) setRides([]);
 
@@ -121,14 +124,13 @@ export default function DriverDashboard() {
 
       const res = await api.put(`/ride/${id}/accept`);
 
-      // 🔥 IMPORTANT: match backend event
       socketRef.current.emit("driverAcceptRide", {
         rideId: id,
         driver: profile,
       });
 
       setRides([]);
-      alert("Ride Accepted ✅");
+      setNewRideAlert(null);
 
     } catch {
       alert("Ride already taken");
@@ -148,55 +150,78 @@ export default function DriverDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-6">
 
-      <h1 className="text-2xl font-bold mb-4">
-        Driver Dashboard
-      </h1>
+      {/* SOUND */}
+      <audio ref={audioRef} src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" />
 
-      {/* ONLINE BUTTON */}
-      <button
-        onClick={toggleOnline}
-        className={`px-4 py-2 mb-4 text-white rounded ${
-          online ? "bg-green-600" : "bg-gray-500"
-        }`}
-      >
-        {online ? "Online 🟢" : "Offline ⚫"}
-      </button>
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">🚗 Driver Dashboard</h1>
 
-      {/* NO RIDES */}
-      {rides.length === 0 && (
-        <p>No nearby rides</p>
+        <button
+          onClick={toggleOnline}
+          className={`px-5 py-2 rounded-full text-white shadow ${
+            online ? "bg-green-600" : "bg-gray-500"
+          }`}
+        >
+          {online ? "🟢 Online" : "⚫ Offline"}
+        </button>
+      </div>
+
+      {/* 🔥 POPUP NEW RIDE */}
+      {newRideAlert && (
+        <div className="fixed top-5 right-5 bg-white shadow-lg p-4 rounded-xl border-l-4 border-green-500 animate-bounce z-50">
+          <p className="font-bold">🚨 New Ride Request!</p>
+          <p className="text-sm">{newRideAlert.pickupLocation?.address}</p>
+        </div>
       )}
 
-      {/* RIDE CARDS */}
-      {rides.map((ride) => (
-        <div
-          key={ride._id}
-          className="bg-white p-4 mb-4 rounded shadow"
-        >
-          <p><b>Pickup:</b> {ride.pickupLocation?.address}</p>
-          <p><b>Drop:</b> {ride.dropLocation?.address}</p>
-          <p><b>Fare:</b> ₹{ride.fare}</p>
-
-          <div className="mt-3 flex gap-3">
-            <button
-              onClick={() => acceptRide(ride._id)}
-              disabled={loadingId === ride._id}
-              className="bg-green-600 text-white px-4 py-2 rounded"
-            >
-              {loadingId === ride._id ? "..." : "Accept"}
-            </button>
-
-            <button
-              onClick={() => rejectRide(ride._id)}
-              className="bg-red-600 text-white px-4 py-2 rounded"
-            >
-              Reject
-            </button>
-          </div>
+      {/* RIDES */}
+      {rides.length === 0 ? (
+        <div className="text-center mt-20 text-gray-500">
+          🚫 No rides available
         </div>
-      ))}
+      ) : (
+        <div className="grid gap-4">
+          {rides.map((ride) => (
+            <div
+              key={ride._id}
+              className="bg-white p-5 rounded-2xl shadow-md hover:shadow-xl transition"
+            >
+              <div className="flex justify-between mb-2">
+                <span className="font-semibold text-gray-700">Pickup</span>
+                <span className="text-sm text-gray-500">₹{ride.fare}</span>
+              </div>
+
+              <p className="text-gray-800 mb-2">
+                📍 {ride.pickupLocation?.address}
+              </p>
+
+              <p className="text-gray-600 text-sm mb-3">
+                ➡️ {ride.dropLocation?.address}
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => acceptRide(ride._id)}
+                  disabled={loadingId === ride._id}
+                  className="flex-1 bg-green-600 text-white py-2 rounded-xl"
+                >
+                  {loadingId === ride._id ? "Accepting..." : "Accept"}
+                </button>
+
+                <button
+                  onClick={() => rejectRide(ride._id)}
+                  className="flex-1 bg-red-500 text-white py-2 rounded-xl"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
