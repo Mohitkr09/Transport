@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 
+/* ======================================================
+SCHEMA
+====================================================== */
+
 const notificationSchema = new mongoose.Schema(
   {
     user: {
@@ -9,7 +13,8 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
-    // OPTIONAL RELATIONS
+    /* ================= RELATIONS ================= */
+
     ride: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Ride",
@@ -20,7 +25,8 @@ const notificationSchema = new mongoose.Schema(
       ref: "Driver",
     },
 
-    // CONTENT
+    /* ================= CONTENT ================= */
+
     title: {
       type: String,
       required: true,
@@ -40,7 +46,8 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
-    // STATUS
+    /* ================= STATUS ================= */
+
     read: {
       type: Boolean,
       default: false,
@@ -51,23 +58,28 @@ const notificationSchema = new mongoose.Schema(
       type: Date,
     },
 
-    // EXTRA DATA (VERY IMPORTANT FOR SCALABILITY)
+    /* ================= METADATA ================= */
+
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
 
-    // SOFT DELETE (OPTIONAL)
+    /* ================= SOFT DELETE ================= */
+
     isDeleted: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
-    // PRIORITY (for UI sorting)
+    /* ================= PRIORITY ================= */
+
     priority: {
       type: String,
       enum: ["low", "medium", "high"],
       default: "medium",
+      index: true,
     },
   },
   {
@@ -75,41 +87,103 @@ const notificationSchema = new mongoose.Schema(
   }
 );
 
+/* ======================================================
+🔥 INDEXES (VERY IMPORTANT)
+====================================================== */
 
-// ===============================
-// INDEXES (IMPORTANT 🚀)
-// ===============================
+// Fast user queries
+notificationSchema.index({ user: 1, createdAt: -1 });
 
+// Unread count
 notificationSchema.index({ user: 1, read: 1 });
-notificationSchema.index({ createdAt: -1 });
 
+// Soft delete filter
+notificationSchema.index({ user: 1, isDeleted: 1 });
 
-// ===============================
-// METHODS
-// ===============================
+// Priority sorting
+notificationSchema.index({ priority: 1 });
 
-// Mark as read
+/* ======================================================
+MIDDLEWARE
+====================================================== */
+
+// Auto-set readAt
+notificationSchema.pre("save", function (next) {
+  if (this.isModified("read") && this.read) {
+    this.readAt = new Date();
+  }
+  next();
+});
+
+/* ======================================================
+METHODS
+====================================================== */
+
+// Mark single as read
 notificationSchema.methods.markAsRead = function () {
   this.read = true;
-  this.readAt = new Date();
   return this.save();
 };
 
-
-// ===============================
-// STATIC METHODS
-// ===============================
-
-// Get user notifications
-notificationSchema.statics.getUserNotifications = function (userId) {
-  return this.find({ user: userId, isDeleted: false })
-    .sort({ createdAt: -1 })
-    .limit(50);
+// Soft delete
+notificationSchema.methods.softDelete = function () {
+  this.isDeleted = true;
+  return this.save();
 };
 
+/* ======================================================
+STATIC METHODS
+====================================================== */
 
-// ===============================
-// EXPORT
-// ===============================
+// Get notifications (optimized)
+notificationSchema.statics.getUserNotifications = function (userId) {
+  return this.find({
+    user: userId,
+    isDeleted: false,
+  })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .populate("ride")
+    .populate("driver");
+};
+
+// Get unread count 🔥
+notificationSchema.statics.getUnreadCount = function (userId) {
+  return this.countDocuments({
+    user: userId,
+    read: false,
+    isDeleted: false,
+  });
+};
+
+// Mark all as read
+notificationSchema.statics.markAllAsRead = function (userId) {
+  return this.updateMany(
+    {
+      user: userId,
+      read: false,
+      isDeleted: false,
+    },
+    {
+      read: true,
+      readAt: new Date(),
+    }
+  );
+};
+
+/* ======================================================
+JSON CLEANUP
+====================================================== */
+
+notificationSchema.set("toJSON", {
+  transform: (_, ret) => {
+    delete ret.__v;
+    return ret;
+  },
+});
+
+/* ======================================================
+EXPORT
+====================================================== */
 
 module.exports = mongoose.model("Notification", notificationSchema);

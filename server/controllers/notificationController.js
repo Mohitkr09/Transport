@@ -14,16 +14,18 @@ exports.getNotifications = async (req, res) => {
       .populate("ride")
       .populate("driver");
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: notifications.length,
-      data: notifications,
+      notifications, // 🔥 FIXED (frontend expects this)
     });
+
   } catch (error) {
     console.error("GET NOTIFICATIONS ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch notifications",
+      message: "Failed to load activity", // 🔥 matches UI
     });
   }
 };
@@ -55,14 +57,16 @@ exports.markAsRead = async (req, res) => {
 
     await notification.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Notification marked as read",
-      data: notification,
+      notification,
     });
+
   } catch (error) {
     console.error("MARK READ ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to update notification",
     });
@@ -76,17 +80,19 @@ MARK ALL AS READ
 exports.markAllAsRead = async (req, res) => {
   try {
     await Notification.updateMany(
-      { user: req.user.id, read: false },
+      { user: req.user.id, read: false, isDeleted: false },
       { read: true, readAt: new Date() }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "All notifications marked as read",
     });
+
   } catch (error) {
     console.error("MARK ALL READ ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to update notifications",
     });
@@ -118,13 +124,15 @@ exports.deleteNotification = async (req, res) => {
     notification.isDeleted = true;
     await notification.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Notification deleted",
     });
+
   } catch (error) {
     console.error("DELETE NOTIFICATION ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to delete notification",
     });
@@ -143,7 +151,7 @@ exports.createNotification = async ({
   message,
   type = "system",
   metadata = {},
-  io = null, // socket.io instance
+  io = null,
 }) => {
   try {
     const notification = await Notification.create({
@@ -156,12 +164,13 @@ exports.createNotification = async ({
       metadata,
     });
 
-    // 🔥 REAL-TIME PUSH
+    /* 🔥 REAL-TIME PUSH (FIXED EVENT NAME) */
     if (io) {
-      io.to(user.toString()).emit("new_notification", notification);
+      io.to(user.toString()).emit("newNotification", notification);
     }
 
     return notification;
+
   } catch (error) {
     console.error("CREATE NOTIFICATION ERROR:", error);
   }

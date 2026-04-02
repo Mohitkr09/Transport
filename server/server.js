@@ -62,13 +62,9 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
+  origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("CORS blocked"));
   },
   credentials: true
@@ -87,6 +83,28 @@ app.use("/api/notifications", notificationRoutes);
 
 /* ================= ROOT ================= */
 app.get("/", (req, res) => res.send("🚀 API Running"));
+
+/* ================= HEALTH (🔥 FIXED) ================= */
+app.get("/api/health", (req, res) => {
+  res.json({ success: true, message: "Server is healthy" });
+});
+
+/* ================= 404 ================= */
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found → ${req.method} ${req.originalUrl}`
+  });
+});
+
+/* ================= ERROR HANDLER ================= */
+app.use((err, req, res, next) => {
+  console.error("🔥 ERROR:", err.message);
+  res.status(500).json({
+    success: false,
+    message: err.message || "Server error"
+  });
+});
 
 /* ================= SERVER ================= */
 const server = http.createServer(app);
@@ -116,6 +134,7 @@ io.use((socket, next) => {
 
     next();
   } catch (err) {
+    console.log("❌ Socket Auth Error:", err.message);
     next(new Error("Unauthorized"));
   }
 });
@@ -133,11 +152,11 @@ io.on("connection", async (socket) => {
     /* ✅ JOIN PERSONAL ROOM */
     socket.join(userId.toString());
 
-    /* ✅ JOIN ROLE ROOMS */
+    /* ✅ JOIN ROLE ROOM */
     socket.join(role);
 
     if (role === "driver") {
-      socket.join("drivers"); // 🔥 VERY IMPORTANT
+      socket.join("drivers");
 
       await Driver.findByIdAndUpdate(userId, {
         isOnline: true,
@@ -145,13 +164,13 @@ io.on("connection", async (socket) => {
       });
     }
 
-    /* ================= RIDE ROOM ================= */
+    /* ================= JOIN RIDE ================= */
     socket.on("joinRide", (rideId) => {
       if (!rideId) return;
       socket.join(rideId.toString());
     });
 
-    /* ================= LIVE LOCATION ================= */
+    /* ================= DRIVER LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
       io.to(rideId.toString()).emit("driverMoved", { lat, lng });
     });
@@ -169,6 +188,11 @@ io.on("connection", async (socket) => {
     /* ================= COMPLETE ================= */
     socket.on("driverCompleteRide", ({ rideId }) => {
       io.to(rideId.toString()).emit("rideCompleted");
+    });
+
+    /* ================= 🔔 REAL-TIME NOTIFICATIONS ================= */
+    socket.on("sendNotification", ({ userId, notification }) => {
+      io.to(userId.toString()).emit("newNotification", notification);
     });
 
     /* ================= DISCONNECT ================= */

@@ -16,16 +16,18 @@ router.get("/", protect, async (req, res) => {
       .populate("ride")
       .populate("driver");
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: notifications.length,
-      data: notifications,
+      notifications, // 🔥 FIXED (important)
     });
+
   } catch (error) {
     console.error("GET NOTIFICATIONS ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch notifications",
+      message: "Failed to load activity", // 🔥 matches frontend UI
     });
   }
 });
@@ -45,7 +47,7 @@ router.patch("/read/:id", protect, async (req, res) => {
       });
     }
 
-    // 🔐 SECURITY CHECK
+    /* 🔐 SECURITY CHECK */
     if (notification.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -58,14 +60,16 @@ router.patch("/read/:id", protect, async (req, res) => {
 
     await notification.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Notification marked as read",
-      data: notification,
+      notification,
     });
+
   } catch (error) {
     console.error("MARK READ ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to update notification",
     });
@@ -79,17 +83,26 @@ MARK ALL AS READ
 router.patch("/read-all", protect, async (req, res) => {
   try {
     await Notification.updateMany(
-      { user: req.user._id, read: false },
-      { read: true, readAt: new Date() }
+      {
+        user: req.user._id,
+        read: false,
+        isDeleted: false // 🔥 FIXED
+      },
+      {
+        read: true,
+        readAt: new Date()
+      }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "All notifications marked as read",
     });
+
   } catch (error) {
     console.error("MARK ALL READ ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to update notifications",
     });
@@ -111,7 +124,7 @@ router.delete("/:id", protect, async (req, res) => {
       });
     }
 
-    // 🔐 SECURITY CHECK
+    /* 🔐 SECURITY CHECK */
     if (notification.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -122,13 +135,15 @@ router.delete("/:id", protect, async (req, res) => {
     notification.isDeleted = true;
     await notification.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Notification deleted",
     });
+
   } catch (error) {
     console.error("DELETE ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to delete notification",
     });
@@ -147,13 +162,15 @@ router.get("/unread-count", protect, async (req, res) => {
       isDeleted: false,
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count,
     });
+
   } catch (error) {
     console.error("UNREAD COUNT ERROR:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get unread count",
     });
