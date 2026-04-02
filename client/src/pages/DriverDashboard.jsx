@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 import api from "../utils/api";
+import LiveMap from "../components/LiveMap"; // ✅ ADD THIS
 
 export default function DriverDashboard() {
 
@@ -9,144 +10,130 @@ export default function DriverDashboard() {
   const [profile, setProfile] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
   const [newRide, setNewRide] = useState(null);
+  const [activeRide, setActiveRide] = useState(null); // ✅ NEW
+  const [timer, setTimer] = useState(10);
+  const [driverLocation, setDriverLocation] = useState(null);
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
+
+  /* ================= SOUND ================= */
+  useEffect(() => {
+    audioRef.current = new Audio("/ride-alert.mp3");
+    audioRef.current.loop = true;
+  }, []);
+
+  const stopSound = () => {
+    if (!audioRef.current) return;
+    audioRef.current.pause();
+    audioRef.current.currentTime = 0;
+  };
+
+  /* ================= DISTANCE ================= */
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+
+    const a =
+      Math.sin(dLat/2) ** 2 +
+      Math.cos(lat1 * Math.PI/180) *
+      Math.cos(lat2 * Math.PI/180) *
+      Math.sin(dLng/2) ** 2;
+
+    return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(2);
+  };
 
   /* ================= SOCKET ================= */
   useEffect(() => {
 
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: {
-        token: localStorage.getItem("token"),
-      },
-      transports: ["websocket", "polling"], // 🔥 important
+      auth: { token: localStorage.getItem("token") },
     });
 
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      console.log("✅ Socket connected:", socket.id);
-    });
-
-    socket.on("connect_error", (err) => {
-      console.log("❌ Socket error:", err.message);
-    });
-
-    /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
-
-      console.log("🔥 New Ride:", ride);
-
-      audioRef.current?.play();
       setNewRide(ride);
-
-      setRides((prev) => {
-        if (prev.find((r) => r._id === ride._id)) return prev;
-        return [ride, ...prev];
-      });
-
-      setTimeout(() => setNewRide(null), 7000);
+      audioRef.current.play().catch(()=>{});
     });
 
-    /* REMOVE IF TAKEN */
-    socket.on("rideTaken", (rideId) => {
-      setRides((prev) => prev.filter((r) => r._id !== rideId));
-    });
-
-    /* ACCEPT CONFIRM */
-    socket.on("rideAccepted", () => {
-      setRides([]);
+    socket.on("rideAccepted", (data) => {
+      setActiveRide(data);
+      setNewRide(null);
+      stopSound();
     });
 
     return () => socket.disconnect();
   }, []);
 
-  /* ================= PROFILE ================= */
-  const loadProfile = async () => {
-    try {
-      const res = await api.get("/driver/me");
-      setProfile(res.data.driver);
-      setOnline(res.data.driver.isOnline);
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
+  /* ================= AUTO REJECT ================= */
   useEffect(() => {
-    loadProfile();
-  }, []);
+    if (!newRide) return;
 
-  /* ================= SEND LOCATION (VERY IMPORTANT) ================= */
+    setTimer(10);
+
+    const interval = setInterval(() => {
+      setTimer(prev => {
+        if (prev <= 1) {
+          rejectRide(newRide._id);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [newRide]);
+
+  /* ================= LOCATION ================= */
   useEffect(() => {
     if (!online) return;
 
     const interval = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(async (pos) => {
+      navigator.geolocation.getCurrentPosition((pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
 
-        try {
-          await api.put("/driver/location", { lat, lng });
-        } catch {}
+        setDriverLocation({ lat, lng });
+
+        api.put("/driver/location", { lat, lng }).catch(()=>{});
       });
-    }, 5000); // every 5 sec
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [online]);
 
-  /* ================= FETCH RIDES ================= */
-  const fetchRides = async () => {
-    try {
-      if (!profile?.location?.coordinates) return;
-
-      const res = await api.get("/ride/nearby", {
-        params: {
-          lat: profile.location.coordinates[1],
-          lng: profile.location.coordinates[0]
-        }
-      });
-
-      setRides(res.data.rides || []);
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
+  /* ================= PROFILE ================= */
   useEffect(() => {
-    if (online && profile) fetchRides();
-  }, [online, profile]);
+    api.get("/driver/me").then(res => {
+      setProfile(res.data.driver);
+      setOnline(res.data.driver.isOnline);
+    });
+  }, []);
 
-  /* ================= ONLINE ================= */
+  /* ================= ACTIONS ================= */
   const toggleOnline = async () => {
-    try {
-      const newStatus = !online;
-
-      await api.put("/driver/online", { isOnline: newStatus });
-
-      setOnline(newStatus);
-
-      if (!newStatus) setRides([]);
-
-    } catch {
-      alert("Error updating status");
-    }
+    const newStatus = !online;
+    await api.put("/driver/online", { isOnline: newStatus });
+    setOnline(newStatus);
   };
 
-  /* ================= ACCEPT ================= */
   const acceptRide = async (id) => {
     try {
       setLoadingId(id);
 
       await api.put(`/ride/${id}/accept`);
 
+      const ride = newRide;
+      setActiveRide(ride);
+      setNewRide(null);
+      stopSound();
+
       socketRef.current.emit("driverAcceptRide", {
         rideId: id,
-        driver: profile,
+        driver: profile
       });
-
-      setRides([]);
-      setNewRide(null);
 
     } catch {
       alert("Ride already taken");
@@ -155,32 +142,32 @@ export default function DriverDashboard() {
     }
   };
 
-  /* ================= REJECT ================= */
   const rejectRide = async (id) => {
-    try {
-      await api.put(`/ride/${id}/reject`);
-      setRides((prev) => prev.filter((r) => r._id !== id));
-    } catch {
-      alert("Error rejecting ride");
-    }
+    await api.put(`/ride/${id}/reject`).catch(()=>{});
+    setNewRide(null);
+    stopSound();
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-6">
+  /* ================= DISTANCE ================= */
+  const distance = newRide && driverLocation
+    ? calculateDistance(
+        driverLocation.lat,
+        driverLocation.lng,
+        newRide.pickupLocation.location.coordinates[1],
+        newRide.pickupLocation.location.coordinates[0]
+      )
+    : null;
 
-      {/* 🔊 SOUND */}
-      <audio
-        ref={audioRef}
-        src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"
-      />
+  return (
+    <div className="min-h-screen bg-gray-100 p-6">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">🚗 Driver Dashboard</h1>
+      <div className="flex justify-between mb-4">
+        <h1 className="text-2xl font-bold">🚗 Driver Dashboard</h1>
 
         <button
           onClick={toggleOnline}
-          className={`px-5 py-2 rounded-full text-white ${
+          className={`px-4 py-2 rounded text-white ${
             online ? "bg-green-600" : "bg-gray-500"
           }`}
         >
@@ -188,55 +175,50 @@ export default function DriverDashboard() {
         </button>
       </div>
 
-      {/* 🔥 POPUP */}
+      {/* 🗺 MAP */}
+      <LiveMap
+        userLocation={
+          activeRide
+            ? {
+                lat: activeRide.pickupLocation.location.coordinates[1],
+                lng: activeRide.pickupLocation.location.coordinates[0]
+              }
+            : null
+        }
+        driverLocation={driverLocation}
+        dropLocation={
+          activeRide
+            ? {
+                lat: activeRide.dropLocation.location.coordinates[1],
+                lng: activeRide.dropLocation.location.coordinates[0]
+              }
+            : null
+        }
+      />
+
+      {/* 🚨 NEW RIDE */}
       {newRide && (
-        <div className="fixed top-5 right-5 bg-white p-4 rounded-xl shadow-lg border-l-4 border-green-500 animate-bounce z-50">
-          <p className="font-bold">🚨 New Ride Request</p>
-          <p className="text-sm">{newRide.pickupLocation?.address}</p>
+        <div className="fixed bottom-5 left-5 right-5 bg-white p-4 rounded-xl shadow-xl">
+
+          <p>📍 {newRide.pickupLocation.address}</p>
+          <p>🏁 {newRide.dropLocation.address}</p>
+          <p>₹{newRide.fare}</p>
+
+          {distance && <p>📍 {distance} km away</p>}
+
+          <p className="text-red-500">⏳ {timer}s</p>
+
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => acceptRide(newRide._id)} className="bg-green-600 text-white px-3 py-2 rounded">
+              Accept
+            </button>
+            <button onClick={() => rejectRide(newRide._id)} className="bg-red-600 text-white px-3 py-2 rounded">
+              Reject
+            </button>
+          </div>
         </div>
       )}
 
-      {/* RIDES */}
-      {rides.length === 0 ? (
-        <div className="text-center mt-20 text-gray-500">
-          🚫 No rides available
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {rides.map((ride) => (
-            <div
-              key={ride._id}
-              className="bg-white p-5 rounded-2xl shadow hover:shadow-xl"
-            >
-              <p className="font-semibold">📍 {ride.pickupLocation?.address}</p>
-              <p className="text-sm text-gray-600 mb-2">
-                ➡️ {ride.dropLocation?.address}
-              </p>
-
-              <div className="flex justify-between mb-3">
-                <span>₹{ride.fare}</span>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => acceptRide(ride._id)}
-                  disabled={loadingId === ride._id}
-                  className="flex-1 bg-green-600 text-white py-2 rounded-xl"
-                >
-                  {loadingId === ride._id ? "..." : "Accept"}
-                </button>
-
-                <button
-                  onClick={() => rejectRide(ride._id)}
-                  className="flex-1 bg-red-500 text-white py-2 rounded-xl"
-                >
-                  Reject
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

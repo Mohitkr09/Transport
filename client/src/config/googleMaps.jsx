@@ -2,7 +2,7 @@ import React, { createContext, useContext, useMemo } from "react";
 import { useJsApiLoader } from "@react-google-maps/api";
 
 /* ======================================================
-🔥 LIBRARIES (EXPANDED)
+🔥 LIBRARIES (EXPANDED FOR NAVIGATION)
 ====================================================== */
 export const GOOGLE_MAP_LIBRARIES = [
   "places",
@@ -19,34 +19,40 @@ PROVIDER
 ====================================================== */
 export const GoogleMapsProvider = ({ children }) => {
 
-  const libraries = useMemo(() => GOOGLE_MAP_LIBRARIES, []);
-
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
 
-  /* ❌ SAFETY CHECK */
+  /* 🔥 MEMOIZE LIBRARIES */
+  const libraries = useMemo(() => GOOGLE_MAP_LIBRARIES, []);
+
+  /* ❌ HARD SAFETY (NO KEY) */
   if (!apiKey) {
-    console.error("❌ Google Maps API key missing");
+    console.error("❌ Google Maps API key missing (VITE_GOOGLE_MAPS_KEY)");
   }
 
   const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script", // prevent duplicate loading
+    id: "google-map-script", // 🔥 prevents duplicate load
     googleMapsApiKey: apiKey,
     libraries,
-    version: "weekly"
+    version: "weekly",
+    preventGoogleFontsLoading: true // 🔥 performance boost
   });
 
-  /* 🔥 DEBUG LOGS */
-  if (loadError) {
-    console.error("❌ Google Maps Load Error:", loadError);
+  /* ================= DEBUG (DEV ONLY) ================= */
+  if (import.meta.env.DEV) {
+    if (loadError) {
+      console.error("❌ Google Maps Load Error:", loadError);
+    }
+
+    if (isLoaded) {
+      console.log("✅ Google Maps Loaded");
+    }
   }
 
-  if (isLoaded) {
-    console.log("✅ Google Maps Loaded");
-  }
-
+  /* ================= CONTEXT VALUE ================= */
   const value = useMemo(() => ({
     isLoaded,
-    loadError
+    loadError,
+    isReady: isLoaded && !loadError
   }), [isLoaded, loadError]);
 
   return (

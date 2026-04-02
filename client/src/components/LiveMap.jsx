@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from "react";
+import React, { useMemo, useRef, useEffect, useState } from "react";
 import { GoogleMap, Marker, Polyline } from "@react-google-maps/api";
 import { useGoogleMaps } from "../config/googleMaps";
 
@@ -8,37 +8,87 @@ const containerStyle = {
   height: "400px",
 };
 
-export default function LiveMap({ userLocation, driverLocation, routePath }) {
+export default function LiveMap({
+  userLocation,
+  driverLocation,
+  dropLocation,   // 🔥 NEW
+  routePath       // fallback
+}) {
 
   const { isLoaded, loadError } = useGoogleMaps();
 
   const mapRef = useRef(null);
+  const [smoothDriver, setSmoothDriver] = useState(null);
+  const [directionPath, setDirectionPath] = useState([]);
 
   /* ================= CENTER ================= */
   const center = useMemo(() => {
     return (
-      userLocation ||
-      driverLocation || {
-        lat: 20.5937, // India center fallback
+      driverLocation ||
+      userLocation || {
+        lat: 20.5937,
         lng: 78.9629
       }
     );
   }, [userLocation, driverLocation]);
 
-  /* ================= AUTO FIT BOUNDS ================= */
+  /* ================= SMOOTH DRIVER ================= */
+  useEffect(() => {
+    if (!driverLocation) return;
+
+    setSmoothDriver(prev => {
+      if (!prev) return driverLocation;
+
+      return {
+        lat: prev.lat + (driverLocation.lat - prev.lat) * 0.25,
+        lng: prev.lng + (driverLocation.lng - prev.lng) * 0.25
+      };
+    });
+  }, [driverLocation]);
+
+  /* ================= GOOGLE DIRECTIONS ================= */
+  useEffect(() => {
+    if (!window.google || !driverLocation) return;
+
+    const destination = dropLocation || userLocation;
+    if (!destination) return;
+
+    const service = new window.google.maps.DirectionsService();
+
+    service.route(
+      {
+        origin: driverLocation,
+        destination,
+        travelMode: "DRIVING"
+      },
+      (result, status) => {
+        if (status === "OK") {
+          const path = result.routes[0].overview_path.map(p => ({
+            lat: p.lat(),
+            lng: p.lng()
+          }));
+          setDirectionPath(path);
+        }
+      }
+    );
+
+  }, [driverLocation, userLocation, dropLocation]);
+
+  /* ================= AUTO FIT ================= */
   useEffect(() => {
     if (!mapRef.current || !window.google) return;
 
     const bounds = new window.google.maps.LatLngBounds();
 
-    if (userLocation) bounds.extend(userLocation);
     if (driverLocation) bounds.extend(driverLocation);
+    if (userLocation) bounds.extend(userLocation);
+    if (dropLocation) bounds.extend(dropLocation);
 
-    if (userLocation || driverLocation) {
-      mapRef.current.fitBounds(bounds, 100);
-    }
+    if (bounds.isEmpty()) return;
 
-  }, [userLocation, driverLocation]);
+    mapRef.current.fitBounds(bounds, 80);
+
+  }, [driverLocation, userLocation, dropLocation]);
 
   /* ================= ERROR ================= */
   if (loadError) {
@@ -73,33 +123,41 @@ export default function LiveMap({ userLocation, driverLocation, routePath }) {
       }}
     >
 
-      {/* 👤 USER LOCATION */}
+      {/* 👤 PICKUP / USER */}
       {userLocation && (
         <Marker
           position={userLocation}
-          label="You"
           icon={{
             url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png"
           }}
         />
       )}
 
-      {/* 🚗 DRIVER LOCATION */}
-      {driverLocation && (
+      {/* 🏁 DROP */}
+      {dropLocation && (
         <Marker
-          position={driverLocation}
-          label="Driver"
+          position={dropLocation}
           icon={{
-            url: "https://maps.google.com/mapfiles/ms/icons/cab.png",
+            url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png"
+          }}
+        />
+      )}
+
+      {/* 🚗 DRIVER */}
+      {smoothDriver && (
+        <Marker
+          position={smoothDriver}
+          icon={{
+            url: "https://cdn-icons-png.flaticon.com/512/743/743922.png",
             scaledSize: new window.google.maps.Size(40, 40)
           }}
         />
       )}
 
-      {/* 🛣 ROUTE PATH */}
-      {routePath && routePath.length > 1 && (
+      {/* 🛣 ROUTE (PRIORITY: GOOGLE DIRECTIONS) */}
+      {(directionPath.length > 0 || routePath?.length > 1) && (
         <Polyline
-          path={routePath}
+          path={directionPath.length > 0 ? directionPath : routePath}
           options={{
             strokeColor: "#4f46e5",
             strokeOpacity: 1,
