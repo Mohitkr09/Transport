@@ -55,9 +55,7 @@ app.use(helmet());
 app.use(compression());
 app.use(morgan("dev"));
 
-/* ======================================================
-🔥 FINAL CORS FIX (SAFE + FLEXIBLE)
-====================================================== */
+/* ================= CORS ================= */
 const allowedOrigins = [
   "http://localhost:5173",
   "https://transport-mpb5.onrender.com"
@@ -65,7 +63,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow Postman / mobile
+    if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
@@ -73,15 +71,8 @@ app.use(cors({
 
     return callback(new Error("CORS blocked"));
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
-
-/* ❌ REMOVE THIS (CAUSE OF CRASH) */
-/*
-app.options("*", cors());
-*/
 
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -95,42 +86,15 @@ app.use("/api/location", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 /* ================= ROOT ================= */
-app.get("/", (req, res) => {
-  res.send("🚀 API Running");
-});
-
-/* ================= HEALTH ================= */
-app.get("/health", (req, res) => {
-  res.json({ success: true });
-});
-
-/* ================= 404 ================= */
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route not found → ${req.method} ${req.originalUrl}`
-  });
-});
-
-/* ================= ERROR ================= */
-app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", err.message);
-  res.status(500).json({
-    success: false,
-    message: err.message
-  });
-});
+app.get("/", (req, res) => res.send("🚀 API Running"));
 
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ======================================================
-🔥 SOCKET.IO (FINAL FIX)
-====================================================== */
+/* ================= SOCKET ================= */
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST"],
     credentials: true
   },
   transports: ["websocket", "polling"]
@@ -152,12 +116,11 @@ io.use((socket, next) => {
 
     next();
   } catch (err) {
-    console.log("❌ Socket Auth Error:", err.message);
     next(new Error("Unauthorized"));
   }
 });
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET CONNECTION ================= */
 io.on("connection", async (socket) => {
   try {
     const userId = socket.user?.id;
@@ -167,43 +130,53 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
+    /* ✅ JOIN PERSONAL ROOM */
     socket.join(userId.toString());
 
+    /* ✅ JOIN ROLE ROOMS */
+    socket.join(role);
+
     if (role === "driver") {
+      socket.join("drivers"); // 🔥 VERY IMPORTANT
+
       await Driver.findByIdAndUpdate(userId, {
-        socketId: socket.id,
         isOnline: true,
         isAvailable: true
       });
     }
 
+    /* ================= RIDE ROOM ================= */
     socket.on("joinRide", (rideId) => {
       if (!rideId) return;
-      socket.join(rideId);
+      socket.join(rideId.toString());
     });
 
+    /* ================= LIVE LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
-      io.to(rideId).emit("driverMoved", { lat, lng });
+      io.to(rideId.toString()).emit("driverMoved", { lat, lng });
     });
 
+    /* ================= ACCEPT ================= */
     socket.on("driverAcceptRide", ({ rideId, driver }) => {
-      io.to(rideId).emit("rideAccepted", { rideId, driver });
+      io.to(rideId.toString()).emit("rideAccepted", { rideId, driver });
     });
 
+    /* ================= START ================= */
     socket.on("driverStartRide", ({ rideId }) => {
-      io.to(rideId).emit("rideStarted");
+      io.to(rideId.toString()).emit("rideStarted");
     });
 
+    /* ================= COMPLETE ================= */
     socket.on("driverCompleteRide", ({ rideId }) => {
-      io.to(rideId).emit("rideCompleted");
+      io.to(rideId.toString()).emit("rideCompleted");
     });
 
+    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
       if (role === "driver") {
         await Driver.findByIdAndUpdate(userId, {
-          socketId: null,
           isOnline: false,
           isAvailable: false
         });

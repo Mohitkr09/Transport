@@ -3,6 +3,8 @@ const bcrypt = require("bcryptjs");
 
 const driverSchema = new mongoose.Schema(
   {
+    /* ================= BASIC ================= */
+
     name: {
       type: String,
       required: true,
@@ -42,10 +44,13 @@ const driverSchema = new mongoose.Schema(
         enum: ["bike", "auto", "car"],
         required: true,
       },
-      number: String,
+      number: {
+        type: String,
+        required: true,
+      },
     },
 
-    /* ================= LOCATION (🔥 IMPORTANT) ================= */
+    /* ================= LOCATION (🔥 VERY IMPORTANT) ================= */
 
     location: {
       type: {
@@ -55,7 +60,13 @@ const driverSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        default: [0, 0],
+        required: true,
+        validate: {
+          validator: function (val) {
+            return val.length === 2;
+          },
+          message: "Coordinates must be [lng, lat]",
+        },
       },
     },
 
@@ -96,8 +107,12 @@ const driverSchema = new mongoose.Schema(
 );
 
 
-
+// 🔥 GEO INDEX (REQUIRED FOR NEARBY SEARCH)
 driverSchema.index({ location: "2dsphere" });
+
+// 🔥 OPTIMIZATION INDEX (FASTER MATCHING)
+driverSchema.index({ isOnline: 1, isAvailable: 1 });
+
 
 /* =========================================================
 PASSWORD HASH
@@ -118,15 +133,43 @@ driverSchema.pre("save", async function () {
 });
 
 
+/* =========================================================
+AUTO STATUS SYNC (🔥 VERY IMPORTANT)
+========================================================= */
+
 driverSchema.pre("save", function () {
+
+  // If offline → not available
   if (!this.isOnline) {
     this.isAvailable = false;
+  }
+
+  // If no ride → available
+  if (this.isOnline && !this.currentRide) {
+    this.isAvailable = true;
+  }
+
+});
+
+
+/* =========================================================
+UPDATE LOCATION TIMESTAMP
+========================================================= */
+
+driverSchema.pre("save", function () {
+  if (this.isModified("location")) {
+    this.lastLocationUpdate = Date.now();
   }
 });
 
 
+/* =========================================================
+COMPARE PASSWORD
+========================================================= */
+
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword.trim(), this.password);
 };
+
 
 module.exports = mongoose.model("Driver", driverSchema);
