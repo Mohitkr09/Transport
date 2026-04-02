@@ -1,12 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import api from "../utils/api";
 import { io } from "socket.io-client";
-import {
-  Bell,
-  RefreshCcw,
-  Moon,
-  Sun
-} from "lucide-react";
+import { Bell, RefreshCcw } from "lucide-react";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
@@ -21,38 +16,41 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [dark, setDark] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
-
-  /* ================= THEME ================= */
-  useEffect(() => {
-    if (dark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [dark]);
-
   /* ================= LOAD DATA ================= */
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      const [nRes, rRes] = await Promise.all([
-        api.get("/notifications"), // ✅ FIXED
-        api.get("/ride/my")
-      ]);
+      const nRes = await api.get("/notifications");
 
-      setNotifications(nRes.data.notifications || []);
-      setRides(rRes.data.rides || []);
+      console.log("NOTIFICATIONS API:", nRes.data);
+
+      setNotifications(
+        Array.isArray(nRes.data.notifications)
+          ? nRes.data.notifications
+          : []
+      );
+
+      /* OPTIONAL RIDES */
+      try {
+        const rRes = await api.get("/ride/my");
+        setRides(rRes.data.rides || []);
+      } catch {
+        setRides([]);
+      }
 
     } catch (err) {
-      console.error(err);
-      setError("Failed to load activity");
+      console.error("LOAD ERROR:", err.response || err.message);
+
+      if (err.response?.status === 401) {
+        setError("Session expired. Please login again.");
+      } else if (err.response?.status === 404) {
+        setError("API route not found");
+      } else {
+        setError("Failed to load activity");
+      }
+
     } finally {
       setLoading(false);
     }
@@ -76,20 +74,35 @@ export default function Notifications() {
 
     socketRef.current = socket;
 
-    /* 🔥 FIXED EVENT NAME */
-    socket.on("newNotification", data => {
+    socket.on("connect", () => {
+      console.log("🟢 Socket connected");
+    });
+
+    socket.on("disconnect", () => {
+      console.log("🔴 Socket disconnected");
+    });
+
+    socket.on("newNotification", (data) => {
       setNotifications(prev => [data, ...prev]);
     });
 
-    socket.on("rideAccepted", data => {
+    socket.on("rideAccepted", (data) => {
       setRides(prev =>
-        prev.map(r => r._id === data.rideId ? { ...r, status: "accepted" } : r)
+        prev.map(r =>
+          r._id === data.rideId
+            ? { ...r, status: "accepted" }
+            : r
+        )
       );
     });
 
-    socket.on("rideCompleted", data => {
+    socket.on("rideCompleted", (data) => {
       setRides(prev =>
-        prev.map(r => r._id === data.rideId ? { ...r, status: "completed" } : r)
+        prev.map(r =>
+          r._id === data.rideId
+            ? { ...r, status: "completed" }
+            : r
+        )
       );
     });
 
@@ -105,10 +118,10 @@ export default function Notifications() {
         )
       );
 
-      await api.patch(`/notifications/read/${id}`); // ✅ FIXED
+      await api.patch(`/notifications/read/${id}`);
 
     } catch (err) {
-      console.error(err);
+      console.error("MARK READ ERROR:", err);
     }
   };
 
@@ -126,31 +139,21 @@ export default function Notifications() {
 
       {/* HEADER */}
       <div className="flex justify-between mb-6">
-
         <div>
           <h1 className="text-3xl font-bold text-indigo-600">
             Activity Center
           </h1>
-          <p className="text-gray-500 text-sm">Real-time updates ⚡</p>
+          <p className="text-gray-500 text-sm">
+            Real-time updates ⚡
+          </p>
         </div>
 
-        <div className="flex gap-3">
-
-          <button
-            onClick={() => setDark(!dark)}
-            className="p-2 rounded-xl bg-gray-200 dark:bg-gray-800"
-          >
-            {dark ? <Sun size={18}/> : <Moon size={18}/>}
-          </button>
-
-          <button
-            onClick={loadData}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl"
-          >
-            <RefreshCcw size={16}/> Refresh
-          </button>
-
-        </div>
+        <button
+          onClick={loadData}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl"
+        >
+          <RefreshCcw size={16}/> Refresh
+        </button>
       </div>
 
       {/* ERROR */}
@@ -162,36 +165,37 @@ export default function Notifications() {
 
       {/* TABS */}
       <div className="flex gap-6 border-b mb-6">
-
         <Tab active={tab==="notifications"} onClick={()=>setTab("notifications")}>
           🔔 Notifications
         </Tab>
-
         <Tab active={tab==="rides"} onClick={()=>setTab("rides")}>
           🚗 Rides
         </Tab>
-
       </div>
 
       {/* NOTIFICATIONS */}
       {tab === "notifications" && (
         <div className="grid gap-4">
 
-          {notifications.length === 0 && <Empty title="No notifications" />}
+          {notifications.length === 0 && (
+            <Empty title="No notifications" />
+          )}
 
           {notifications.map(n => (
             <div
               key={n._id}
               onClick={() => markRead(n._id)}
               className={`p-4 rounded-xl border cursor-pointer ${
-                n.read ? "bg-white" : "bg-indigo-50"
+                n.read ? "bg-white dark:bg-gray-800" : "bg-indigo-50 dark:bg-gray-700"
               }`}
             >
               <div className="flex gap-3">
                 <Bell />
                 <div>
                   <p className="font-semibold">{n.title}</p>
-                  <p className="text-sm text-gray-500">{n.message}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-300">
+                    {n.message}
+                  </p>
                 </div>
               </div>
             </div>
@@ -204,12 +208,14 @@ export default function Notifications() {
       {tab === "rides" && (
         <div className="grid gap-4">
 
-          {rides.length === 0 && <Empty title="No rides yet" />}
+          {rides.length === 0 && (
+            <Empty title="No rides yet" />
+          )}
 
           {rides.map(r => (
-            <div key={r._id} className="p-4 border rounded-xl">
+            <div key={r._id} className="p-4 border rounded-xl dark:bg-gray-800">
               <p>{r.pickupLocation?.address}</p>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
                 → {r.dropLocation?.address}
               </p>
               <p className="text-indigo-600 font-semibold">
@@ -230,7 +236,9 @@ const Tab = ({ children, active, onClick }) => (
   <button
     onClick={onClick}
     className={`pb-2 ${
-      active ? "border-b-2 border-indigo-600 text-indigo-600" : "text-gray-500"
+      active
+        ? "border-b-2 border-indigo-600 text-indigo-600"
+        : "text-gray-500"
     }`}
   >
     {children}

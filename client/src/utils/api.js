@@ -11,15 +11,15 @@ if (!BASE) {
 }
 
 /* normalize */
-const BASE_URL = BASE.replace(/\/$/, ""); // remove trailing slash
-const ROOT_URL = BASE_URL.replace(/\/api$/, ""); // for health check
+const BASE_URL = BASE.replace(/\/$/, "");
+const ROOT_URL = BASE_URL.replace(/\/api$/, "");
 
 /* ======================================================
 AXIOS INSTANCE
 ====================================================== */
 
 const api = axios.create({
-  baseURL: BASE_URL, // ✅ should include /api
+  baseURL: BASE_URL, // should include /api
   timeout: 15000,
   headers: {
     "Content-Type": "application/json"
@@ -82,7 +82,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    /* ================= RENDER WAKE FIX ================= */
+    /* ================= 🔥 RENDER WAKE FIX ================= */
     if (
       error.response?.status === 404 &&
       original &&
@@ -92,17 +92,27 @@ api.interceptors.response.use(
 
       try {
         console.log("🔄 Waking backend...");
-        await fetch(`${ROOT_URL}/health`);
-      } catch {}
+
+        // ✅ FIXED ROUTE
+        await fetch(`${ROOT_URL}/api/health`);
+
+      } catch (e) {
+        console.warn("Health check failed");
+      }
 
       await new Promise((r) => setTimeout(r, 1200));
 
       return api(original);
     }
 
-    /* ================= HANDLE 403 CLEANLY ================= */
+    /* ================= HANDLE 403 ================= */
     if (error.response?.status === 403) {
       console.warn("⛔ Access denied (403)");
+    }
+
+    /* ================= HANDLE 500 ================= */
+    if (error.response?.status === 500) {
+      console.warn("🔥 Server error");
     }
 
     return Promise.reject(error);
