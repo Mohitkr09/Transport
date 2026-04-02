@@ -83,18 +83,18 @@ const rideSchema = new mongoose.Schema(
       required: true
     },
 
-    /* ================= STATUS ================= */
+    /* ================= STATUS (🔥 FIXED) ================= */
 
     status: {
       type: String,
       enum: [
-        "searching_driver",
+        "searching",   // 🔥 FIXED
         "accepted",
         "ongoing",
         "completed",
         "cancelled"
       ],
-      default: "searching_driver"
+      default: "searching"
     },
 
     rejectedDrivers: [
@@ -126,7 +126,7 @@ const rideSchema = new mongoose.Schema(
 );
 
 /* ======================================================
-🔥 CRITICAL INDEX (FIXES YOUR ERROR)
+🔥 GEO INDEX (CRITICAL)
 ====================================================== */
 
 rideSchema.index({ "pickupLocation.location": "2dsphere" });
@@ -170,12 +170,12 @@ rideSchema.methods.updateDriverLocation = function (lat, lng) {
 };
 
 /* ======================================================
-STATIC: FIND NEARBY RIDES (FIXED)
+STATIC: FIND NEARBY RIDES (🔥 FIXED)
 ====================================================== */
 
 rideSchema.statics.getNearbyRides = function (lat, lng) {
   return this.find({
-    status: "searching_driver",
+    status: "searching", // 🔥 FIXED
     "pickupLocation.location": {
       $near: {
         $geometry: {
