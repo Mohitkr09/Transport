@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import api from "../utils/api";
 import { io } from "socket.io-client";
 
-/* ✅ GLOBAL MAP LOADER */
 import { useGoogleMaps } from "../config/googleMaps";
 
 import {
@@ -21,14 +20,14 @@ export default function RideTracking() {
   const { rideId } = useParams();
   const socketRef = useRef(null);
 
-  const { isLoaded, loadError } = useGoogleMaps(); // ✅ FIX
+  const { isLoaded, loadError } = useGoogleMaps();
 
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
   const [connected, setConnected] = useState(false);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH (ONLY ONCE) ================= */
 
   const fetchRide = async () => {
     try {
@@ -51,18 +50,13 @@ export default function RideTracking() {
     fetchRide();
   }, [rideId]);
 
-  /* AUTO REFRESH */
-  useEffect(() => {
-    const interval = setInterval(fetchRide, 5000);
-    return () => clearInterval(interval);
-  }, [rideId]);
-
   /* ================= SOCKET ================= */
 
   useEffect(() => {
+
     const socket = io(SOCKET_URL, {
       auth: { token: localStorage.getItem("token") },
-      transports: ["websocket"]
+      transports: ["websocket", "polling"]
     });
 
     socketRef.current = socket;
@@ -74,49 +68,49 @@ export default function RideTracking() {
 
     socket.on("disconnect", () => setConnected(false));
 
+    /* 🔥 DRIVER ACCEPTED */
     socket.on("rideAccepted", (data) => {
-      if (data.rideId === rideId) {
-        setRide(prev => ({
-          ...prev,
-          status: "accepted",
-          driver: data.driver
-        }));
+      if (data.rideId !== rideId) return;
 
-        if (data.location) {
-          setDriverPos({
-            lat: data.location.coordinates[1],
-            lng: data.location.coordinates[0]
-          });
-        }
-      }
+      setRide(prev => ({
+        ...prev,
+        status: "accepted",
+        driver: data.driver
+      }));
     });
 
+    /* 🔥 RIDE START */
     socket.on("rideStarted", () => {
       setRide(prev => ({ ...prev, status: "ongoing" }));
     });
 
+    /* 🔥 RIDE COMPLETE */
     socket.on("rideCompleted", () => {
       setRide(prev => ({ ...prev, status: "completed" }));
     });
 
     /* 🔥 LIVE DRIVER MOVEMENT */
     socket.on("driverMoved", ({ lat, lng }) => {
+
       setDriverPos(prev => {
         if (!prev) return { lat, lng };
 
-        // smooth movement
+        // smooth animation
         return {
-          lat: prev.lat + (lat - prev.lat) * 0.4,
-          lng: prev.lng + (lng - prev.lng) * 0.4
+          lat: prev.lat + (lat - prev.lat) * 0.3,
+          lng: prev.lng + (lng - prev.lng) * 0.3
         };
       });
+
+      // 🔥 store path (polyline)
+      setRoutePath(prev => [...prev, { lat, lng }]);
     });
 
     return () => socket.disconnect();
 
   }, [rideId]);
 
-  /* ================= ROUTE ================= */
+  /* ================= GOOGLE ROUTE (OPTIONAL SMOOTH) ================= */
 
   useEffect(() => {
     if (!driverPos || !ride || !window.google) return;
@@ -153,7 +147,7 @@ export default function RideTracking() {
       }
     );
 
-  }, [driverPos, ride]);
+  }, [driverPos, ride?.status]);
 
   /* ================= UI ================= */
 
@@ -175,10 +169,10 @@ export default function RideTracking() {
   return (
     <div className="h-screen w-full relative">
 
-      {/* SEARCH OVERLAY */}
-      {ride.status === "searching_driver" && (
+      {/* 🔥 SEARCH OVERLAY (FIXED) */}
+      {ride.status === "searching" && (
         <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center text-white text-xl">
-          🔍 Searching for driver...
+          🔍 Finding nearest driver...
         </div>
       )}
 
@@ -200,10 +194,13 @@ export default function RideTracking() {
           />
         )}
 
-        {routePath.length > 0 && (
+        {routePath.length > 1 && (
           <Polyline
             path={routePath}
-            options={{ strokeColor: "#4f46e5", strokeWeight: 5 }}
+            options={{
+              strokeColor: "#4f46e5",
+              strokeWeight: 5
+            }}
           />
         )}
       </GoogleMap>
@@ -247,6 +244,8 @@ export default function RideTracking() {
     </div>
   );
 }
+
+/* ================= LOADER ================= */
 
 const Loader = () => (
   <div className="h-screen flex items-center justify-center">

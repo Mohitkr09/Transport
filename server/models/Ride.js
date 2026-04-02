@@ -83,19 +83,22 @@ const rideSchema = new mongoose.Schema(
       required: true
     },
 
-    /* ================= STATUS (🔥 FIXED) ================= */
+    /* ================= STATUS ================= */
 
     status: {
       type: String,
       enum: [
-        "searching",   // 🔥 FIXED
+        "searching",
         "accepted",
         "ongoing",
         "completed",
-        "cancelled"
+        "cancelled",
+        "no_driver" // 🔥 NEW (timeout case)
       ],
       default: "searching"
     },
+
+    /* ================= DISPATCH ================= */
 
     rejectedDrivers: [
       {
@@ -104,12 +107,24 @@ const rideSchema = new mongoose.Schema(
       }
     ],
 
+    dispatchIndex: {
+      type: Number,
+      default: 0 // 🔥 track which driver is being tried
+    },
+
     /* ================= TRACKING ================= */
 
     driverLocation: {
       type: pointSchema,
       default: null
     },
+
+    routePath: [
+      {
+        lat: Number,
+        lng: Number
+      }
+    ],
 
     /* ================= TIMESTAMPS ================= */
 
@@ -120,7 +135,8 @@ const rideSchema = new mongoose.Schema(
 
     acceptedAt: Date,
     startedAt: Date,
-    completedAt: Date
+    completedAt: Date,
+    cancelledAt: Date
   },
   { timestamps: true }
 );
@@ -161,21 +177,36 @@ rideSchema.methods.completeRide = function () {
   return this.save();
 };
 
+rideSchema.methods.cancelRide = function () {
+  this.status = "cancelled";
+  this.cancelledAt = new Date();
+  return this.save();
+};
+
+rideSchema.methods.markNoDriver = function () {
+  this.status = "no_driver";
+  return this.save();
+};
+
 rideSchema.methods.updateDriverLocation = function (lat, lng) {
   this.driverLocation = {
     type: "Point",
     coordinates: [Number(lng), Number(lat)]
   };
+
+  // 🔥 store path for polyline
+  this.routePath.push({ lat, lng });
+
   return this.save();
 };
 
 /* ======================================================
-STATIC: FIND NEARBY RIDES (🔥 FIXED)
+STATIC: FIND NEARBY RIDES
 ====================================================== */
 
 rideSchema.statics.getNearbyRides = function (lat, lng) {
   return this.find({
-    status: "searching", // 🔥 FIXED
+    status: "searching",
     "pickupLocation.location": {
       $near: {
         $geometry: {
