@@ -2,7 +2,7 @@ const Ride = require("../models/Ride");
 const Driver = require("../models/Driver");
 
 /* ======================================================
-💰 FARE CALCULATOR
+💰 FARE
 ====================================================== */
 const calculateFare = (vehicleType, distanceKm = 5) => {
   const rates = { bike: 10, auto: 15, car: 20 };
@@ -25,18 +25,20 @@ const emitToRide = (rideId, event, payload) => {
 };
 
 /* ======================================================
-🔥 SMART DISPATCH SYSTEM (FIXED)
+🔥 SMART DISPATCH (IMPROVED)
 ====================================================== */
 const dispatchRide = async (rideId, drivers, index = 0) => {
-  const ride = await Ride.findById(rideId);
+
+  const ride = await Ride.findById(rideId).populate("user", "name");
 
   if (!ride || ride.status !== "searching") return;
 
   if (!drivers.length || index >= drivers.length) {
-    console.log("❌ No drivers accepted");
+    console.log("❌ No drivers available");
+
     await ride.markNoDriver();
 
-    emitToUser(ride.user, "noDriverFound", {
+    emitToUser(ride.user._id, "noDriverFound", {
       rideId: ride._id
     });
 
@@ -45,23 +47,18 @@ const dispatchRide = async (rideId, drivers, index = 0) => {
 
   const driver = drivers[index];
 
-  // ❌ Skip rejected drivers
-  if (ride.rejectedDrivers.includes(driver._id)) {
-    return dispatchRide(rideId, drivers, index + 1);
-  }
+  console.log("📡 Sending ride to:", driver._id);
 
-  console.log("📡 Sending ride to driver:", driver._id);
-
-  // ✅ SEND FULL RIDE DATA (IMPORTANT FIX)
+  // ✅ SEND FULL DATA
   emitToDriver(driver._id, "newRideRequest", ride);
 
-  // ⏳ Timeout → next driver
+  // ⏳ TIMEOUT → NEXT DRIVER
   setTimeout(async () => {
     const updatedRide = await Ride.findById(rideId);
 
     if (!updatedRide || updatedRide.status !== "searching") return;
 
-    console.log("⏭️ Timeout → next driver");
+    console.log("⏭️ Trying next driver");
 
     dispatchRide(rideId, drivers, index + 1);
 
@@ -74,8 +71,6 @@ const dispatchRide = async (rideId, drivers, index = 0) => {
 exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
-
-    const fare = calculateFare(vehicleType, distance || 5);
 
     const ride = await Ride.create({
       user: req.user._id,
@@ -104,39 +99,44 @@ exports.createRide = async (req, res) => {
 
       vehicleType,
       distanceKm: distance || 5,
-      fare
+      fare: calculateFare(vehicleType, distance || 5)
     });
 
     console.log("🚗 Ride created:", ride._id);
 
-    /* 🔥 FIND NEAREST DRIVERS */
+    /* 🔥 FIND DRIVERS (LESS STRICT → FIXED) */
     const drivers = await Driver.find({
       isOnline: true,
       isAvailable: true,
-      vehicleType: vehicleType,
-      location: {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [
-              Number(pickupLocation.lng),
-              Number(pickupLocation.lat)
-            ]
-          },
-          $maxDistance: 5000
-        }
-      }
+      vehicleType: vehicleType
     });
 
     console.log("👨‍✈️ Drivers found:", drivers.length);
 
-    dispatchRide(ride._id, drivers);
+    // ❗ fallback if none found
+    if (drivers.length === 0) {
+      console.log("⚠️ No drivers found, sending to all");
+
+      const allDrivers = await Driver.find({
+        isOnline: true,
+        isAvailable: true
+      });
+
+      dispatchRide(ride._id, allDrivers);
+
+    } else {
+      dispatchRide(ride._id, drivers);
+    }
 
     res.status(201).json({ success: true, ride });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("🔥 CREATE RIDE ERROR:", err.message);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -146,11 +146,10 @@ exports.createRide = async (req, res) => {
 exports.getRideById = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id)
-      .populate("driver", "name phone");
+      .populate("driver", "name phone")
+      .populate("user", "name");
 
-    if (!ride) {
-      return res.status(404).json({ success: false });
-    }
+    if (!ride) return res.status(404).json({ success: false });
 
     res.json({ success: true, ride });
 
@@ -160,7 +159,7 @@ exports.getRideById = async (req, res) => {
 };
 
 /* ======================================================
-✅ ACCEPT RIDE (SAFE)
+✅ ACCEPT RIDE
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
@@ -172,7 +171,9 @@ exports.acceptRide = async (req, res) => {
         acceptedAt: new Date()
       },
       { new: true }
-    ).populate("driver", "name phone");
+    )
+      .populate("driver", "name phone")
+      .populate("user", "name");
 
     if (!ride) {
       return res.status(400).json({
@@ -186,28 +187,20 @@ exports.acceptRide = async (req, res) => {
       currentRide: ride._id
     });
 
-    const payload = {
-      rideId: ride._id,
-      status: "accepted",
-      driver: ride.driver,
-      pickupLocation: ride.pickupLocation,
-      dropLocation: ride.dropLocation
-    };
-
-    emitToRide(ride._id, "rideAccepted", payload);
-    emitToUser(ride.user, "rideAccepted", payload);
+    emitToRide(ride._id, "rideAccepted", ride);
+    emitToUser(ride.user._id, "rideAccepted", ride);
 
     console.log("✅ Ride accepted:", ride._id);
 
     res.json({ success: true, ride });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-❌ REJECT RIDE
+❌ REJECT
 ====================================================== */
 exports.rejectRide = async (req, res) => {
   try {
@@ -215,10 +208,8 @@ exports.rejectRide = async (req, res) => {
 
     if (!ride) return res.status(404).json({ success: false });
 
-    if (!ride.rejectedDrivers.includes(req.user._id)) {
-      ride.rejectedDrivers.push(req.user._id);
-      await ride.save();
-    }
+    ride.rejectedDrivers.push(req.user._id);
+    await ride.save();
 
     res.json({ success: true });
 
@@ -228,21 +219,18 @@ exports.rejectRide = async (req, res) => {
 };
 
 /* ======================================================
-🚦 START RIDE
+🚦 START
 ====================================================== */
 exports.startRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    if (!ride) return res.status(404).json({ success: false });
-
     ride.status = "ongoing";
     ride.startedAt = new Date();
+
     await ride.save();
 
-    emitToRide(ride._id, "rideStarted", {
-      rideId: ride._id
-    });
+    emitToRide(ride._id, "rideStarted", ride);
 
     res.json({ success: true });
 
@@ -252,17 +240,15 @@ exports.startRide = async (req, res) => {
 };
 
 /* ======================================================
-🏁 COMPLETE RIDE
+🏁 COMPLETE
 ====================================================== */
 exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    if (!ride) return res.status(404).json({ success: false });
-
     ride.status = "completed";
     ride.completedAt = new Date();
-    ride.paymentStatus = "paid";
+
     await ride.save();
 
     await Driver.findByIdAndUpdate(ride.driver, {
@@ -270,9 +256,7 @@ exports.completeRide = async (req, res) => {
       currentRide: null
     });
 
-    emitToRide(ride._id, "rideCompleted", {
-      rideId: ride._id
-    });
+    emitToRide(ride._id, "rideCompleted", ride);
 
     res.json({ success: true });
 
@@ -282,7 +266,7 @@ exports.completeRide = async (req, res) => {
 };
 
 /* ======================================================
-📍 DRIVER LIVE LOCATION (🔥 IMPORTANT)
+📍 DRIVER LOCATION
 ====================================================== */
 exports.updateDriverLocation = async (req, res) => {
   try {
@@ -294,7 +278,6 @@ exports.updateDriverLocation = async (req, res) => {
 
     await ride.updateDriverLocation(lat, lng);
 
-    // 🔥 send to user
     emitToUser(ride.user, "driverMoved", {
       lat,
       lng,
