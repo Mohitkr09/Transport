@@ -11,8 +11,8 @@ const containerStyle = {
 export default function LiveMap({
   userLocation,
   driverLocation,
-  dropLocation,   // 🔥 NEW
-  routePath       // fallback
+  dropLocation,
+  routePath
 }) {
 
   const { isLoaded, loadError } = useGoogleMaps();
@@ -40,26 +40,31 @@ export default function LiveMap({
       if (!prev) return driverLocation;
 
       return {
-        lat: prev.lat + (driverLocation.lat - prev.lat) * 0.25,
-        lng: prev.lng + (driverLocation.lng - prev.lng) * 0.25
+        lat: prev.lat + (driverLocation.lat - prev.lat) * 0.3,
+        lng: prev.lng + (driverLocation.lng - prev.lng) * 0.3
       };
     });
   }, [driverLocation]);
 
-  /* ================= GOOGLE DIRECTIONS ================= */
+  /* ================= 🔥 FIXED DIRECTIONS (RUN ONLY ONCE) ================= */
   useEffect(() => {
-    if (!window.google || !driverLocation) return;
+    if (!window.google) return;
 
+    const origin = driverLocation;
     const destination = dropLocation || userLocation;
-    if (!destination) return;
+
+    if (!origin || !destination) return;
+
+    // ❌ prevent recalculation if already exists
+    if (directionPath.length > 0) return;
 
     const service = new window.google.maps.DirectionsService();
 
     service.route(
       {
-        origin: driverLocation,
+        origin,
         destination,
-        travelMode: "DRIVING"
+        travelMode: window.google.maps.TravelMode.DRIVING
       },
       (result, status) => {
         if (status === "OK") {
@@ -67,12 +72,13 @@ export default function LiveMap({
             lat: p.lat(),
             lng: p.lng()
           }));
+
           setDirectionPath(path);
         }
       }
     );
 
-  }, [driverLocation, userLocation, dropLocation]);
+  }, [userLocation, dropLocation]); // 🔥 removed driverLocation dependency
 
   /* ================= AUTO FIT ================= */
   useEffect(() => {
@@ -115,7 +121,6 @@ export default function LiveMap({
       zoom={14}
       onLoad={(map) => (mapRef.current = map)}
       options={{
-        disableDefaultUI: false,
         zoomControl: true,
         streetViewControl: false,
         mapTypeControl: false,
@@ -123,7 +128,7 @@ export default function LiveMap({
       }}
     >
 
-      {/* 👤 PICKUP / USER */}
+      {/* 👤 USER / PICKUP */}
       {userLocation && (
         <Marker
           position={userLocation}
@@ -143,7 +148,7 @@ export default function LiveMap({
         />
       )}
 
-      {/* 🚗 DRIVER */}
+      {/* 🚗 DRIVER (SMOOTH MOVEMENT) */}
       {smoothDriver && (
         <Marker
           position={smoothDriver}
@@ -154,7 +159,7 @@ export default function LiveMap({
         />
       )}
 
-      {/* 🛣 ROUTE (PRIORITY: GOOGLE DIRECTIONS) */}
+      {/* 🛣 ROUTE */}
       {(directionPath.length > 0 || routePath?.length > 1) && (
         <Polyline
           path={directionPath.length > 0 ? directionPath : routePath}

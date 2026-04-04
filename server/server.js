@@ -84,7 +84,6 @@ app.use("/api/notifications", notificationRoutes);
 /* ================= ROOT ================= */
 app.get("/", (req, res) => res.send("🚀 API Running"));
 
-/* ================= HEALTH (🔥 FIXED) ================= */
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server is healthy" });
 });
@@ -97,7 +96,7 @@ app.use((req, res) => {
   });
 });
 
-/* ================= ERROR HANDLER ================= */
+/* ================= ERROR ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err.message);
   res.status(500).json({
@@ -109,7 +108,7 @@ app.use((err, req, res, next) => {
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET (ONLY ONCE ✅) ================= */
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -123,16 +122,29 @@ global.io = io;
 /* ================= SOCKET AUTH ================= */
 io.use((socket, next) => {
   try {
+    let user = null;
+
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(" ")[1];
 
-    if (!token) return next(new Error("No token"));
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      user = decoded;
+    }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.user = decoded;
+    if (!user && socket.handshake.auth?.userId) {
+      user = {
+        id: socket.handshake.auth.userId,
+        role: socket.handshake.auth.role || "driver"
+      };
+    }
 
+    if (!user) return next(new Error("Unauthorized"));
+
+    socket.user = user;
     next();
+
   } catch (err) {
     console.log("❌ Socket Auth Error:", err.message);
     next(new Error("Unauthorized"));
@@ -149,10 +161,10 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
-    /* ✅ JOIN PERSONAL ROOM */
+    /* 🔥 JOIN PERSONAL ROOM */
     socket.join(userId.toString());
 
-    /* ✅ JOIN ROLE ROOM */
+    /* 🔥 ROLE ROOM */
     socket.join(role);
 
     if (role === "driver") {
@@ -162,37 +174,43 @@ io.on("connection", async (socket) => {
         isOnline: true,
         isAvailable: true
       });
+
+      console.log("🚗 Driver online:", userId);
     }
 
     /* ================= JOIN RIDE ================= */
     socket.on("joinRide", (rideId) => {
-      if (!rideId) return;
-      socket.join(rideId.toString());
+      if (rideId) socket.join(rideId.toString());
     });
 
     /* ================= DRIVER LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
-      io.to(rideId.toString()).emit("driverMoved", { lat, lng });
+      if (rideId) {
+        io.to(rideId.toString()).emit("driverMoved", { lat, lng });
+      }
     });
 
     /* ================= ACCEPT ================= */
     socket.on("driverAcceptRide", ({ rideId, driver }) => {
-      io.to(rideId.toString()).emit("rideAccepted", { rideId, driver });
+      if (rideId) {
+        io.to(rideId.toString()).emit("rideAccepted", { rideId, driver });
+      }
     });
 
     /* ================= START ================= */
     socket.on("driverStartRide", ({ rideId }) => {
-      io.to(rideId.toString()).emit("rideStarted");
+      io.to(rideId.toString()).emit("rideStarted", { rideId });
     });
 
     /* ================= COMPLETE ================= */
     socket.on("driverCompleteRide", ({ rideId }) => {
-      io.to(rideId.toString()).emit("rideCompleted");
+      io.to(rideId.toString()).emit("rideCompleted", { rideId });
     });
 
-    /* ================= 🔔 REAL-TIME NOTIFICATIONS ================= */
-    socket.on("sendNotification", ({ userId, notification }) => {
-      io.to(userId.toString()).emit("newNotification", notification);
+    /* ================= DEBUG ================= */
+    socket.on("pingTest", () => {
+      console.log("✅ Ping from:", userId);
+      socket.emit("pongTest", { success: true });
     });
 
     /* ================= DISCONNECT ================= */
@@ -212,7 +230,7 @@ io.on("connection", async (socket) => {
   }
 });
 
-/* ================= PORT ================= */
+/* ================= START ================= */
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {

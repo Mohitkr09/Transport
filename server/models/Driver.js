@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
+/* =========================================================
+🚗 DRIVER SCHEMA
+========================================================= */
+
 const driverSchema = new mongoose.Schema(
   {
     /* ================= BASIC ================= */
@@ -8,7 +12,7 @@ const driverSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      trim: true,
+      trim: true
     },
 
     email: {
@@ -16,24 +20,24 @@ const driverSchema = new mongoose.Schema(
       required: true,
       unique: true,
       lowercase: true,
-      trim: true,
+      trim: true
     },
 
     phone: {
       type: String,
-      required: true,
+      required: true
     },
 
     password: {
       type: String,
       required: true,
       minlength: 6,
-      select: false,
+      select: false
     },
 
     role: {
       type: String,
-      default: "driver",
+      default: "driver"
     },
 
     /* ================= VEHICLE ================= */
@@ -42,82 +46,97 @@ const driverSchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["bike", "auto", "car"],
-        required: true,
+        required: true
       },
       number: {
         type: String,
-        required: true,
-      },
+        required: true
+      }
     },
 
-    /* ================= LOCATION (🔥 VERY IMPORTANT) ================= */
+    // 🔥 IMPORTANT (used in matching)
+    vehicleType: {
+      type: String,
+      enum: ["bike", "auto", "car"],
+      required: true
+    },
+
+    /* ================= LOCATION ================= */
 
     location: {
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
+        default: "Point"
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        required: true,
+        default: [77.1025, 28.7041], // 🔥 fallback (Delhi)
         validate: {
           validator: function (val) {
-            return val.length === 2;
+            return (
+              Array.isArray(val) &&
+              val.length === 2 &&
+              val[0] >= -180 &&
+              val[0] <= 180 &&
+              val[1] >= -90 &&
+              val[1] <= 90
+            );
           },
-          message: "Coordinates must be [lng, lat]",
-        },
-      },
+          message: "Coordinates must be valid [lng, lat]"
+        }
+      }
     },
 
     lastLocationUpdate: {
       type: Date,
-      default: Date.now,
+      default: Date.now
     },
 
     /* ================= STATUS ================= */
 
     isApproved: {
       type: Boolean,
-      default: true, // for testing
+      default: true
     },
 
     isOnline: {
       type: Boolean,
-      default: false,
+      default: false
     },
 
     isAvailable: {
       type: Boolean,
-      default: false,
+      default: false
     },
 
     currentRide: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Ride",
-      default: null,
+      default: null
     },
 
     lastActive: {
       type: Date,
-      default: Date.now,
-    },
+      default: Date.now
+    }
   },
   { timestamps: true }
 );
 
-
-// 🔥 GEO INDEX (REQUIRED FOR NEARBY SEARCH)
+/* =========================================================
+🔥 GEO INDEX (CRITICAL)
+========================================================= */
 driverSchema.index({ location: "2dsphere" });
 
-// 🔥 OPTIMIZATION INDEX (FASTER MATCHING)
-driverSchema.index({ isOnline: 1, isAvailable: 1 });
-
+/* =========================================================
+⚡ MATCHING INDEX
+========================================================= */
+driverSchema.index({ isOnline: 1, isAvailable: 1, vehicleType: 1 });
 
 /* =========================================================
-PASSWORD HASH
+🔐 PASSWORD HASH
 ========================================================= */
-
 driverSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
@@ -132,44 +151,79 @@ driverSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password.trim(), salt);
 });
 
-
 /* =========================================================
-AUTO STATUS SYNC (🔥 VERY IMPORTANT)
+🔥 AUTO STATUS LOGIC (VERY IMPORTANT)
 ========================================================= */
-
 driverSchema.pre("save", function () {
 
-  // If offline → not available
+  // ❌ Offline → not available
   if (!this.isOnline) {
     this.isAvailable = false;
   }
 
-  // If no ride → available
+  // ✅ Online + no ride → available
   if (this.isOnline && !this.currentRide) {
     this.isAvailable = true;
   }
 
+  // ❌ If has ride → not available
+  if (this.currentRide) {
+    this.isAvailable = false;
+  }
+
+  this.lastActive = Date.now();
 });
 
-
 /* =========================================================
-UPDATE LOCATION TIMESTAMP
+📍 UPDATE LOCATION TIMESTAMP
 ========================================================= */
-
 driverSchema.pre("save", function () {
   if (this.isModified("location")) {
     this.lastLocationUpdate = Date.now();
   }
 });
 
-
 /* =========================================================
-COMPARE PASSWORD
+🔑 COMPARE PASSWORD
 ========================================================= */
-
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword.trim(), this.password);
 };
 
+/* =========================================================
+📍 STATIC: FIND NEARBY DRIVERS (🔥 USED IN DISPATCH)
+========================================================= */
+driverSchema.statics.getNearbyDrivers = function (
+  lat,
+  lng,
+  vehicleType,
+  radius = 5000
+) {
+  return this.find({
+    isOnline: true,
+    isAvailable: true,
+    vehicleType,
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: [parseFloat(lng), parseFloat(lat)]
+        },
+        $maxDistance: radius
+      }
+    }
+  });
+};
+
+/* =========================================================
+🧼 CLEAN RESPONSE
+========================================================= */
+driverSchema.set("toJSON", {
+  transform: (_, ret) => {
+    delete ret.__v;
+    delete ret.password;
+    return ret;
+  }
+});
 
 module.exports = mongoose.model("Driver", driverSchema);

@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 /* ======================================================
-GEO POINT (STRICT + SAFE)
+🌍 GEO POINT (STRICT + SAFE)
 ====================================================== */
 
 const pointSchema = new mongoose.Schema(
@@ -17,6 +17,7 @@ const pointSchema = new mongoose.Schema(
       required: true,
       validate: {
         validator: (arr) =>
+          Array.isArray(arr) &&
           arr.length === 2 &&
           arr[0] >= -180 &&
           arr[0] <= 180 &&
@@ -30,27 +31,34 @@ const pointSchema = new mongoose.Schema(
 );
 
 /* ======================================================
-RIDE SCHEMA
+🚗 RIDE SCHEMA
 ====================================================== */
 
 const rideSchema = new mongoose.Schema(
   {
+    /* ================= USERS ================= */
+
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
+      index: true
     },
 
     driver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Driver",
-      default: null
+      default: null,
+      index: true
     },
 
     /* ================= LOCATIONS ================= */
 
     pickupLocation: {
-      address: String,
+      address: {
+        type: String,
+        required: true
+      },
       location: {
         type: pointSchema,
         required: true
@@ -58,7 +66,10 @@ const rideSchema = new mongoose.Schema(
     },
 
     dropLocation: {
-      address: String,
+      address: {
+        type: String,
+        required: true
+      },
       location: {
         type: pointSchema,
         required: true
@@ -75,12 +86,31 @@ const rideSchema = new mongoose.Schema(
 
     distanceKm: {
       type: Number,
+      default: 0,
+      min: 0
+    },
+
+    durationMin: {
+      type: Number,
       default: 0
     },
 
     fare: {
       type: Number,
-      required: true
+      required: true,
+      min: 0
+    },
+
+    paymentMethod: {
+      type: String,
+      enum: ["cash", "online"],
+      default: "cash"
+    },
+
+    paymentStatus: {
+      type: String,
+      enum: ["pending", "paid"],
+      default: "pending"
     },
 
     /* ================= STATUS ================= */
@@ -93,9 +123,10 @@ const rideSchema = new mongoose.Schema(
         "ongoing",
         "completed",
         "cancelled",
-        "no_driver" // 🔥 NEW (timeout case)
+        "no_driver"
       ],
-      default: "searching"
+      default: "searching",
+      index: true
     },
 
     /* ================= DISPATCH ================= */
@@ -109,7 +140,7 @@ const rideSchema = new mongoose.Schema(
 
     dispatchIndex: {
       type: Number,
-      default: 0 // 🔥 track which driver is being tried
+      default: 0
     },
 
     /* ================= TRACKING ================= */
@@ -122,7 +153,11 @@ const rideSchema = new mongoose.Schema(
     routePath: [
       {
         lat: Number,
-        lng: Number
+        lng: Number,
+        timestamp: {
+          type: Date,
+          default: Date.now
+        }
       }
     ],
 
@@ -148,63 +183,82 @@ const rideSchema = new mongoose.Schema(
 rideSchema.index({ "pickupLocation.location": "2dsphere" });
 
 /* ======================================================
-EXTRA INDEXES (PERFORMANCE)
+⚡ EXTRA INDEXES
 ====================================================== */
 
-rideSchema.index({ status: 1 });
-rideSchema.index({ driver: 1 });
+rideSchema.index({ status: 1, vehicleType: 1 });
 
 /* ======================================================
-METHODS
+🚀 METHODS
 ====================================================== */
 
+/* ACCEPT RIDE (SAFE) */
 rideSchema.methods.acceptRide = function (driverId) {
+  if (this.status !== "searching") {
+    throw new Error("Ride already accepted");
+  }
+
   this.driver = driverId;
   this.status = "accepted";
   this.acceptedAt = new Date();
+
   return this.save();
 };
 
+/* START RIDE */
 rideSchema.methods.startRide = function () {
   this.status = "ongoing";
   this.startedAt = new Date();
   return this.save();
 };
 
+/* COMPLETE RIDE */
 rideSchema.methods.completeRide = function () {
   this.status = "completed";
   this.completedAt = new Date();
+  this.paymentStatus = "paid";
   return this.save();
 };
 
+/* CANCEL RIDE */
 rideSchema.methods.cancelRide = function () {
   this.status = "cancelled";
   this.cancelledAt = new Date();
   return this.save();
 };
 
+/* NO DRIVER FOUND */
 rideSchema.methods.markNoDriver = function () {
   this.status = "no_driver";
   return this.save();
 };
 
+/* DRIVER LIVE LOCATION + ROUTE */
 rideSchema.methods.updateDriverLocation = function (lat, lng) {
   this.driverLocation = {
     type: "Point",
     coordinates: [Number(lng), Number(lat)]
   };
 
-  // 🔥 store path for polyline
-  this.routePath.push({ lat, lng });
+  // 🔥 LIMIT ROUTE PATH (PREVENT DB OVERLOAD)
+  if (this.routePath.length > 200) {
+    this.routePath.shift();
+  }
+
+  this.routePath.push({
+    lat: Number(lat),
+    lng: Number(lng),
+    timestamp: new Date()
+  });
 
   return this.save();
 };
 
 /* ======================================================
-STATIC: FIND NEARBY RIDES
+📍 STATIC: FIND NEARBY RIDES
 ====================================================== */
 
-rideSchema.statics.getNearbyRides = function (lat, lng) {
+rideSchema.statics.getNearbyRides = function (lat, lng, radius = 5000) {
   return this.find({
     status: "searching",
     "pickupLocation.location": {
@@ -213,19 +267,24 @@ rideSchema.statics.getNearbyRides = function (lat, lng) {
           type: "Point",
           coordinates: [parseFloat(lng), parseFloat(lat)]
         },
-        $maxDistance: 5000
+        $maxDistance: radius
       }
     }
   });
 };
 
 /* ======================================================
-JSON CLEANUP
+🧼 CLEAN RESPONSE (IMPORTANT FOR FRONTEND)
 ====================================================== */
 
 rideSchema.set("toJSON", {
   transform: (_, ret) => {
     delete ret.__v;
+
+    // 🔥 ensure safe frontend fields
+    ret.pickupLocation = ret.pickupLocation || {};
+    ret.dropLocation = ret.dropLocation || {};
+
     return ret;
   }
 });

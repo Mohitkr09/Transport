@@ -1,27 +1,38 @@
 import React, { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 import api from "../utils/api";
-import LiveMap from "../components/LiveMap"; // ✅ ADD THIS
+import LiveMap from "../components/LiveMap";
 
 export default function DriverDashboard() {
 
-  const [rides, setRides] = useState([]);
   const [online, setOnline] = useState(false);
   const [profile, setProfile] = useState(null);
-  const [loadingId, setLoadingId] = useState(null);
-  const [newRide, setNewRide] = useState(null);
-  const [activeRide, setActiveRide] = useState(null); // ✅ NEW
+
+  const [incomingRide, setIncomingRide] = useState(null);
+  const [activeRide, setActiveRide] = useState(null);
+
   const [timer, setTimer] = useState(10);
   const [driverLocation, setDriverLocation] = useState(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
 
   /* ================= SOUND ================= */
   useEffect(() => {
-    audioRef.current = new Audio("/ride-alert.mp3");
+    audioRef.current = new Audio("/sounds/ride-alert.mp3");
     audioRef.current.loop = true;
   }, []);
+
+  const enableSound = () => {
+    audioRef.current.play()
+      .then(() => {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        setSoundEnabled(true);
+      })
+      .catch(() => {});
+  };
 
   const stopSound = () => {
     if (!audioRef.current) return;
@@ -29,54 +40,61 @@ export default function DriverDashboard() {
     audioRef.current.currentTime = 0;
   };
 
-  /* ================= DISTANCE ================= */
-  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-
-    const a =
-      Math.sin(dLat/2) ** 2 +
-      Math.cos(lat1 * Math.PI/180) *
-      Math.cos(lat2 * Math.PI/180) *
-      Math.sin(dLng/2) ** 2;
-
-    return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(2);
-  };
+  /* ================= PROFILE ================= */
+  useEffect(() => {
+    api.get("/driver/me").then(res => {
+      setProfile(res.data.driver);
+      setOnline(res.data.driver.isOnline);
+    });
+  }, []);
 
   /* ================= SOCKET ================= */
   useEffect(() => {
+    if (!profile?._id) return;
 
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: { token: localStorage.getItem("token") },
+      auth: {
+        userId: profile._id,
+        role: "driver"
+      }
     });
 
     socketRef.current = socket;
 
     socket.on("newRideRequest", (ride) => {
-      setNewRide(ride);
-      audioRef.current.play().catch(()=>{});
+      console.log("🔥 NEW RIDE:", ride);
+
+      setIncomingRide(ride);
+
+      // 🔊 SOUND LOOP
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(()=>{});
+      }
     });
 
-    socket.on("rideAccepted", (data) => {
-      setActiveRide(data);
-      setNewRide(null);
+    socket.on("rideAccepted", (ride) => {
+      console.log("✅ ACCEPTED:", ride);
+
+      setActiveRide(ride);
+      setIncomingRide(null);
       stopSound();
     });
 
     return () => socket.disconnect();
-  }, []);
 
-  /* ================= AUTO REJECT ================= */
+  }, [profile]);
+
+  /* ================= TIMER ================= */
   useEffect(() => {
-    if (!newRide) return;
+    if (!incomingRide) return;
 
     setTimer(10);
 
     const interval = setInterval(() => {
       setTimer(prev => {
         if (prev <= 1) {
-          rejectRide(newRide._id);
+          rejectRide(incomingRide._id);
           return 0;
         }
         return prev - 1;
@@ -84,7 +102,7 @@ export default function DriverDashboard() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [newRide]);
+  }, [incomingRide]);
 
   /* ================= LOCATION ================= */
   useEffect(() => {
@@ -97,22 +115,19 @@ export default function DriverDashboard() {
 
         setDriverLocation({ lat, lng });
 
-        api.put("/driver/location", { lat, lng }).catch(()=>{});
+        api.put("/driver/location", {
+          lat,
+          lng,
+          rideId: activeRide?._id
+        }).catch(()=>{});
       });
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [online]);
-
-  /* ================= PROFILE ================= */
-  useEffect(() => {
-    api.get("/driver/me").then(res => {
-      setProfile(res.data.driver);
-      setOnline(res.data.driver.isOnline);
-    });
-  }, []);
+  }, [online, activeRide]);
 
   /* ================= ACTIONS ================= */
+
   const toggleOnline = async () => {
     const newStatus = !online;
     await api.put("/driver/online", { isOnline: newStatus });
@@ -121,45 +136,56 @@ export default function DriverDashboard() {
 
   const acceptRide = async (id) => {
     try {
-      setLoadingId(id);
+      const res = await api.put(`/ride/${id}/accept`);
 
-      await api.put(`/ride/${id}/accept`);
-
-      const ride = newRide;
-      setActiveRide(ride);
-      setNewRide(null);
+      setActiveRide(res.data.ride);
+      setIncomingRide(null);
       stopSound();
-
-      socketRef.current.emit("driverAcceptRide", {
-        rideId: id,
-        driver: profile
-      });
 
     } catch {
       alert("Ride already taken");
-    } finally {
-      setLoadingId(null);
     }
   };
 
   const rejectRide = async (id) => {
     await api.put(`/ride/${id}/reject`).catch(()=>{});
-    setNewRide(null);
+    setIncomingRide(null);
     stopSound();
   };
 
-  /* ================= DISTANCE ================= */
-  const distance = newRide && driverLocation
-    ? calculateDistance(
-        driverLocation.lat,
-        driverLocation.lng,
-        newRide.pickupLocation.location.coordinates[1],
-        newRide.pickupLocation.location.coordinates[0]
-      )
-    : null;
+  /* ================= DATA ================= */
+
+  const rideData = activeRide || incomingRide;
+
+  const pickupAddress =
+    rideData?.pickupLocation?.address || "Pickup not available";
+
+  const dropAddress =
+    rideData?.dropLocation?.address || "Drop not available";
+
+  const userName =
+    rideData?.user?.name || "User";
+
+  const pickupCoords =
+    rideData?.pickupLocation?.location?.coordinates;
+
+  const dropCoords =
+    rideData?.dropLocation?.location?.coordinates;
+
+  /* ================= UI ================= */
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
+
+      {/* 🔊 ENABLE SOUND */}
+      {!soundEnabled && (
+        <button
+          onClick={enableSound}
+          className="mb-4 bg-indigo-600 text-white px-4 py-2 rounded"
+        >
+          🔊 Enable Sound
+        </button>
+      )}
 
       {/* HEADER */}
       <div className="flex justify-between mb-4">
@@ -175,47 +201,75 @@ export default function DriverDashboard() {
         </button>
       </div>
 
-      {/* 🗺 MAP */}
+      {/* MAP */}
       <LiveMap
         userLocation={
-          activeRide
-            ? {
-                lat: activeRide.pickupLocation.location.coordinates[1],
-                lng: activeRide.pickupLocation.location.coordinates[0]
-              }
+          pickupCoords
+            ? { lat: pickupCoords[1], lng: pickupCoords[0] }
             : null
         }
         driverLocation={driverLocation}
         dropLocation={
-          activeRide
-            ? {
-                lat: activeRide.dropLocation.location.coordinates[1],
-                lng: activeRide.dropLocation.location.coordinates[0]
-              }
+          dropCoords
+            ? { lat: dropCoords[1], lng: dropCoords[0] }
             : null
         }
+        routePath={activeRide?.routePath || []}
       />
 
-      {/* 🚨 NEW RIDE */}
-      {newRide && (
-        <div className="fixed bottom-5 left-5 right-5 bg-white p-4 rounded-xl shadow-xl">
+      {/* 🚗 POPUP */}
+      {incomingRide && (
+        <div className="fixed inset-0 flex items-end justify-center z-50">
 
-          <p>📍 {newRide.pickupLocation.address}</p>
-          <p>🏁 {newRide.dropLocation.address}</p>
-          <p>₹{newRide.fare}</p>
+          <div className="absolute inset-0 bg-black/40"></div>
 
-          {distance && <p>📍 {distance} km away</p>}
+          <div className="bg-white w-full max-w-md p-5 rounded-t-2xl animate-slideUp">
 
-          <p className="text-red-500">⏳ {timer}s</p>
+            <h3 className="font-bold text-lg">🚗 New Ride Request</h3>
 
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => acceptRide(newRide._id)} className="bg-green-600 text-white px-3 py-2 rounded">
-              Accept
-            </button>
-            <button onClick={() => rejectRide(newRide._id)} className="bg-red-600 text-white px-3 py-2 rounded">
-              Reject
-            </button>
+            <p className="mt-2 font-semibold">👤 {userName}</p>
+
+            <p className="mt-2">📍 {pickupAddress}</p>
+            <p>🏁 {dropAddress}</p>
+
+            <p className="text-indigo-600 font-bold mt-2">
+              ₹{incomingRide?.fare}
+            </p>
+
+            <p className="text-red-500">⏳ {timer}s</p>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => acceptRide(incomingRide._id)}
+                className="flex-1 bg-green-600 text-white py-2 rounded-lg"
+              >
+                Accept
+              </button>
+
+              <button
+                onClick={() => rejectRide(incomingRide._id)}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg"
+              >
+                Reject
+              </button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* ✅ ACTIVE RIDE INFO */}
+      {activeRide && (
+        <div className="mt-4 bg-white p-4 rounded shadow">
+
+          <h3 className="font-bold text-lg">🚗 Active Ride</h3>
+
+          <p>👤 {userName}</p>
+          <p>📍 {pickupAddress}</p>
+          <p>🏁 {dropAddress}</p>
+
+          <p className="text-green-600 font-bold">
+            ₹{activeRide?.fare}
+          </p>
         </div>
       )}
 
