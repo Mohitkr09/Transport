@@ -2,15 +2,17 @@ import React, { useState, useEffect, useRef } from "react";
 import api from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
-
-/* ✅ IMPORT GLOBAL MAP LOADER */
 import { useGoogleMaps } from "../config/googleMaps";
-
 import {
   GoogleMap,
   Marker,
   DirectionsRenderer
 } from "@react-google-maps/api";
+
+/* VEHICLES */
+import bikeImg from "../assets/services/bike.png";
+import autoImg from "../assets/services/auto.png";
+import cabImg from "../assets/services/cab-economy.png";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
@@ -19,11 +21,6 @@ const containerStyle = {
   height: "100%"
 };
 
-/* VEHICLES */
-import bikeImg from "../assets/services/bike.png";
-import autoImg from "../assets/services/auto.png";
-import cabImg from "../assets/services/cab-economy.png";
-
 const vehicles = [
   { id: "bike", label: "Bike", img: bikeImg, rate: 8 },
   { id: "auto", label: "Auto", img: autoImg, rate: 12 },
@@ -31,12 +28,11 @@ const vehicles = [
 ];
 
 export default function BookRide() {
-
   const navigate = useNavigate();
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
 
-  const { isLoaded, loadError } = useGoogleMaps(); // ✅ FIX
+  const { isLoaded, loadError } = useGoogleMaps();
 
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
@@ -59,9 +55,22 @@ export default function BookRide() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  /* ================= SOCKET ================= */
+  /* ================= SOCKET FIX ================= */
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ["websocket"] });
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"], // ✅ FIX
+      reconnection: true,
+      timeout: 20000
+    });
+
+    socket.on("connect", () => {
+      console.log("Socket connected:", socket.id);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.log("Socket error:", err.message);
+    });
+
     socketRef.current = socket;
 
     return () => socket.disconnect();
@@ -69,19 +78,20 @@ export default function BookRide() {
 
   /* ================= CURRENT LOCATION ================= */
   const handleCurrentLocation = () => {
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
 
-      setPickupCoords({ lat, lng });
+        setPickupCoords({ lat, lng });
 
-      const geocoder = new window.google.maps.Geocoder();
-
-      geocoder.geocode({ location: { lat, lng } }, (res) => {
-        if (res[0]) setPickup(res[0].formatted_address);
-      });
-
-    }, () => setMessage("Location permission denied"));
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (res) => {
+          if (res[0]) setPickup(res[0].formatted_address);
+        });
+      },
+      () => setMessage("Location permission denied")
+    );
   };
 
   /* ================= AUTOCOMPLETE ================= */
@@ -102,6 +112,7 @@ export default function BookRide() {
     const geocoder = new window.google.maps.Geocoder();
 
     geocoder.geocode({ placeId }, (res) => {
+      if (!res || !res[0]) return;
       const loc = res[0].geometry.location;
       setter({ lat: loc.lat(), lng: loc.lng() });
     });
@@ -109,6 +120,8 @@ export default function BookRide() {
 
   /* ================= ROUTE ================= */
   const calculateRoute = () => {
+    if (!pickupCoords || !dropCoords) return;
+
     const service = new window.google.maps.DirectionsService();
 
     service.route(
@@ -129,7 +142,7 @@ export default function BookRide() {
           setEta(Math.round(mins));
 
           setVehiclePrices(
-            vehicles.map(v => ({
+            vehicles.map((v) => ({
               ...v,
               price: Math.round(km * v.rate)
             }))
@@ -139,19 +152,23 @@ export default function BookRide() {
     );
   };
 
-  /* ================= DRIVERS ================= */
+  /* ================= DRIVER FETCH (RETRY FIX) ================= */
   const fetchNearbyDrivers = async () => {
     try {
       const res = await api.get("/driver/nearby", {
         params: {
           lat: pickupCoords.lat,
           lng: pickupCoords.lng
-        }
+        },
+        timeout: 20000
       });
 
-      setDrivers(res.data.drivers || []);
+      setDrivers(res.data?.drivers || []);
     } catch (err) {
-      console.log(err);
+      console.log("Driver fetch error:", err.message);
+
+      // 🔁 retry once
+      setTimeout(fetchNearbyDrivers, 2000);
     }
   };
 
@@ -164,22 +181,30 @@ export default function BookRide() {
 
   /* ================= BOOK ================= */
   const handleBookRide = async () => {
-    if (!vehicleType) return setMessage("Select vehicle");
+    if (!pickupCoords || !dropCoords)
+      return setMessage("Enter pickup & drop");
+
+    if (!vehicleType)
+      return setMessage("Select vehicle");
 
     try {
       setLoading(true);
 
-      const res = await api.post("/ride", {
-        pickupLocation: { address: pickup, ...pickupCoords },
-        dropLocation: { address: drop, ...dropCoords },
-        vehicleType,
-        distance
-      });
+      const res = await api.post(
+        "/ride",
+        {
+          pickupLocation: { address: pickup, ...pickupCoords },
+          dropLocation: { address: drop, ...dropCoords },
+          vehicleType,
+          distance
+        },
+        { timeout: 30000 } // ✅ FIX
+      );
 
       navigate(`/track/${res.data.ride._id}`);
-
-    } catch {
-      setMessage("Booking failed");
+    } catch (err) {
+      console.log(err);
+      setMessage("Booking failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -187,12 +212,12 @@ export default function BookRide() {
 
   /* ================= UI ================= */
 
-  if (loadError) return <p className="text-red-500">Map failed to load</p>;
+  if (loadError)
+    return <p className="text-red-500">Map failed to load</p>;
   if (!isLoaded) return <p>Loading map...</p>;
 
   return (
     <div className="h-screen flex flex-col lg:flex-row">
-
       {/* MAP */}
       <div className="lg:w-2/3 h-[40vh] lg:h-screen">
         <GoogleMap
@@ -203,7 +228,6 @@ export default function BookRide() {
           {pickupCoords && <Marker position={pickupCoords} />}
           {dropCoords && <Marker position={dropCoords} />}
 
-          {/* DRIVERS */}
           {drivers.map((d) => (
             <Marker
               key={d._id}
@@ -217,14 +241,17 @@ export default function BookRide() {
             />
           ))}
 
-          {directions && <DirectionsRenderer directions={directions} />}
+          {directions && (
+            <DirectionsRenderer directions={directions} />
+          )}
         </GoogleMap>
       </div>
 
       {/* PANEL */}
-      <div className="lg:w-1/3 bg-white p-6">
-
-        <h2 className="text-2xl font-bold mb-4">🚗 Book Ride</h2>
+      <div className="lg:w-1/3 bg-white p-6 shadow-xl">
+        <h2 className="text-2xl font-bold mb-4">
+          🚗 Book Ride
+        </h2>
 
         <button
           onClick={handleCurrentLocation}
@@ -233,38 +260,42 @@ export default function BookRide() {
           📍 Use Current Location
         </button>
 
-        <InputBox {...{
-          value: pickup,
-          setValue: setPickup,
-          suggestions: pickupSuggestions,
-          setSuggestions: setPickupSuggestions,
-          setCoords: setPickupCoords,
-          fetchSuggestions,
-          getCoords,
-          placeholder: "Pickup"
-        }} />
+        <InputBox
+          value={pickup}
+          setValue={setPickup}
+          suggestions={pickupSuggestions}
+          setSuggestions={setPickupSuggestions}
+          setCoords={setPickupCoords}
+          fetchSuggestions={fetchSuggestions}
+          getCoords={getCoords}
+          placeholder="Pickup"
+        />
 
-        <InputBox {...{
-          value: drop,
-          setValue: setDrop,
-          suggestions: dropSuggestions,
-          setSuggestions: setDropSuggestions,
-          setCoords: setDropCoords,
-          fetchSuggestions,
-          getCoords,
-          placeholder: "Drop"
-        }} />
+        <InputBox
+          value={drop}
+          setValue={setDrop}
+          suggestions={dropSuggestions}
+          setSuggestions={setDropSuggestions}
+          setCoords={setDropCoords}
+          fetchSuggestions={fetchSuggestions}
+          getCoords={getCoords}
+          placeholder="Drop"
+        />
 
-        {vehiclePrices.map(v => (
+        {vehiclePrices.map((v) => (
           <div
             key={v.id}
             onClick={() => setVehicleType(v.id)}
             className={`p-3 mb-2 border rounded-xl cursor-pointer ${
-              vehicleType === v.id ? "bg-indigo-100 border-indigo-500" : ""
+              vehicleType === v.id
+                ? "bg-indigo-100 border-indigo-500"
+                : ""
             }`}
           >
             <div className="flex justify-between">
-              <span>{v.label} ({eta} min)</span>
+              <span>
+                {v.label} ({eta} min)
+              </span>
               <span>₹{v.price}</span>
             </div>
           </div>
@@ -277,7 +308,9 @@ export default function BookRide() {
           {loading ? "Booking..." : "Confirm Booking"}
         </button>
 
-        {message && <p className="text-red-500 mt-2">{message}</p>}
+        {message && (
+          <p className="text-red-500 mt-2">{message}</p>
+        )}
       </div>
     </div>
   );
@@ -285,8 +318,14 @@ export default function BookRide() {
 
 /* INPUT */
 const InputBox = ({
-  value, setValue, suggestions, setSuggestions,
-  setCoords, fetchSuggestions, getCoords, placeholder
+  value,
+  setValue,
+  suggestions,
+  setSuggestions,
+  setCoords,
+  fetchSuggestions,
+  getCoords,
+  placeholder
 }) => (
   <div className="relative mb-3">
     <input

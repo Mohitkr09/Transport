@@ -25,19 +25,16 @@ export default function DriverDashboard() {
   }, []);
 
   const enableSound = () => {
-    audioRef.current.play()
-      .then(() => {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        setSoundEnabled(true);
-      })
-      .catch(() => {});
+    audioRef.current.play().then(() => {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setSoundEnabled(true);
+    }).catch(()=>{});
   };
 
   const stopSound = () => {
-    if (!audioRef.current) return;
-    audioRef.current.pause();
-    audioRef.current.currentTime = 0;
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
   };
 
   /* ================= PROFILE ================= */
@@ -53,36 +50,24 @@ export default function DriverDashboard() {
     if (!profile?._id) return;
 
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: {
-        userId: profile._id,
-        role: "driver"
-      }
+      auth: { userId: profile._id, role: "driver" }
     });
 
     socketRef.current = socket;
 
     socket.on("newRideRequest", (ride) => {
-      console.log("🔥 NEW RIDE:", ride);
-
       setIncomingRide(ride);
 
-      // 🔊 SOUND LOOP
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(()=>{});
-      }
+      audioRef.current?.play().catch(()=>{});
     });
 
     socket.on("rideAccepted", (ride) => {
-      console.log("✅ ACCEPTED:", ride);
-
       setActiveRide(ride);
       setIncomingRide(null);
       stopSound();
     });
 
     return () => socket.disconnect();
-
   }, [profile]);
 
   /* ================= TIMER ================= */
@@ -127,7 +112,6 @@ export default function DriverDashboard() {
   }, [online, activeRide]);
 
   /* ================= ACTIONS ================= */
-
   const toggleOnline = async () => {
     const newStatus = !online;
     await api.put("/driver/online", { isOnline: newStatus });
@@ -137,11 +121,9 @@ export default function DriverDashboard() {
   const acceptRide = async (id) => {
     try {
       const res = await api.put(`/ride/${id}/accept`);
-
       setActiveRide(res.data.ride);
       setIncomingRide(null);
       stopSound();
-
     } catch {
       alert("Ride already taken");
     }
@@ -154,47 +136,28 @@ export default function DriverDashboard() {
   };
 
   /* ================= DATA ================= */
-
   const rideData = activeRide || incomingRide;
 
-  const pickupAddress =
-    rideData?.pickupLocation?.address || "Pickup not available";
+  const pickupAddress = rideData?.pickupLocation?.address || "Pickup not available";
+  const dropAddress = rideData?.dropLocation?.address || "Drop not available";
+  const userName = rideData?.user?.name || "User";
 
-  const dropAddress =
-    rideData?.dropLocation?.address || "Drop not available";
-
-  const userName =
-    rideData?.user?.name || "User";
-
-  const pickupCoords =
-    rideData?.pickupLocation?.location?.coordinates;
-
-  const dropCoords =
-    rideData?.dropLocation?.location?.coordinates;
-
-  /* ================= UI ================= */
+  const pickupCoords = rideData?.pickupLocation?.location?.coordinates;
+  const dropCoords = rideData?.dropLocation?.location?.coordinates;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
-
-      {/* 🔊 ENABLE SOUND */}
-      {!soundEnabled && (
-        <button
-          onClick={enableSound}
-          className="mb-4 bg-indigo-600 text-white px-4 py-2 rounded"
-        >
-          🔊 Enable Sound
-        </button>
-      )}
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-4">
 
       {/* HEADER */}
-      <div className="flex justify-between mb-4">
-        <h1 className="text-2xl font-bold">🚗 Driver Dashboard</h1>
+      <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-xl shadow">
+        <h1 className="text-xl font-bold">🚗 Driver Dashboard</h1>
 
         <button
           onClick={toggleOnline}
-          className={`px-4 py-2 rounded text-white ${
-            online ? "bg-green-600" : "bg-gray-500"
+          className={`px-4 py-2 rounded-full font-semibold transition ${
+            online
+              ? "bg-green-600 text-white"
+              : "bg-gray-400 text-white"
           }`}
         >
           {online ? "🟢 Online" : "⚫ Offline"}
@@ -202,72 +165,74 @@ export default function DriverDashboard() {
       </div>
 
       {/* MAP */}
-      <LiveMap
-        userLocation={
-          pickupCoords
-            ? { lat: pickupCoords[1], lng: pickupCoords[0] }
-            : null
-        }
-        driverLocation={driverLocation}
-        dropLocation={
-          dropCoords
-            ? { lat: dropCoords[1], lng: dropCoords[0] }
-            : null
-        }
-        routePath={activeRide?.routePath || []}
-      />
+      <div className="rounded-xl overflow-hidden shadow-lg">
+        <LiveMap
+          userLocation={pickupCoords ? { lat: pickupCoords[1], lng: pickupCoords[0] } : null}
+          driverLocation={driverLocation}
+          dropLocation={dropCoords ? { lat: dropCoords[1], lng: dropCoords[0] } : null}
+          routePath={activeRide?.routePath || []}
+        />
+      </div>
 
-      {/* 🚗 POPUP */}
+      {/* 🔔 RIDE REQUEST UI */}
       {incomingRide && (
-        <div className="fixed inset-0 flex items-end justify-center z-50">
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
 
-          <div className="absolute inset-0 bg-black/40"></div>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
 
-          <div className="bg-white w-full max-w-md p-5 rounded-t-2xl animate-slideUp">
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl animate-slideUp">
 
-            <h3 className="font-bold text-lg">🚗 New Ride Request</h3>
-
-            <p className="mt-2 font-semibold">👤 {userName}</p>
-
-            <p className="mt-2">📍 {pickupAddress}</p>
-            <p>🏁 {dropAddress}</p>
-
-            <p className="text-indigo-600 font-bold mt-2">
-              ₹{incomingRide?.fare}
-            </p>
-
-            <p className="text-red-500">⏳ {timer}s</p>
-
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={() => acceptRide(incomingRide._id)}
-                className="flex-1 bg-green-600 text-white py-2 rounded-lg"
-              >
-                Accept
-              </button>
-
-              <button
-                onClick={() => rejectRide(incomingRide._id)}
-                className="flex-1 bg-red-600 text-white py-2 rounded-lg"
-              >
-                Reject
-              </button>
+            <div className="flex justify-between mb-2">
+              <h3 className="text-lg font-bold">🚗 New Ride</h3>
+              <span className="text-red-500 font-bold animate-pulse">
+                {timer}s
+              </span>
             </div>
+
+            <div className="bg-gray-100 p-3 rounded-xl mb-3">
+              <p className="text-sm text-gray-500">Passenger</p>
+              <p className="font-semibold text-lg">👤 {userName}</p>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              <p>📍 {pickupAddress}</p>
+              <p>🏁 {dropAddress}</p>
+            </div>
+
+            <div className="bg-indigo-100 text-center p-3 rounded-xl mb-4">
+              <p className="text-xl font-bold text-indigo-600">
+                ₹{incomingRide?.fare}
+              </p>
+            </div>
+
+            <button
+              onClick={() => acceptRide(incomingRide._id)}
+              className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl text-lg font-bold mb-2"
+            >
+              Accept Ride
+            </button>
+
+            <button
+              onClick={() => rejectRide(incomingRide._id)}
+              className="w-full bg-gray-200 hover:bg-gray-300 py-3 rounded-xl"
+            >
+              Reject
+            </button>
+
           </div>
         </div>
       )}
 
-      {/* ✅ ACTIVE RIDE INFO */}
+      {/* ACTIVE RIDE */}
       {activeRide && (
-        <div className="mt-4 bg-white p-4 rounded shadow">
-
-          <h3 className="font-bold text-lg">🚗 Active Ride</h3>
+        <div className="mt-4 bg-white p-4 rounded-xl shadow-lg">
+          <h3 className="font-bold text-lg mb-2">🚗 Active Ride</h3>
 
           <p>👤 {userName}</p>
           <p>📍 {pickupAddress}</p>
           <p>🏁 {dropAddress}</p>
 
-          <p className="text-green-600 font-bold">
+          <p className="text-green-600 font-bold text-lg mt-2">
             ₹{activeRide?.fare}
           </p>
         </div>
@@ -275,4 +240,4 @@ export default function DriverDashboard() {
 
     </div>
   );
-}   
+}
