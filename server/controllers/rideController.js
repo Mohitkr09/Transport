@@ -10,12 +10,21 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 };
 
 /* ======================================================
-🚗 CREATE RIDE
+🚗 CREATE RIDE + EMIT TO DRIVERS
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
+    // ✅ VALIDATION
+    if (!pickupLocation?.location || !dropLocation?.location) {
+      return res.status(400).json({
+        success: false,
+        message: "Pickup & Drop coordinates required"
+      });
+    }
+
+    // ✅ CREATE RIDE
     const ride = await Ride.create({
       user: req.user._id,
       pickupLocation,
@@ -24,6 +33,41 @@ exports.createRide = async (req, res) => {
       distanceKm: distance || 5,
       fare: calculateFare(vehicleType, distance || 5),
       status: "searching"
+    });
+
+    /* ======================================================
+    📍 FIND NEARBY DRIVERS
+    ====================================================== */
+    const pickupCoords = pickupLocation.location.coordinates;
+
+    const drivers = await Driver.find({
+      isOnline: true,
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: pickupCoords
+          },
+          $maxDistance: 5000 // 5km radius
+        }
+      }
+    });
+
+    console.log("🚗 Nearby Drivers:", drivers.length);
+
+    /* ======================================================
+    🔔 EMIT RIDE TO DRIVERS
+    ====================================================== */
+    const io = req.app.get("io");
+    const onlineDrivers = req.app.get("onlineDrivers") || {};
+
+    drivers.forEach((driver) => {
+      const socketId = onlineDrivers[driver._id.toString()];
+
+      if (socketId) {
+        io.to(socketId).emit("newRideRequest", ride);
+        console.log("📡 Sent ride to driver:", driver._id);
+      }
     });
 
     res.status(201).json({ success: true, ride });
@@ -56,7 +100,7 @@ exports.getRideById = async (req, res) => {
 };
 
 /* ======================================================
-📜 USER RIDE HISTORY (FIXED)
+📜 USER RIDES
 ====================================================== */
 exports.getUserRides = async (req, res) => {
   try {
@@ -65,7 +109,6 @@ exports.getUserRides = async (req, res) => {
     const rides = await Ride.find({ user: userId })
       .sort({ createdAt: -1 });
 
-    // 🔥 transform for frontend
     const formatted = rides.map(r => ({
       _id: r._id,
       pickup: r.pickupLocation?.address || "N/A",
@@ -75,10 +118,7 @@ exports.getUserRides = async (req, res) => {
       createdAt: r.createdAt
     }));
 
-    res.json({
-      success: true,
-      rides: formatted
-    });
+    res.json({ success: true, rides: formatted });
 
   } catch (err) {
     console.error("❌ getUserRides:", err);
@@ -87,35 +127,7 @@ exports.getUserRides = async (req, res) => {
 };
 
 /* ======================================================
-💳 PAYMENT HISTORY (FIXED)
-====================================================== */
-exports.getUserPayments = async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.id;
-
-    const rides = await Ride.find({ user: userId })
-      .sort({ createdAt: -1 });
-
-    const payments = rides.map(r => ({
-      rideId: r._id,
-      amount: r.fare || 0,
-      date: r.createdAt,
-      status: r.paymentStatus || "paid"
-    }));
-
-    res.json({
-      success: true,
-      payments
-    });
-
-  } catch (err) {
-    console.error("❌ payments:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-/* ======================================================
-✅ ACCEPT RIDE
+✅ ACCEPT RIDE + NOTIFY USER
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
@@ -127,13 +139,22 @@ exports.acceptRide = async (req, res) => {
         acceptedAt: new Date()
       },
       { new: true }
-    );
+    ).populate("user");
 
     if (!ride) {
       return res.status(400).json({
         success: false,
         message: "Ride already taken"
       });
+    }
+
+    // 🔔 Notify user
+    const io = req.app.get("io");
+    const onlineUsers = req.app.get("onlineUsers") || {};
+
+    const userSocket = onlineUsers[ride.user._id.toString()];
+    if (userSocket) {
+      io.to(userSocket).emit("rideAccepted", ride);
     }
 
     res.json({ success: true, ride });
@@ -150,11 +171,9 @@ exports.acceptRide = async (req, res) => {
 exports.startRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
-
     if (!ride) return res.status(404).json({ success: false });
 
     await ride.startRide();
-
     res.json({ success: true });
 
   } catch (err) {
@@ -169,11 +188,9 @@ exports.startRide = async (req, res) => {
 exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
-
     if (!ride) return res.status(404).json({ success: false });
 
     await ride.completeRide();
-
     res.json({ success: true });
 
   } catch (err) {
@@ -188,11 +205,9 @@ exports.completeRide = async (req, res) => {
 exports.cancelRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
-
     if (!ride) return res.status(404).json({ success: false });
 
     await ride.cancelRide();
-
     res.json({ success: true });
 
   } catch (err) {
@@ -209,7 +224,6 @@ exports.rateRide = async (req, res) => {
     const { rating } = req.body;
 
     const ride = await Ride.findById(req.params.id);
-
     ride.rating = rating;
 
     await ride.save();

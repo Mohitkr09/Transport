@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useRef, Suspense, lazy } from "react";
 
 /* GOOGLE MAPS */
@@ -18,12 +18,13 @@ const DriverDashboard = lazy(() => import("./pages/DriverDashboard"));
 const DriverRequests = lazy(() => import("./pages/DriverRequests"));
 const About = lazy(() => import("./pages/About"));
 const Contact = lazy(() => import("./pages/Contact"));
-const Payment = lazy(() => import("./pages/Payment"));
 const RideTracking = lazy(() => import("./pages/RideTracking"));
-const Notifications = lazy(() => import("./pages/Notifications")); // ✅ FIXED
-
-/* PROFILE */
+const Notifications = lazy(() => import("./pages/Notifications"));
 const Profile = lazy(() => import("./pages/Profile"));
+
+/* 🔥 ADD THESE */
+const RideHistory = lazy(() => import("./pages/RideHistory"));
+const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
 /* ADMIN */
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
@@ -57,9 +58,10 @@ function BackendWakeup() {
   return null;
 }
 
-/* ================= ROLE REDIRECT ================= */
+/* ================= ROLE REDIRECT (FIXED) ================= */
 function RoleRedirect() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -69,39 +71,19 @@ function RoleRedirect() {
 
     if (pathname.startsWith("/login") || pathname.startsWith("/register")) return;
 
+    // ✅ FIXED (no window.location)
     if (role === "driver" && !pathname.startsWith("/driver")) {
-      window.location.href = "/driver/dashboard";
+      navigate("/driver/dashboard", { replace: true });
     }
 
     if (role === "admin" && !pathname.startsWith("/admin")) {
-      window.location.href = "/admin/dashboard";
+      navigate("/admin/dashboard", { replace: true });
     }
 
     if (role === "user" && pathname.startsWith("/admin")) {
-      window.location.href = "/";
+      navigate("/profile", { replace: true });
     }
 
-  }, [pathname]);
-
-  return null;
-}
-
-/* ================= TITLE ================= */
-function TitleManager() {
-  const { pathname } = useLocation();
-
-  useEffect(() => {
-    const map = {
-      "/": "Home",
-      "/book": "Book Ride",
-      "/profile": "My Profile",
-      "/driver/dashboard": "Driver Dashboard",
-      "/driver/requests": "Ride Requests",
-      "/admin/dashboard": "Admin Panel",
-      "/notifications": "Notifications"
-    };
-
-    document.title = (map[pathname] || "TransportX") + " • TransportX";
   }, [pathname]);
 
   return null;
@@ -126,7 +108,6 @@ function Layout({ children }) {
   const hideLayout =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
-    pathname.startsWith("/payment") ||
     pathname.startsWith("/admin");
 
   return (
@@ -141,115 +122,124 @@ function Layout({ children }) {
   );
 }
 
-/* ================= 404 ================= */
-function NotFound() {
-  return <Navigate to="/" replace />;
-}
-
 /* ================= APP ================= */
 export default function App() {
   return (
     <GoogleMapsProvider>
-      <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
+      <ScrollToTop />
+      <BackendWakeup />
+      <RoleRedirect />
 
-        <ScrollToTop />
-        <BackendWakeup />
-        <TitleManager />
-        <RoleRedirect />
+      <Layout>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
 
-        <Layout>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
+            {/* PUBLIC */}
+            <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-              {/* PUBLIC */}
-              <Route path="/" element={<Home />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
+            {/* USER */}
+            <Route
+              path="/book"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <BookRide />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* USER */}
-              <Route
-                path="/book"
-                element={
-                  <ProtectedRoute allowedRoles={["user"]}>
-                    <BookRide />
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <Notifications />
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/notifications"
-                element={
-                  <ProtectedRoute allowedRoles={["user"]}>
-                    <Notifications />
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/track/:rideId"
+              element={
+                <ProtectedRoute allowedRoles={["user"]}>
+                  <RideTracking />
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/track/:rideId"
-                element={
-                  <ProtectedRoute allowedRoles={["user"]}>
-                    <RideTracking />
-                  </ProtectedRoute>
-                }
-              />
+            {/* 🔥 FIXED ROUTES */}
+            <Route
+              path="/rides"
+              element={
+                <ProtectedRoute allowedRoles={["user", "driver"]}>
+                  <RideHistory />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* ✅ PROFILE */}
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute allowedRoles={["user", "driver"]}>
-                    <Profile />
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/payment"
+              element={
+                <ProtectedRoute allowedRoles={["user", "driver"]}>
+                  <PaymentHistory />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* DRIVER */}
-              <Route
-                path="/driver/dashboard"
-                element={
-                  <ProtectedRoute allowedRoles={["driver"]}>
-                    <DriverDashboard />
-                  </ProtectedRoute>
-                }
-              />
+            {/* PROFILE */}
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute allowedRoles={["user", "driver"]}>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/driver/requests"
-                element={
-                  <ProtectedRoute allowedRoles={["driver"]}>
-                    <DriverRequests />
-                  </ProtectedRoute>
-                }
-              />
+            {/* DRIVER */}
+            <Route
+              path="/driver/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["driver"]}>
+                  <DriverDashboard />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* ADMIN */}
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedRoute allowedRoles={["admin"]}>
-                    <AdminLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="drivers" element={<Drivers />} />
-                <Route path="analytics" element={<Analytics />} />
-                <Route path="support" element={<SupportMessages />} />
-                <Route path="settings" element={<Settings />} />
-              </Route>
+            <Route
+              path="/driver/requests"
+              element={
+                <ProtectedRoute allowedRoles={["driver"]}>
+                  <DriverRequests />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* FALLBACK */}
-              <Route path="*" element={<NotFound />} />
+            {/* ADMIN */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="drivers" element={<Drivers />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="support" element={<SupportMessages />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
 
-            </Routes>
-          </Suspense>
-        </Layout>
+            {/* FALLBACK */}
+            <Route path="*" element={<Navigate to="/" replace />} />
 
-      </div>
+          </Routes>
+        </Suspense>
+      </Layout>
     </GoogleMapsProvider>
   );
 }

@@ -2,10 +2,10 @@ import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-
   const location = useLocation();
 
   const token = localStorage.getItem("token");
+  const storedRole = localStorage.getItem("role");
 
   let user = null;
 
@@ -17,7 +17,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
   /* ================= NOT LOGGED IN ================= */
 
-  if (!token || !user) {
+  if (!token) {
     return (
       <Navigate
         to="/login"
@@ -27,24 +27,28 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     );
   }
 
+  /* ================= ROLE FIX ================= */
+
+  const role = storedRole || user?.role;
+
   /* ================= ROLE CHECK ================= */
 
   if (
     allowedRoles.length > 0 &&
-    !allowedRoles.includes(user.role)
+    !allowedRoles.includes(role)
   ) {
 
-    /* Redirect based on role */
-
-    if (user.role === "driver") {
-      return <Navigate to="/driver" replace />;
+    // 🔥 smarter redirects
+    if (role === "driver") {
+      return <Navigate to="/driver/dashboard" replace />;
     }
 
-    if (user.role === "admin") {
-      return <Navigate to="/admin" replace />;
+    if (role === "admin") {
+      return <Navigate to="/admin/dashboard" replace />;
     }
 
-    return <Navigate to="/" replace />;
+    // ✅ IMPORTANT FIX → go profile instead of home
+    return <Navigate to="/profile" replace />;
   }
 
   /* ================= AUTHORIZED ================= */

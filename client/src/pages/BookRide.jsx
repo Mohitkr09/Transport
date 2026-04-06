@@ -50,7 +50,6 @@ export default function BookRide() {
   const [eta, setEta] = useState(null);
 
   const [directions, setDirections] = useState(null);
-  const [drivers, setDrivers] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -137,46 +136,47 @@ export default function BookRide() {
     );
   };
 
-  /* DRIVERS */
-  const fetchNearbyDrivers = async () => {
-    try {
-      const res = await api.get("/driver/nearby", {
-        params: {
-          lat: pickupCoords.lat,
-          lng: pickupCoords.lng
-        }
-      });
-
-      setDrivers(res.data?.drivers || []);
-    } catch {
-      setTimeout(fetchNearbyDrivers, 2000);
-    }
-  };
-
   useEffect(() => {
     if (pickupCoords && dropCoords && isLoaded) {
       calculateRoute();
-      fetchNearbyDrivers();
     }
   }, [pickupCoords, dropCoords, isLoaded]);
 
-  /* BOOK */
+  /* ✅ FIXED BOOK FUNCTION */
   const handleBookRide = async () => {
     if (!vehicleType) return setMessage("Select vehicle");
+    if (!pickupCoords || !dropCoords)
+      return setMessage("Select valid locations");
 
     try {
       setLoading(true);
+      setMessage("");
 
       const res = await api.post("/ride", {
-        pickupLocation: { address: pickup, ...pickupCoords },
-        dropLocation: { address: drop, ...dropCoords },
+        pickupLocation: {
+          address: pickup,
+          location: {
+            type: "Point",
+            coordinates: [pickupCoords.lng, pickupCoords.lat]
+          }
+        },
+        dropLocation: {
+          address: drop,
+          location: {
+            type: "Point",
+            coordinates: [dropCoords.lng, dropCoords.lat]
+          }
+        },
         vehicleType,
         distance
       });
 
       navigate(`/track/${res.data.ride._id}`);
-    } catch {
-      setMessage("Booking failed");
+    } catch (err) {
+      console.error("API ERROR:", err.response?.data || err.message);
+      setMessage(
+        err.response?.data?.message || "Booking failed. Try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -187,7 +187,6 @@ export default function BookRide() {
 
   return (
     <div className="h-screen flex flex-col lg:flex-row">
-
       {/* MAP */}
       <div className="lg:w-2/3 h-[40vh] lg:h-screen">
         <GoogleMap
@@ -203,10 +202,7 @@ export default function BookRide() {
 
       {/* PANEL */}
       <div className="lg:w-1/3 bg-white/90 backdrop-blur-xl p-6 shadow-2xl rounded-l-3xl">
-
-        <h2 className="text-2xl font-bold mb-4">
-          🚗 Book Ride
-        </h2>
+        <h2 className="text-2xl font-bold mb-4">🚗 Book Ride</h2>
 
         <button
           onClick={handleCurrentLocation}
@@ -258,9 +254,7 @@ export default function BookRide() {
                 </div>
               </div>
 
-              <p className="font-bold text-indigo-600">
-                ₹{v.price}
-              </p>
+              <p className="font-bold text-indigo-600">₹{v.price}</p>
             </div>
           ))}
         </div>
@@ -272,10 +266,7 @@ export default function BookRide() {
           {loading ? "Booking..." : "Confirm Booking"}
         </button>
 
-        {message && (
-          <p className="text-red-500 mt-2">{message}</p>
-        )}
-
+        {message && <p className="text-red-500 mt-2">{message}</p>}
       </div>
     </div>
   );
@@ -283,8 +274,14 @@ export default function BookRide() {
 
 /* INPUT */
 const InputBox = ({
-  value, setValue, suggestions, setSuggestions,
-  setCoords, fetchSuggestions, getCoords, placeholder
+  value,
+  setValue,
+  suggestions,
+  setSuggestions,
+  setCoords,
+  fetchSuggestions,
+  getCoords,
+  placeholder
 }) => (
   <div className="relative mb-3">
     <input
