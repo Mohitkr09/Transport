@@ -74,7 +74,7 @@ app.use(cors({
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ================= ROUTES ================= */
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRoutes);   // 🔥 includes /me
 app.use("/api/driver", driverRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ride", rideRoutes);
@@ -96,10 +96,11 @@ app.use((req, res) => {
   });
 });
 
-/* ================= ERROR ================= */
+/* ================= GLOBAL ERROR ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err.message);
-  res.status(500).json({
+
+  res.status(err.status || 500).json({
     success: false,
     message: err.message || "Server error"
   });
@@ -108,13 +109,12 @@ app.use((err, req, res, next) => {
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET (ONLY ONCE ✅) ================= */
+/* ================= SOCKET ================= */
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     credentials: true
-  },
-  transports: ["websocket", "polling"]
+  }
 });
 
 global.io = io;
@@ -133,6 +133,7 @@ io.use((socket, next) => {
       user = decoded;
     }
 
+    // fallback
     if (!user && socket.handshake.auth?.userId) {
       user = {
         id: socket.handshake.auth.userId,
@@ -161,10 +162,10 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
-    /* 🔥 JOIN PERSONAL ROOM */
+    /* PERSONAL ROOM */
     socket.join(userId.toString());
 
-    /* 🔥 ROLE ROOM */
+    /* ROLE ROOM */
     socket.join(role);
 
     if (role === "driver") {
@@ -178,42 +179,34 @@ io.on("connection", async (socket) => {
       console.log("🚗 Driver online:", userId);
     }
 
-    /* ================= JOIN RIDE ================= */
+    /* JOIN RIDE */
     socket.on("joinRide", (rideId) => {
       if (rideId) socket.join(rideId.toString());
     });
 
-    /* ================= DRIVER LOCATION ================= */
+    /* LOCATION UPDATE */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
       if (rideId) {
         io.to(rideId.toString()).emit("driverMoved", { lat, lng });
       }
     });
 
-    /* ================= ACCEPT ================= */
+    /* ACCEPT */
     socket.on("driverAcceptRide", ({ rideId, driver }) => {
-      if (rideId) {
-        io.to(rideId.toString()).emit("rideAccepted", { rideId, driver });
-      }
+      io.to(rideId.toString()).emit("rideAccepted", { rideId, driver });
     });
 
-    /* ================= START ================= */
+    /* START */
     socket.on("driverStartRide", ({ rideId }) => {
       io.to(rideId.toString()).emit("rideStarted", { rideId });
     });
 
-    /* ================= COMPLETE ================= */
+    /* COMPLETE */
     socket.on("driverCompleteRide", ({ rideId }) => {
       io.to(rideId.toString()).emit("rideCompleted", { rideId });
     });
 
-    /* ================= DEBUG ================= */
-    socket.on("pingTest", () => {
-      console.log("✅ Ping from:", userId);
-      socket.emit("pongTest", { success: true });
-    });
-
-    /* ================= DISCONNECT ================= */
+    /* DISCONNECT */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
@@ -234,5 +227,5 @@ io.on("connection", async (socket) => {
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });

@@ -1,32 +1,34 @@
 const express = require("express");
 const router = express.Router();
 
-// ================= IMPORTS =================
+/* ================= IMPORTS ================= */
 const {
   register,
   login
 } = require("../controllers/authController");
 
-// ================= ASYNC WRAPPER =================
-// prevents server crash if controller throws error
-const asyncHandler = fn => (req, res, next) =>
+/* 🔥 IMPORTANT FIX HERE */
+const { protect } = require("../middleware/authMiddleware");
+
+/* ================= ASYNC WRAPPER ================= */
+const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
-// ================= VALIDATION MIDDLEWARE =================
+/* ================= VALIDATION ================= */
 const validateRegister = (req, res, next) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({
       success: false,
-      message: "All fields are required"
+      message: "All fields are required",
     });
   }
 
   if (password.length < 6) {
     return res.status(400).json({
       success: false,
-      message: "Password must be at least 6 characters"
+      message: "Password must be at least 6 characters",
     });
   }
 
@@ -39,36 +41,48 @@ const validateLogin = (req, res, next) => {
   if (!email || !password) {
     return res.status(400).json({
       success: false,
-      message: "Email and password required"
+      message: "Email and password required",
     });
   }
 
   next();
 };
 
-// ================= ROUTES =================
+/* ================= ROUTES ================= */
 
-// Register user
+/* 🔐 REGISTER */
 router.post(
   "/register",
   validateRegister,
   asyncHandler(register)
 );
 
-// Login user
+/* 🔐 LOGIN */
 router.post(
   "/login",
   validateLogin,
   asyncHandler(login)
 );
 
-// ================= HEALTH CHECK =================
+/* 👤 GET CURRENT USER */
+router.get(
+  "/me",
+  protect, // ✅ NOW WORKS
+  asyncHandler(async (req, res) => {
+    res.status(200).json({
+      success: true,
+      user: req.user,
+    });
+  })
+);
+
+/* ❤️ HEALTH CHECK */
 router.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Auth routes working"
+    message: "Auth routes working",
   });
 });
 
-// ================= EXPORT =================
+/* ================= EXPORT ================= */
 module.exports = router;

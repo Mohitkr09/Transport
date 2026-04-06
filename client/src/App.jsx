@@ -1,13 +1,15 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useRef, Suspense, lazy } from "react";
 
-/* ✅ CORRECT IMPORT (based on your folder) */
+/* GOOGLE MAPS */
 import { GoogleMapsProvider } from "./config/googleMaps";
 
+/* COMPONENTS */
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
 
+/* PAGES */
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
@@ -18,8 +20,12 @@ const About = lazy(() => import("./pages/About"));
 const Contact = lazy(() => import("./pages/Contact"));
 const Payment = lazy(() => import("./pages/Payment"));
 const RideTracking = lazy(() => import("./pages/RideTracking"));
-const Notifications = lazy(() => import("./pages/Notifications"));
+const Notifications = lazy(() => import("./pages/Notifications")); // ✅ FIXED
 
+/* PROFILE */
+const Profile = lazy(() => import("./pages/Profile"));
+
+/* ADMIN */
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
 const Drivers = lazy(() => import("./pages/admin/Drivers"));
@@ -28,7 +34,6 @@ const Settings = lazy(() => import("./pages/admin/Settings"));
 const SupportMessages = lazy(() => import("./pages/admin/SupportMessages"));
 
 /* ================= SCROLL ================= */
-
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => window.scrollTo(0, 0), [pathname]);
@@ -36,7 +41,6 @@ function ScrollToTop() {
 }
 
 /* ================= BACKEND WAKEUP ================= */
-
 function BackendWakeup() {
   const called = useRef(false);
 
@@ -54,7 +58,6 @@ function BackendWakeup() {
 }
 
 /* ================= ROLE REDIRECT ================= */
-
 function RoleRedirect() {
   const { pathname } = useLocation();
 
@@ -64,24 +67,18 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    if (
-      pathname.startsWith("/login") ||
-      pathname.startsWith("/register")
-    ) return;
+    if (pathname.startsWith("/login") || pathname.startsWith("/register")) return;
 
     if (role === "driver" && !pathname.startsWith("/driver")) {
-      window.history.replaceState(null, "", "/driver/dashboard");
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.location.href = "/driver/dashboard";
     }
 
     if (role === "admin" && !pathname.startsWith("/admin")) {
-      window.history.replaceState(null, "", "/admin/dashboard");
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.location.href = "/admin/dashboard";
     }
 
     if (role === "user" && pathname.startsWith("/admin")) {
-      window.history.replaceState(null, "", "/");
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.location.href = "/";
     }
 
   }, [pathname]);
@@ -90,7 +87,6 @@ function RoleRedirect() {
 }
 
 /* ================= TITLE ================= */
-
 function TitleManager() {
   const { pathname } = useLocation();
 
@@ -98,6 +94,7 @@ function TitleManager() {
     const map = {
       "/": "Home",
       "/book": "Book Ride",
+      "/profile": "My Profile",
       "/driver/dashboard": "Driver Dashboard",
       "/driver/requests": "Ride Requests",
       "/admin/dashboard": "Admin Panel",
@@ -111,7 +108,6 @@ function TitleManager() {
 }
 
 /* ================= LOADER ================= */
-
 function PageLoader() {
   return (
     <div className="h-screen flex items-center justify-center">
@@ -121,7 +117,6 @@ function PageLoader() {
 }
 
 /* ================= LAYOUT ================= */
-
 function Layout({ children }) {
   const { pathname } = useLocation();
   const role = localStorage.getItem("role");
@@ -147,17 +142,16 @@ function Layout({ children }) {
 }
 
 /* ================= 404 ================= */
-
 function NotFound() {
   return <Navigate to="/" replace />;
 }
 
-/* ================= APP ROOT ================= */
-
+/* ================= APP ================= */
 export default function App() {
   return (
-    <GoogleMapsProvider> {/* ✅ FIXED BASED ON YOUR STRUCTURE */}
+    <GoogleMapsProvider>
       <div className="bg-gray-50 dark:bg-gray-900 transition-colors">
+
         <ScrollToTop />
         <BackendWakeup />
         <TitleManager />
@@ -198,6 +192,16 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={["user"]}>
                     <RideTracking />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* ✅ PROFILE */}
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute allowedRoles={["user", "driver"]}>
+                    <Profile />
                   </ProtectedRoute>
                 }
               />
@@ -244,6 +248,7 @@ export default function App() {
             </Routes>
           </Suspense>
         </Layout>
+
       </div>
     </GoogleMapsProvider>
   );

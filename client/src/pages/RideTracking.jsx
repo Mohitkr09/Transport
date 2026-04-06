@@ -8,7 +8,6 @@ import { GoogleMap, Marker, Polyline } from "@react-google-maps/api";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
 export default function RideTracking() {
-
   const { rideId } = useParams();
   const socketRef = useRef(null);
   const mapRef = useRef(null);
@@ -19,18 +18,20 @@ export default function RideTracking() {
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
 
+  const [rideStep, setRideStep] = useState(0);
+
   /* ================= FETCH ================= */
   useEffect(() => {
-    api.get(`/ride/${rideId}`).then(res => {
+    api.get(`/ride/${rideId}`).then((res) => {
       setRide(res.data.ride);
     });
   }, [rideId]);
 
   /* ================= SOCKET ================= */
   useEffect(() => {
-
     const socket = io(SOCKET_URL, {
-      auth: { token: localStorage.getItem("token") }
+      transports: ["websocket", "polling"],
+      reconnection: true
     });
 
     socketRef.current = socket;
@@ -40,25 +41,35 @@ export default function RideTracking() {
     });
 
     socket.on("rideAccepted", (data) => {
-      setRide(prev => ({
+      setRide((prev) => ({
         ...prev,
         status: "accepted",
         driver: data.driver
       }));
+      setRideStep(1);
+    });
+
+    socket.on("driverArrived", () => {
+      setRideStep(2);
     });
 
     socket.on("rideStarted", () => {
-      setRide(prev => ({ ...prev, status: "ongoing" }));
+      setRide((prev) => ({ ...prev, status: "ongoing" }));
+      setRideStep(3);
     });
 
     socket.on("rideCompleted", () => {
-      setRide(prev => ({ ...prev, status: "completed" }));
+      setRide((prev) => ({ ...prev, status: "completed" }));
+      setRideStep(4);
     });
 
-    /* 🔥 LIVE DRIVER MOVEMENT (SMOOTH + FOLLOW) */
-    socket.on("driverMoved", ({ lat, lng }) => {
+    socket.on("paymentDone", () => {
+      setRideStep(5);
+    });
 
-      setDriverPos(prev => {
+    /* 🔥 LIVE DRIVER MOVEMENT */
+    socket.on("driverMoved", ({ lat, lng }) => {
+      setDriverPos((prev) => {
         if (!prev) return { lat, lng };
 
         return {
@@ -67,23 +78,17 @@ export default function RideTracking() {
         };
       });
 
-      // store path
-      setRoutePath(prev => {
-        const newPath = [...prev, { lat, lng }];
-        return newPath.slice(-100); // limit points
-      });
+      setRoutePath((prev) => [...prev, { lat, lng }]);
 
-      // 🔥 AUTO FOLLOW DRIVER
       if (mapRef.current) {
         mapRef.current.panTo({ lat, lng });
       }
     });
 
     return () => socket.disconnect();
-
   }, [rideId]);
 
-  /* ================= STATIC ROUTE (ONLY ONCE) ================= */
+  /* ================= ROUTE ================= */
   useEffect(() => {
     if (!ride || !window.google) return;
 
@@ -107,7 +112,7 @@ export default function RideTracking() {
       },
       (result, status) => {
         if (status === "OK") {
-          const path = result.routes[0].overview_path.map(p => ({
+          const path = result.routes[0].overview_path.map((p) => ({
             lat: p.lat(),
             lng: p.lng()
           }));
@@ -115,7 +120,6 @@ export default function RideTracking() {
         }
       }
     );
-
   }, [ride]);
 
   if (!ride || !isLoaded) {
@@ -132,6 +136,14 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
+  const steps = [
+    "Driver Assigned",
+    "Driver Arrived",
+    "Ride Started",
+    "Ride Completed",
+    "Payment Done"
+  ];
+
   return (
     <div className="h-screen w-full relative">
 
@@ -143,7 +155,6 @@ export default function RideTracking() {
         onLoad={(map) => (mapRef.current = map)}
         options={{ disableDefaultUI: true }}
       >
-
         <Marker position={pickup} />
         <Marker position={drop} />
 
@@ -168,18 +179,33 @@ export default function RideTracking() {
         )}
       </GoogleMap>
 
-      {/* STATUS BAR */}
-      <div className="absolute top-0 w-full p-4 bg-black/60 text-white">
-        {ride.status === "accepted" && "🚗 Driver is coming"}
-        {ride.status === "ongoing" && "🛣 Ride in progress"}
-        {ride.status === "completed" && "✅ Ride completed"}
+      {/* TOP STATUS */}
+      <div className="absolute top-0 w-full p-4 bg-black/60 text-white text-center font-semibold">
+        {steps[rideStep - 1] || "Finding Driver..."}
+      </div>
+
+      {/* STEP PROGRESS */}
+      <div className="absolute top-16 w-full flex justify-center">
+        <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-full shadow-lg">
+          {steps.map((step, index) => (
+            <div key={index} className="flex items-center">
+              <div
+                className={`w-4 h-4 rounded-full ${
+                  rideStep > index ? "bg-green-500" : "bg-gray-300"
+                }`}
+              />
+              {index < steps.length - 1 && (
+                <div className="w-8 h-[2px] bg-gray-300" />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* BOTTOM PANEL */}
       <div className="absolute bottom-0 w-full bg-white p-5 rounded-t-3xl shadow-xl">
-
         <h2 className="font-bold text-lg">
-          {ride.driver?.name || "Finding Driver..."}
+          {ride.driver?.name || "Searching Driver..."}
         </h2>
 
         <p className="text-gray-500 text-sm mt-1">
@@ -193,7 +219,6 @@ export default function RideTracking() {
         <p className="mt-2 text-indigo-600 font-bold text-lg">
           ₹ {ride.fare}
         </p>
-
       </div>
     </div>
   );

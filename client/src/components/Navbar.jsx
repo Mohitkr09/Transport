@@ -1,38 +1,29 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ThemeToggle from "./ThemeToggle";
-import { Bell, Menu, X } from "lucide-react";
+import { Bell, Menu, X, User } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const Navbar = () => {
-
   const navigate = useNavigate();
   const location = useLocation();
   const dropdownRef = useRef(null);
 
-  
   /* ================= AUTH ================= */
-
-
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role") || "";
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
   const isDriver = role === "driver";
   const isUser = role === "user";
-  const isAdmin = role === "admin";
 
   /* ================= STATE ================= */
-
   const [openProfile, setOpenProfile] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
-  const [visible, setVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
 
   /* ================= NOTIFICATIONS ================= */
-
   useEffect(() => {
     if (!token || !isUser) return;
 
@@ -43,114 +34,87 @@ const Navbar = () => {
     }
   }, [token, isUser]);
 
-  /* ================= SCROLL ================= */
-
+  /* ================= SCROLL EFFECT ================= */
   useEffect(() => {
-    const handleScroll = () => {
-      const current = window.scrollY;
-
-      setScrolled(current > 20);
-      setVisible(!(current > lastScrollY && current > 100));
-      setLastScrollY(current);
-    };
-
+    const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
+  }, []);
 
   /* ================= CLOSE DROPDOWN ================= */
-
   useEffect(() => {
-    const close = e => {
+    const close = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setOpenProfile(false);
       }
     };
-
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
   /* ================= LOGOUT ================= */
-
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/";
   };
 
-
-  /* ================= NAV ================= */
-
-  const go = path => {
+  const go = (path) => {
     navigate(path);
     setMobileOpen(false);
   };
 
-  const isActive = path => location.pathname === path;
+  const isActive = (path) => location.pathname === path;
 
   /* ================= UI ================= */
-
   return (
-    <motion.nav
-      initial={{ y: 0 }}
-      animate={{ y: visible ? 0 : -80 }}
-      className={`fixed top-0 w-full z-50 transition-all duration-300 backdrop-blur-xl border-b
+    <nav
+      className={`fixed top-0 w-full z-50 transition-all duration-300 border-b
       ${scrolled
-        ? "bg-white/80 dark:bg-gray-900/80 shadow-lg"
-        : "bg-white/60 dark:bg-gray-900/60"}
+        ? "bg-white/90 backdrop-blur-lg shadow-md"
+        : "bg-white/70 backdrop-blur-md"}
       `}
     >
-
       <div className="max-w-7xl mx-auto flex items-center h-16 px-4 md:px-6">
 
         {/* LOGO */}
         <div
           onClick={() => go("/")}
-          className="text-xl md:text-2xl font-extrabold cursor-pointer
-          bg-gradient-to-r from-indigo-500 via-cyan-500 to-blue-500
+          className="text-2xl font-extrabold cursor-pointer
+          bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500
           bg-clip-text text-transparent"
         >
           TransportX
         </div>
 
-        {/* ================= CENTER NAV ================= */}
-
-        <div className="hidden md:flex flex-1 justify-center gap-10">
-
-          {/* 🚗 DRIVER ONLY */}
-          {isDriver && (
-            <>
-              <NavItem label="Dashboard" active={isActive("/driver/dashboard")} go={() => go("/driver/dashboard")} />
-              <NavItem label="Ride Requests" active={isActive("/driver/requests")} go={() => go("/driver/requests")} />
-            </>
-          )}
-
-          {/* 👤 USER ONLY */}
+        {/* CENTER NAV */}
+        <div className="hidden md:flex flex-1 justify-center gap-8">
           {!isDriver && (
             <>
               <NavItem label="Home" active={isActive("/")} go={() => go("/")} />
               <NavItem label="About" active={isActive("/about")} go={() => go("/about")} />
               <NavItem label="Contact" active={isActive("/contact")} go={() => go("/contact")} />
-
-              {isUser && (
-                <NavItem label="Book Ride" active={isActive("/book")} go={() => go("/book")} />
-              )}
+              {isUser && <NavItem label="Book Ride" active={isActive("/book")} go={() => go("/book")} />}
             </>
           )}
 
+          {isDriver && (
+            <>
+              <NavItem label="Dashboard" active={isActive("/driver/dashboard")} go={() => go("/driver/dashboard")} />
+              <NavItem label="Requests" active={isActive("/driver/requests")} go={() => go("/driver/requests")} />
+            </>
+          )}
         </div>
 
-        {/* ================= RIGHT ================= */}
-
+        {/* RIGHT SIDE */}
         <div className="flex items-center gap-3 ml-auto">
 
           <ThemeToggle />
 
-          {/* 🔔 USER ONLY */}
+          {/* 🔔 NOTIFICATION */}
           {token && isUser && (
             <div
               onClick={() => go("/notifications")}
-              className="relative p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+              className="relative p-2 rounded-full hover:bg-gray-100 cursor-pointer transition"
             >
               <Bell size={20} />
               {notifCount > 0 && (
@@ -161,32 +125,24 @@ const Navbar = () => {
             </div>
           )}
 
-          {/* 🚗 DRIVER STATUS BADGE */}
-          {isDriver && (
-            <span className="hidden md:inline text-xs bg-green-100 text-green-600 px-3 py-1 rounded-full">
-              Driver Mode
-            </span>
-          )}
-
-          {/* AUTH */}
-          {!token ? (
-            <div className="hidden md:flex gap-3">
-              <button onClick={() => go("/login")}>Login</button>
-              <button
-                onClick={() => go("/register")}
-                className="px-5 py-2 rounded-lg text-white bg-indigo-600"
-              >
-                Register
-              </button>
-            </div>
-          ) : (
-            <div ref={dropdownRef} className="relative hidden md:block">
+          {/* PROFILE */}
+          {token && (
+            <div ref={dropdownRef} className="relative">
 
               <button
                 onClick={() => setOpenProfile(!openProfile)}
-                className="w-10 h-10 rounded-full bg-indigo-600 text-white"
+                className="flex items-center justify-center w-10 h-10 rounded-full 
+                bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold shadow-md hover:scale-105 transition"
               >
-                {user?.name?.charAt(0)?.toUpperCase() || "U"}
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt="profile"
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                ) : (
+                  user?.name?.charAt(0)?.toUpperCase() || <User size={18} />
+                )}
               </button>
 
               <AnimatePresence>
@@ -195,81 +151,77 @@ const Navbar = () => {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="absolute right-0 mt-4 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl p-4"
+                    className="absolute right-0 mt-3 w-64 bg-white rounded-2xl shadow-xl p-4"
                   >
-                    <p className="font-semibold">{user?.name}</p>
-                    <p className="text-sm text-gray-500 capitalize">{role}</p>
+                    {/* USER INFO */}
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-indigo-500 text-white flex items-center justify-center">
+                        {user?.name?.charAt(0)?.toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-semibold">{user?.name}</p>
+                        <p className="text-sm text-gray-500 capitalize">{role}</p>
+                      </div>
+                    </div>
 
                     <hr className="my-2" />
 
-                    {isDriver && (
-                      <button onClick={() => go("/driver/dashboard")} className="w-full text-left hover:text-indigo-500">
-                        Dashboard
-                      </button>
-                    )}
-
+                    {/* MENU */}
                     {isUser && (
-                      <button onClick={() => go("/book")} className="w-full text-left hover:text-indigo-500">
-                        Book Ride
-                      </button>
+                      <DropdownItem label="My Profile" go={() => go("/profile")} />
                     )}
 
-                    <button onClick={handleLogout} className="w-full text-left text-red-500 mt-2">
-                      Logout
-                    </button>
+                    {isDriver && (
+                      <DropdownItem label="Dashboard" go={() => go("/driver/dashboard")} />
+                    )}
+
+                    <DropdownItem label="Settings" go={() => go("/settings")} />
+
+                    <DropdownItem label="Logout" go={handleLogout} danger />
 
                   </motion.div>
                 )}
               </AnimatePresence>
-
             </div>
           )}
 
-          {/* MOBILE MENU */}       
+          {/* MOBILE MENU */}
           <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden">
             {mobileOpen ? <X /> : <Menu />}
           </button>
 
         </div>
-
       </div>
 
-      {/* ================= MOBILE ================= */}
-
+      {/* MOBILE MENU */}
       <AnimatePresence>
         {mobileOpen && (
-          <motion.div className="md:hidden bg-white dark:bg-gray-900 px-6 py-4 space-y-4">
+          <motion.div
+            initial={{ height: 0 }}
+            animate={{ height: "auto" }}
+            exit={{ height: 0 }}
+            className="md:hidden bg-white px-6 py-4 space-y-3 shadow-lg"
+          >
+            <MobileItem label="Home" go={() => go("/")} />
+            <MobileItem label="About" go={() => go("/about")} />
+            <MobileItem label="Contact" go={() => go("/contact")} />
+            {isUser && <MobileItem label="Book Ride" go={() => go("/book")} />}
 
-            {isDriver && (
+            {token ? (
               <>
-                <MobileItem label="Dashboard" go={() => go("/driver/dashboard")} />
-                <MobileItem label="Ride Requests" go={() => go("/driver/requests")} />
+                <MobileItem label="Profile" go={() => go("/profile")} />
+                <MobileItem label="Logout" go={handleLogout} />
               </>
-            )}
-
-            {!isDriver && (
-              <>
-                <MobileItem label="Home" go={() => go("/")} />
-                <MobileItem label="About" go={() => go("/about")} />
-                <MobileItem label="Contact" go={() => go("/contact")} />
-                {isUser && <MobileItem label="Book Ride" go={() => go("/book")} />}
-              </>
-            )}
-
-            {!token ? (
+            ) : (
               <>
                 <MobileItem label="Login" go={() => go("/login")} />
                 <MobileItem label="Register" go={() => go("/register")} />
               </>
-            ) : (
-              <MobileItem label="Logout" go={handleLogout} />
             )}
-
           </motion.div>
         )}
       </AnimatePresence>
-
-    </motion.nav>
+    </nav>
   );
 };
 
@@ -278,14 +230,29 @@ const Navbar = () => {
 const NavItem = ({ label, go, active }) => (
   <button
     onClick={go}
-    className={`relative ${active ? "text-indigo-500 font-semibold" : "hover:text-indigo-400"}`}
+    className={`relative font-medium transition ${
+      active ? "text-indigo-600" : "text-gray-600 hover:text-indigo-500"
+    }`}
   >
     {label}
   </button>
 );
 
 const MobileItem = ({ label, go }) => (
-  <button onClick={go} className="block w-full text-left">
+  <button onClick={go} className="block w-full text-left py-2">
+    {label}
+  </button>
+);
+
+const DropdownItem = ({ label, go, danger }) => (
+  <button
+    onClick={go}
+    className={`block w-full text-left py-2 px-2 rounded-lg transition ${
+      danger
+        ? "text-red-500 hover:bg-red-50"
+        : "hover:bg-gray-100"
+    }`}
+  >
     {label}
   </button>
 );
