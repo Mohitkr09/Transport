@@ -59,30 +59,35 @@ USER ROUTES
 /* CREATE RIDE */
 router.post("/", protect, safe("createRide"));
 
-/* USER RIDES */
+/* ✅ USER RIDE HISTORY (USED IN PROFILE) */
 router.get("/my", protect, safe("getUserRides"));
 
+/* ✅ PAYMENT HISTORY (NEW) */
+router.get("/payments", protect, safe("getUserPayments"));
+
 /* ======================================================
-🔥 DRIVER ROUTES (MAIN FIX)
+🔥 DRIVER ROUTES
 ====================================================== */
 
-/* 👉 THIS MUST MATCH FRONTEND */
+/* NEARBY RIDES */
 router.get("/nearby", protect, driverOnly, safe("getNearbyRides"));
 
+/* ACCEPT / REJECT */
 router.put("/:id/accept", protect, driverOnly, safe("acceptRide"));
-
 router.put("/:id/reject", protect, driverOnly, safe("rejectRide"));
 
+/* RIDE FLOW */
 router.put("/:id/start", protect, driverOnly, safe("startRide"));
-
 router.put("/:id/complete", protect, driverOnly, safe("completeRide"));
 
 /* ======================================================
-COMMON
+COMMON ROUTES
 ====================================================== */
 
+/* CANCEL */
 router.put("/:id/cancel", protect, safe("cancelRide"));
 
+/* RATE */
 router.post("/:id/rate", protect, safe("rateRide"));
 
 /* ======================================================
@@ -90,7 +95,6 @@ ADMIN
 ====================================================== */
 
 router.get("/admin/all", protect, adminOnly, safe("getAllRides"));
-
 router.put("/admin/:id/cancel", protect, adminOnly, safe("adminCancelRide"));
 
 /* ======================================================
@@ -98,6 +102,9 @@ GET SINGLE RIDE
 ====================================================== */
 router.get("/:id", protect, safe("getRideById"));
 
+/* ======================================================
+404 HANDLER
+====================================================== */
 router.use((req, res) => {
   res.status(404).json({
     success: false,
