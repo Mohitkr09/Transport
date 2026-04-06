@@ -16,7 +16,10 @@ exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
-    // ✅ VALIDATION
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
     if (!pickupLocation?.location || !dropLocation?.location) {
       return res.status(400).json({
         success: false,
@@ -24,7 +27,6 @@ exports.createRide = async (req, res) => {
       });
     }
 
-    // ✅ CREATE RIDE
     const ride = await Ride.create({
       user: req.user._id,
       pickupLocation,
@@ -35,9 +37,6 @@ exports.createRide = async (req, res) => {
       status: "searching"
     });
 
-    /* ======================================================
-    📍 FIND NEARBY DRIVERS
-    ====================================================== */
     const pickupCoords = pickupLocation.location.coordinates;
 
     const drivers = await Driver.find({
@@ -48,25 +47,18 @@ exports.createRide = async (req, res) => {
             type: "Point",
             coordinates: pickupCoords
           },
-          $maxDistance: 5000 // 5km radius
+          $maxDistance: 5000
         }
       }
     });
 
-    console.log("🚗 Nearby Drivers:", drivers.length);
-
-    /* ======================================================
-    🔔 EMIT RIDE TO DRIVERS
-    ====================================================== */
     const io = req.app.get("io");
     const onlineDrivers = req.app.get("onlineDrivers") || {};
 
     drivers.forEach((driver) => {
       const socketId = onlineDrivers[driver._id.toString()];
-
       if (socketId) {
         io.to(socketId).emit("newRideRequest", ride);
-        console.log("📡 Sent ride to driver:", driver._id);
       }
     });
 
@@ -104,6 +96,10 @@ exports.getRideById = async (req, res) => {
 ====================================================== */
 exports.getUserRides = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ success: false });
+    }
+
     const userId = req.user._id || req.user.id;
 
     const rides = await Ride.find({ user: userId })
@@ -113,7 +109,7 @@ exports.getUserRides = async (req, res) => {
       _id: r._id,
       pickup: r.pickupLocation?.address || "N/A",
       drop: r.dropLocation?.address || "N/A",
-      fare: r.fare,
+      fare: r.fare ?? 0,
       status: r.status,
       createdAt: r.createdAt
     }));
@@ -122,12 +118,50 @@ exports.getUserRides = async (req, res) => {
 
   } catch (err) {
     console.error("❌ getUserRides:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false });
   }
 };
 
 /* ======================================================
-✅ ACCEPT RIDE + NOTIFY USER
+💳 USER PAYMENTS (🔥 FIXED)
+====================================================== */
+exports.getUserPayments = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    const userId = req.user._id || req.user.id;
+
+    const rides = await Ride.find({ user: userId })
+      .sort({ createdAt: -1 });
+
+    const payments = rides.map((r) => ({
+      rideId: r._id,
+      amount: r.fare ?? 0,
+      date: r.createdAt ?? new Date(),
+      status: r.paymentStatus || "paid"
+    }));
+
+    res.json({
+      success: true,
+      payments
+    });
+
+  } catch (err) {
+    console.error("❌ Payment API ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch payments"
+    });
+  }
+};
+
+/* ======================================================
+✅ ACCEPT RIDE
 ====================================================== */
 exports.acceptRide = async (req, res) => {
   try {
@@ -148,7 +182,6 @@ exports.acceptRide = async (req, res) => {
       });
     }
 
-    // 🔔 Notify user
     const io = req.app.get("io");
     const onlineUsers = req.app.get("onlineUsers") || {};
 
@@ -166,7 +199,7 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* ======================================================
-🚦 START RIDE
+🚦 START / COMPLETE / CANCEL / RATE
 ====================================================== */
 exports.startRide = async (req, res) => {
   try {
@@ -176,15 +209,11 @@ exports.startRide = async (req, res) => {
     await ride.startRide();
     res.json({ success: true });
 
-  } catch (err) {
-    console.error("❌ startRide:", err);
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
-/* ======================================================
-🏁 COMPLETE RIDE
-====================================================== */
 exports.completeRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
@@ -193,15 +222,11 @@ exports.completeRide = async (req, res) => {
     await ride.completeRide();
     res.json({ success: true });
 
-  } catch (err) {
-    console.error("❌ completeRide:", err);
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
-/* ======================================================
-❌ CANCEL
-====================================================== */
 exports.cancelRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
@@ -210,28 +235,20 @@ exports.cancelRide = async (req, res) => {
     await ride.cancelRide();
     res.json({ success: true });
 
-  } catch (err) {
-    console.error("❌ cancelRide:", err);
+  } catch {
     res.status(500).json({ success: false });
   }
 };
 
-/* ======================================================
-⭐ RATE
-====================================================== */
 exports.rateRide = async (req, res) => {
   try {
-    const { rating } = req.body;
-
     const ride = await Ride.findById(req.params.id);
-    ride.rating = rating;
-
+    ride.rating = req.body.rating;
     await ride.save();
 
     res.json({ success: true });
 
-  } catch (err) {
-    console.error("❌ rateRide:", err);
+  } catch {
     res.status(500).json({ success: false });
   }
 };
