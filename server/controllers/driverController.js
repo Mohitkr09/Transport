@@ -88,7 +88,7 @@ exports.getDriverProfile = async (req, res) => {
 };
 
 /* =========================================================
-ONLINE / OFFLINE (FIXED)
+ONLINE / OFFLINE
 ========================================================= */
 exports.updateDriverStatus = async (req, res) => {
   try {
@@ -101,8 +101,6 @@ exports.updateDriverStatus = async (req, res) => {
     const { isOnline } = req.body;
 
     driver.isOnline = isOnline;
-
-    // let schema handle availability
     await driver.save();
 
     return send(res, true, {
@@ -140,34 +138,48 @@ exports.updateDriverLocation = async (req, res) => {
 };
 
 /* =========================================================
-GET NEARBY RIDES (SMART)
+🔥 FIXED GET NEARBY RIDES
 ========================================================= */
 exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
 
-    if (!driver || !driver.isOnline) {
-      return send(res, false, { message: "Driver offline" }, 400);
+    if (!driver) {
+      return send(res, false, { message: "Driver not found" }, 404);
+    }
+
+    if (!driver.isOnline) {
+      return send(res, false, { message: "Driver is offline" }, 400);
+    }
+
+    /* 🔥 IMPORTANT FIX */
+    const vehicleType = driver.vehicleType || driver.vehicle?.type;
+
+    if (!vehicleType) {
+      return send(res, false, {
+        message: "Driver vehicle type missing"
+      }, 400);
     }
 
     const rides = await Ride.find({
       status: "searching",
       driver: null,
-      vehicleType: driver.vehicleType,
+      vehicleType: vehicleType,
       rejectedDrivers: { $ne: driver._id },
     })
-    .sort({ createdAt: -1 })
-    .limit(10);
+      .sort({ createdAt: -1 })
+      .limit(10);
 
     return send(res, true, { rides });
 
   } catch (err) {
+    console.error("❌ getNearbyRides:", err.message);
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT RIDE (SAFE)
+ACCEPT RIDE
 ========================================================= */
 exports.acceptRide = async (req, res) => {
   try {

@@ -33,7 +33,7 @@ router.use((req, res, next) => {
 HEALTH CHECK
 ================================================= */
 router.get("/health", (req, res) => {
-  res.json({ success: true, message: "Driver API working" });
+  res.json({ success: true, message: "Driver API working ✅" });
 });
 
 /* =================================================
@@ -46,7 +46,9 @@ router.post(
   protect,
   driverOnly,
   asyncHandler(async (req, res) => {
-    await Driver.findByIdAndUpdate(req.user.id, {
+    const driverId = req.user?._id || req.user?.id;
+
+    await Driver.findByIdAndUpdate(driverId, {
       isOnline: false,
       isAvailable: false,
       currentRide: null
@@ -84,7 +86,7 @@ router.put(
 );
 
 /* =================================================
-🔥 DRIVER STATS (FIXED + OPTIMIZED)
+🔥 DRIVER STATS
 ================================================= */
 router.get(
   "/stats",
@@ -119,10 +121,21 @@ router.get(
 );
 
 /* =================================================
-NEARBY RIDES
+🚗 NEARBY RIDES (MAIN ROUTE)
 ================================================= */
 router.get(
   "/rides",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.getNearbyRides)
+);
+
+/* =================================================
+🔥 OPTIONAL FIX (IMPORTANT)
+Support old frontend: /ride/nearby
+================================================= */
+router.get(
+  "/nearby",
   protect,
   driverOnly,
   asyncHandler(driverController.getNearbyRides)

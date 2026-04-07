@@ -22,15 +22,21 @@ export default function DriverDashboard() {
   const socketRef = useRef(null);
   const audioRef = useRef(null);
 
-  /* ================= SOUND ================= */
+  /* ================= 🔊 SOUND ================= */
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/ride-alert.mp3");
-    audioRef.current.loop = true;
-    audioRef.current.volume = 1;
+    const audio = new Audio("/sounds/ride-alert.mp3");
+    audio.loop = true;
+    audio.volume = 1;
+    audioRef.current = audio;
   }, []);
 
   const playSound = () => {
-    audioRef.current?.play().catch(() => {});
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = 0;
+
+    audioRef.current.play().catch(() => {
+      console.log("🔇 autoplay blocked");
+    });
   };
 
   const stopSound = () => {
@@ -61,19 +67,31 @@ export default function DriverDashboard() {
     fetchStats();
   }, []);
 
-  /* ================= SOCKET ================= */
+  /* ================= SOCKET (FIXED) ================= */
   useEffect(() => {
     if (!profile?._id) return;
 
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: { userId: profile._id, role: "driver" }
+      auth: {
+        token: localStorage.getItem("token"),
+        userId: profile._id,
+        role: "driver"
+      },
+      transports: ["websocket"],
+      reconnection: true
     });
 
     socketRef.current = socket;
 
+    socket.on("connect", () => {
+      console.log("✅ Connected to socket");
+    });
+
     socket.on("newRideRequest", (ride) => {
+      console.log("🚨 NEW RIDE:", ride);
+
       setIncomingRide(ride);
-      playSound();
+      playSound(); // 🔊 ALERT
     });
 
     socket.on("rideAccepted", (ride) => {
@@ -85,6 +103,22 @@ export default function DriverDashboard() {
 
     return () => socket.disconnect();
   }, [profile]);
+
+  /* ================= FALLBACK (IMPORTANT) ================= */
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get("/driver/rides");
+
+        if (res.data.rides?.length > 0 && !incomingRide) {
+          setIncomingRide(res.data.rides[0]);
+          playSound();
+        }
+      } catch {}
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [incomingRide]);
 
   /* ================= TIMER ================= */
   useEffect(() => {
@@ -148,100 +182,80 @@ export default function DriverDashboard() {
     stopSound();
   };
 
-  /* ================= DATA ================= */
+  /* ================= MAP ROUTE ================= */
   const rideData = activeRide || incomingRide;
-
-  const pickupAddress = rideData?.pickupLocation?.address || "";
-  const dropAddress = rideData?.dropLocation?.address || "";
-  const userName = rideData?.user?.name || "User";
 
   const pickupCoords = rideData?.pickupLocation?.location?.coordinates;
   const dropCoords = rideData?.dropLocation?.location?.coordinates;
 
+  const pickupLatLng = pickupCoords
+    ? { lat: pickupCoords[1], lng: pickupCoords[0] }
+    : null;
+
+  const dropLatLng = dropCoords
+    ? { lat: dropCoords[1], lng: dropCoords[0] }
+    : null;
+
+  /* ================= UI ================= */
   return (
-    <div className="min-h-screen p-4 sm:p-6 
+    <div className="min-h-screen p-4 
       bg-gray-100 dark:bg-gray-950 
       text-gray-900 dark:text-white">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-6 
-        bg-white/70 dark:bg-gray-900/80 backdrop-blur-xl
-        p-4 rounded-2xl shadow-lg">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-xl font-bold">🚗 Driver Dashboard</h1>
 
-        <h1 className="text-xl sm:text-2xl font-bold">
-          🚗 Driver Dashboard
-        </h1>
-
-        <div className="flex items-center gap-3">
-          <span className={`w-3 h-3 rounded-full ${
-            online ? "bg-green-500 animate-pulse" : "bg-gray-400"
-          }`} />
-
-          <button
-            onClick={toggleOnline}
-            className={`px-4 py-2 rounded-full text-white ${
-              online ? "bg-green-600" : "bg-gray-500"
-            }`}
-          >
-            {online ? "Online" : "Offline"}
-          </button>
-        </div>
+        <button
+          onClick={toggleOnline}
+          className={`px-4 py-2 rounded-full text-white ${
+            online ? "bg-green-600" : "bg-gray-500"
+          }`}
+        >
+          {online ? "Online" : "Offline"}
+        </button>
       </div>
 
       {/* STATS */}
-      <div className="grid grid-cols-2 gap-4 mb-5">
-        <div className="bg-gradient-to-r from-indigo-500 to-blue-600 text-white p-4 rounded-2xl shadow">
-          <p>Total Rides</p>
-          <p className="text-2xl font-bold">{stats.totalRides}</p>
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-indigo-500 text-white p-4 rounded-xl">
+          {stats.totalRides} Rides
         </div>
-
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-4 rounded-2xl shadow">
-          <p>Earnings</p>
-          <p className="text-2xl font-bold">₹{stats.totalEarnings}</p>
+        <div className="bg-green-500 text-white p-4 rounded-xl">
+          ₹{stats.totalEarnings}
         </div>
       </div>
 
-      {/* MAP */}
-      <div className="rounded-2xl overflow-hidden shadow-xl border border-gray-200 dark:border-gray-800">
+      {/* MAP WITH ROUTE */}
+      <div className="h-[400px] rounded-xl overflow-hidden">
         <LiveMap
-          userLocation={pickupCoords ? { lat: pickupCoords[1], lng: pickupCoords[0] } : null}
           driverLocation={driverLocation}
-          dropLocation={dropCoords ? { lat: dropCoords[1], lng: dropCoords[0] } : null}
+          userLocation={pickupLatLng}
+          dropLocation={dropLatLng}
         />
       </div>
 
       {/* RIDE POPUP */}
       {incomingRide && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+        <div className="fixed bottom-0 w-full bg-white dark:bg-gray-900 p-5 shadow-xl">
+          <h3 className="text-red-500 font-bold">
+            🚨 New Ride ({timer}s)
+          </h3>
 
-          <div className="relative w-full max-w-md 
-            bg-white dark:bg-gray-900 
-            rounded-t-3xl p-6 shadow-2xl animate-slideUp">
+          <p>{rideData?.pickupLocation?.address}</p>
+          <p>{rideData?.dropLocation?.address}</p>
 
-            <h3 className="text-lg font-bold mb-2 text-red-500">
-              🚨 New Ride ({timer}s)
-            </h3>
-
-            <p>👤 {userName}</p>
-            <p>📍 {pickupAddress}</p>
-            <p className="mb-3">🏁 {dropAddress}</p>
-
-            <div className="bg-indigo-100 dark:bg-indigo-900 
-              text-center p-3 rounded-xl mb-4 font-bold">
-              ₹{incomingRide?.fare}
-            </div>
-
+          <div className="flex gap-3 mt-3">
             <button
               onClick={() => acceptRide(incomingRide._id)}
-              className="w-full bg-green-600 text-white py-3 rounded-xl mb-2 hover:scale-105"
+              className="bg-green-600 text-white px-4 py-2 rounded"
             >
               Accept
             </button>
 
             <button
               onClick={() => rejectRide(incomingRide._id)}
-              className="w-full bg-gray-200 dark:bg-gray-700 py-3 rounded-xl"
+              className="bg-gray-500 text-white px-4 py-2 rounded"
             >
               Reject
             </button>
