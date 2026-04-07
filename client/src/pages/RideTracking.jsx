@@ -9,6 +9,7 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
 export default function RideTracking() {
   const { rideId } = useParams();
+
   const socketRef = useRef(null);
   const mapRef = useRef(null);
 
@@ -18,7 +19,7 @@ export default function RideTracking() {
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
 
-  const [rideStep, setRideStep] = useState(0);
+  const animationRef = useRef(null);
 
   /* ================= FETCH ================= */
   useEffect(() => {
@@ -27,62 +28,48 @@ export default function RideTracking() {
     });
   }, [rideId]);
 
+  /* ================= SMOOTH ANIMATION ================= */
+  const animateDriver = (start, end) => {
+    let progress = 0;
+
+    cancelAnimationFrame(animationRef.current);
+
+    const step = () => {
+      progress += 0.02;
+
+      const lat = start.lat + (end.lat - start.lat) * progress;
+      const lng = start.lng + (end.lng - start.lng) * progress;
+
+      setDriverPos({ lat, lng });
+
+      if (mapRef.current) {
+        mapRef.current.panTo({ lat, lng });
+      }
+
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(step);
+      }
+    };
+
+    animationRef.current = requestAnimationFrame(step);
+  };
+
   /* ================= SOCKET ================= */
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true
-    });
-
+    const socket = io(SOCKET_URL);
     socketRef.current = socket;
 
     socket.on("connect", () => {
       socket.emit("joinRide", rideId);
     });
 
-    socket.on("rideAccepted", (data) => {
-      setRide((prev) => ({
-        ...prev,
-        status: "accepted",
-        driver: data.driver
-      }));
-      setRideStep(1);
-    });
-
-    socket.on("driverArrived", () => {
-      setRideStep(2);
-    });
-
-    socket.on("rideStarted", () => {
-      setRide((prev) => ({ ...prev, status: "ongoing" }));
-      setRideStep(3);
-    });
-
-    socket.on("rideCompleted", () => {
-      setRide((prev) => ({ ...prev, status: "completed" }));
-      setRideStep(4);
-    });
-
-    socket.on("paymentDone", () => {
-      setRideStep(5);
-    });
-
-    /* 🔥 LIVE DRIVER MOVEMENT */
     socket.on("driverMoved", ({ lat, lng }) => {
       setDriverPos((prev) => {
         if (!prev) return { lat, lng };
 
-        return {
-          lat: prev.lat + (lat - prev.lat) * 0.2,
-          lng: prev.lng + (lng - prev.lng) * 0.2
-        };
+        animateDriver(prev, { lat, lng });
+        return prev;
       });
-
-      setRoutePath((prev) => [...prev, { lat, lng }]);
-
-      if (mapRef.current) {
-        mapRef.current.panTo({ lat, lng });
-      }
     });
 
     return () => socket.disconnect();
@@ -136,14 +123,6 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
-  const steps = [
-    "Driver Assigned",
-    "Driver Arrived",
-    "Ride Started",
-    "Ride Completed",
-    "Payment Done"
-  ];
-
   return (
     <div className="h-screen w-full relative">
 
@@ -155,71 +134,69 @@ export default function RideTracking() {
         onLoad={(map) => (mapRef.current = map)}
         options={{ disableDefaultUI: true }}
       >
+
+        {/* PICKUP */}
         <Marker position={pickup} />
+
+        {/* DROP */}
         <Marker position={drop} />
 
+        {/* 🚗 DRIVER */}
         {driverPos && (
           <Marker
             position={driverPos}
             icon={{
-              url: "https://cdn-icons-png.flaticon.com/512/743/743922.png",
-              scaledSize: new window.google.maps.Size(40, 40)
+              url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
+              scaledSize: new window.google.maps.Size(50, 50)
             }}
           />
         )}
 
+        {/* ROUTE */}
         {routePath.length > 1 && (
           <Polyline
             path={routePath}
             options={{
-              strokeColor: "#4f46e5",
-              strokeWeight: 5
+              strokeColor: "#22c55e",
+              strokeWeight: 6
             }}
           />
         )}
+
       </GoogleMap>
 
-      {/* TOP STATUS */}
+      {/* 🔥 TOP STATUS */}
       <div className="absolute top-0 w-full p-4 bg-black/60 text-white text-center font-semibold">
-        {steps[rideStep - 1] || "Finding Driver..."}
+        {ride.status === "searching" && "Searching Driver..."}
+        {ride.status === "accepted" && "Driver is on the way 🚗"}
+        {ride.status === "ongoing" && "Ride in progress 🛣️"}
+        {ride.status === "completed" && "Ride Completed 🎉"}
       </div>
 
-      {/* STEP PROGRESS */}
-      <div className="absolute top-16 w-full flex justify-center">
-        <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-full shadow-lg">
-          {steps.map((step, index) => (
-            <div key={index} className="flex items-center">
-              <div
-                className={`w-4 h-4 rounded-full ${
-                  rideStep > index ? "bg-green-500" : "bg-gray-300"
-                }`}
-              />
-              {index < steps.length - 1 && (
-                <div className="w-8 h-[2px] bg-gray-300" />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* 🔥 BOTTOM PANEL */}
+      <div className="absolute bottom-0 w-full bg-white p-6 rounded-t-3xl shadow-2xl">
 
-      {/* BOTTOM PANEL */}
-      <div className="absolute bottom-0 w-full bg-white p-5 rounded-t-3xl shadow-xl">
-        <h2 className="font-bold text-lg">
-          {ride.driver?.name || "Searching Driver..."}
+        <h2 className="font-bold text-xl">
+          {ride.driver?.name || "Finding Driver..."}
         </h2>
 
-        <p className="text-gray-500 text-sm mt-1">
-          📍 {ride.pickupLocation.address}
-        </p>
+        <div className="mt-3 text-sm text-gray-600 space-y-1">
+          <p>📍 {ride.pickupLocation.address}</p>
+          <p>🏁 {ride.dropLocation.address}</p>
+        </div>
 
-        <p className="text-gray-500 text-sm">
-          🏁 {ride.dropLocation.address}
-        </p>
+        <div className="mt-4 flex justify-between items-center">
+          <p className="text-green-600 text-xl font-bold">
+            ₹ {ride.fare}
+          </p>
 
-        <p className="mt-2 text-indigo-600 font-bold text-lg">
-          ₹ {ride.fare}
-        </p>
+          <button className="bg-red-500 text-white px-4 py-2 rounded-xl">
+            Cancel
+          </button>
+        </div>
+
       </div>
+
     </div>
   );
 }

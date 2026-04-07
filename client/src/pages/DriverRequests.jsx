@@ -14,28 +14,15 @@ export default function DriverRequests() {
 
   /* ================= SOCKET ================= */
   useEffect(() => {
-
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: {
-        token: localStorage.getItem("token"),
-      },
-      transports: ["websocket", "polling"], // 🔥 important
+      auth: { token: localStorage.getItem("token") },
+      transports: ["websocket", "polling"],
     });
 
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      console.log("✅ Connected:", socket.id);
-    });
-
-    socket.on("connect_error", (err) => {
-      console.log("❌ Socket error:", err.message);
-    });
-
-    /* 🔥 NEW RIDE */
     socket.on("newRideRequest", (ride) => {
-
-      audioRef.current?.play();
+      audioRef.current?.play().catch(() => {});
       setNewRide(ride);
 
       setRides((prev) => {
@@ -43,10 +30,9 @@ export default function DriverRequests() {
         return [ride, ...prev];
       });
 
-      setTimeout(() => setNewRide(null), 7000);
+      setTimeout(() => setNewRide(null), 5000);
     });
 
-    /* REMOVE IF TAKEN */
     socket.on("rideTaken", (rideId) => {
       setRides((prev) => prev.filter((r) => r._id !== rideId));
     });
@@ -54,42 +40,37 @@ export default function DriverRequests() {
     return () => socket.disconnect();
   }, []);
 
-  /* ================= GET DRIVER LOCATION ================= */
+  /* ================= LOCATION ================= */
   useEffect(() => {
     navigator.geolocation.getCurrentPosition((pos) => {
       setCoords({
         lat: pos.coords.latitude,
-        lng: pos.coords.longitude
+        lng: pos.coords.longitude,
       });
     });
   }, []);
 
-  /* ================= SEND LOCATION (IMPORTANT) ================= */
   useEffect(() => {
     if (!coords) return;
 
-    const interval = setInterval(async () => {
-      try {
-        await api.put("/driver/location", coords);
-      } catch {}
-    }, 5000);
+    const interval = setInterval(() => {
+      api.put("/driver/location", coords).catch(() => {});
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [coords]);
 
-  /* ================= FETCH RIDES ================= */
+  /* ================= FETCH ================= */
   const fetchRequests = async () => {
     try {
       if (!coords) return;
 
       const res = await api.get("/ride/nearby", {
-        params: coords
+        params: coords,
       });
 
       setRides(res.data.rides || []);
-    } catch (err) {
-      console.log("❌ fetch error:", err);
-    }
+    } catch {}
   };
 
   useEffect(() => {
@@ -102,25 +83,21 @@ export default function DriverRequests() {
       setLoadingId(id);
 
       if (action === "accept") {
-
         await api.put(`/ride/${id}/accept`);
 
         socketRef.current.emit("driverAcceptRide", {
-          rideId: id
+          rideId: id,
         });
 
         setRides([]);
         setNewRide(null);
 
       } else {
-
         await api.put(`/ride/${id}/reject`);
-
         setRides((prev) => prev.filter((r) => r._id !== id));
       }
 
-    } catch (err) {
-      console.log("❌ action error:", err);
+    } catch {
       alert("Action failed");
     } finally {
       setLoadingId(null);
@@ -129,7 +106,7 @@ export default function DriverRequests() {
 
   /* ================= UI ================= */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 p-6">
 
       {/* 🔊 SOUND */}
       <audio
@@ -138,63 +115,88 @@ export default function DriverRequests() {
       />
 
       {/* HEADER */}
-      <h1 className="text-3xl font-bold mb-6 text-center">
-        🚗 Ride Requests
-      </h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">🚗 Ride Requests</h1>
+        <span className="text-gray-500 text-sm">
+          {rides.length} available
+        </span>
+      </div>
 
-      {/* 🔥 POPUP */}
+      {/* 🔥 NEW RIDE POPUP */}
       {newRide && (
-        <div className="fixed top-5 right-5 bg-white p-4 rounded-xl shadow-lg border-l-4 border-green-500 animate-bounce z-50">
-          <p className="font-bold">🚨 New Ride!</p>
-          <p className="text-sm">{newRide.pickupLocation?.address}</p>
+        <div className="fixed top-5 right-5 z-50 animate-slideIn">
+          <div className="bg-white shadow-xl rounded-2xl p-4 border-l-4 border-green-500 w-72">
+            <p className="font-bold text-green-600">🚨 New Ride</p>
+            <p className="text-sm mt-1">
+              {newRide.pickupLocation?.address}
+            </p>
+          </div>
         </div>
       )}
 
-      {/* NO RIDES */}
+      {/* EMPTY STATE */}
       {rides.length === 0 ? (
-        <div className="text-center mt-20 text-gray-500">
-          🚫 No pending rides
+        <div className="flex flex-col items-center justify-center mt-24 text-gray-500">
+          <div className="text-6xl mb-3">🚫</div>
+          <p className="text-lg">No ride requests nearby</p>
         </div>
       ) : (
-        <div className="grid gap-5 max-w-3xl mx-auto">
+        <div className="grid gap-6 max-w-3xl mx-auto">
+
           {rides.map((ride) => (
             <div
               key={ride._id}
-              className="bg-white rounded-2xl p-5 shadow-md hover:shadow-xl transition"
+              className="bg-white/80 backdrop-blur-lg border rounded-2xl p-5 shadow-md hover:shadow-xl transition"
             >
-              <div className="flex justify-between mb-2">
-                <span className="text-gray-600 text-sm">Ride</span>
-                <span className="font-bold text-green-600">
+
+              {/* TOP */}
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <p className="text-gray-500 text-sm">Ride</p>
+                  <p className="font-semibold text-lg">
+                    {ride.vehicleType?.toUpperCase()}
+                  </p>
+                </div>
+
+                <p className="text-xl font-bold text-green-600">
                   ₹{ride.fare}
-                </span>
+                </p>
               </div>
 
-              <p className="text-gray-800 mb-1">
-                📍 {ride.pickupLocation?.address}
-              </p>
+              {/* LOCATIONS */}
+              <div className="space-y-2 mb-4">
+                <p className="flex items-start gap-2 text-gray-800">
+                  <span>📍</span>
+                  {ride.pickupLocation?.address}
+                </p>
 
-              <p className="text-gray-600 text-sm mb-3">
-                ➡️ {ride.dropLocation?.address}
-              </p>
+                <p className="flex items-start gap-2 text-gray-600">
+                  <span>🏁</span>
+                  {ride.dropLocation?.address}
+                </p>
+              </div>
 
+              {/* ACTIONS */}
               <div className="flex gap-3">
                 <button
                   onClick={() => handleAction(ride._id, "accept")}
                   disabled={loadingId === ride._id}
-                  className="flex-1 bg-green-600 text-white py-2 rounded-xl"
+                  className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-semibold shadow hover:scale-105 transition"
                 >
                   {loadingId === ride._id ? "Accepting..." : "Accept"}
                 </button>
 
                 <button
                   onClick={() => handleAction(ride._id, "reject")}
-                  className="flex-1 bg-red-500 text-white py-2 rounded-xl"
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 py-3 rounded-xl font-semibold transition"
                 >
                   Reject
                 </button>
               </div>
+
             </div>
           ))}
+
         </div>
       )}
     </div>

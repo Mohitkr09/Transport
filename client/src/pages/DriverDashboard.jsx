@@ -13,6 +13,12 @@ export default function DriverDashboard() {
 
   const [timer, setTimer] = useState(10);
   const [driverLocation, setDriverLocation] = useState(null);
+
+  const [stats, setStats] = useState({
+    totalRides: 0,
+    totalEarnings: 0
+  });
+
   const [soundEnabled, setSoundEnabled] = useState(false);
 
   const socketRef = useRef(null);
@@ -21,15 +27,31 @@ export default function DriverDashboard() {
   /* ================= SOUND ================= */
   useEffect(() => {
     audioRef.current = new Audio("/sounds/ride-alert.mp3");
-    audioRef.current.loop = true;
+    audioRef.current.preload = "auto";
+    audioRef.current.volume = 1;
   }, []);
 
   const enableSound = () => {
-    audioRef.current.play().then(() => {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setSoundEnabled(true);
-    }).catch(()=>{});
+    if (!audioRef.current) return;
+
+    audioRef.current.play()
+      .then(() => {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        setSoundEnabled(true);
+      })
+      .catch(() => {
+        alert("Click again to enable sound");
+      });
+  };
+
+  const playSound = () => {
+    if (!audioRef.current) return;
+
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch((err) => {
+      console.log("Sound blocked:", err.message);
+    });
   };
 
   const stopSound = () => {
@@ -42,7 +64,19 @@ export default function DriverDashboard() {
     api.get("/driver/me").then(res => {
       setProfile(res.data.driver);
       setOnline(res.data.driver.isOnline);
-    });
+    }).catch(() => {});
+  }, []);
+
+  /* ================= STATS ================= */
+  const fetchStats = async () => {
+    try {
+      const res = await api.get("/driver/stats");
+      setStats(res.data.stats || {});
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchStats();
   }, []);
 
   /* ================= SOCKET ================= */
@@ -58,17 +92,18 @@ export default function DriverDashboard() {
     socket.on("newRideRequest", (ride) => {
       setIncomingRide(ride);
 
-      audioRef.current?.play().catch(()=>{});
+      if (soundEnabled) playSound(); // ✅ FIX
     });
 
     socket.on("rideAccepted", (ride) => {
       setActiveRide(ride);
       setIncomingRide(null);
       stopSound();
+      fetchStats();
     });
 
     return () => socket.disconnect();
-  }, [profile]);
+  }, [profile, soundEnabled]);
 
   /* ================= TIMER ================= */
   useEffect(() => {
@@ -113,9 +148,13 @@ export default function DriverDashboard() {
 
   /* ================= ACTIONS ================= */
   const toggleOnline = async () => {
-    const newStatus = !online;
-    await api.put("/driver/online", { isOnline: newStatus });
-    setOnline(newStatus);
+    try {
+      const newStatus = !online;
+      await api.put("/driver/online", { isOnline: newStatus });
+      setOnline(newStatus);
+    } catch {
+      alert("Failed to update status");
+    }
   };
 
   const acceptRide = async (id) => {
@@ -124,6 +163,7 @@ export default function DriverDashboard() {
       setActiveRide(res.data.ride);
       setIncomingRide(null);
       stopSound();
+      fetchStats();
     } catch {
       alert("Ride already taken");
     }
@@ -148,13 +188,23 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-4">
 
+      {/* 🔊 ENABLE SOUND BUTTON */}
+      {!soundEnabled && (
+        <button
+          onClick={enableSound}
+          className="fixed bottom-5 right-5 bg-blue-600 text-white px-4 py-2 rounded-full shadow z-50"
+        >
+          🔊 Enable Sound
+        </button>
+      )}
+
       {/* HEADER */}
       <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-xl shadow">
         <h1 className="text-xl font-bold">🚗 Driver Dashboard</h1>
 
         <button
           onClick={toggleOnline}
-          className={`px-4 py-2 rounded-full font-semibold transition ${
+          className={`px-4 py-2 rounded-full ${
             online
               ? "bg-green-600 text-white"
               : "bg-gray-400 text-white"
@@ -164,77 +214,59 @@ export default function DriverDashboard() {
         </button>
       </div>
 
+      {/* STATS */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-white p-4 rounded-xl shadow text-center">
+          <p>Total Rides</p>
+          <p className="text-2xl font-bold">{stats.totalRides || 0}</p>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl shadow text-center">
+          <p>Total Earnings</p>
+          <p className="text-2xl font-bold text-green-600">
+            ₹{stats.totalEarnings || 0}
+          </p>
+        </div>
+      </div>
+
       {/* MAP */}
       <div className="rounded-xl overflow-hidden shadow-lg">
         <LiveMap
           userLocation={pickupCoords ? { lat: pickupCoords[1], lng: pickupCoords[0] } : null}
           driverLocation={driverLocation}
           dropLocation={dropCoords ? { lat: dropCoords[1], lng: dropCoords[0] } : null}
-          routePath={activeRide?.routePath || []}
         />
       </div>
 
-      {/* 🔔 RIDE REQUEST UI */}
+      {/* RIDE REQUEST */}
       {incomingRide && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
 
-          <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl animate-slideUp">
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl">
+            <h3>🚗 New Ride ({timer}s)</h3>
+            <p>👤 {userName}</p>
+            <p>📍 {pickupAddress}</p>
+            <p>🏁 {dropAddress}</p>
 
-            <div className="flex justify-between mb-2">
-              <h3 className="text-lg font-bold">🚗 New Ride</h3>
-              <span className="text-red-500 font-bold animate-pulse">
-                {timer}s
-              </span>
-            </div>
-
-            <div className="bg-gray-100 p-3 rounded-xl mb-3">
-              <p className="text-sm text-gray-500">Passenger</p>
-              <p className="font-semibold text-lg">👤 {userName}</p>
-            </div>
-
-            <div className="space-y-2 mb-4">
-              <p>📍 {pickupAddress}</p>
-              <p>🏁 {dropAddress}</p>
-            </div>
-
-            <div className="bg-indigo-100 text-center p-3 rounded-xl mb-4">
-              <p className="text-xl font-bold text-indigo-600">
-                ₹{incomingRide?.fare}
-              </p>
+            <div className="bg-indigo-100 text-center p-3 rounded-xl my-3">
+              ₹{incomingRide?.fare}
             </div>
 
             <button
               onClick={() => acceptRide(incomingRide._id)}
-              className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl text-lg font-bold mb-2"
+              className="w-full bg-green-600 text-white py-3 rounded-xl mb-2"
             >
-              Accept Ride
+              Accept
             </button>
 
             <button
               onClick={() => rejectRide(incomingRide._id)}
-              className="w-full bg-gray-200 hover:bg-gray-300 py-3 rounded-xl"
+              className="w-full bg-gray-200 py-3 rounded-xl"
             >
               Reject
             </button>
-
           </div>
-        </div>
-      )}
-
-      {/* ACTIVE RIDE */}
-      {activeRide && (
-        <div className="mt-4 bg-white p-4 rounded-xl shadow-lg">
-          <h3 className="font-bold text-lg mb-2">🚗 Active Ride</h3>
-
-          <p>👤 {userName}</p>
-          <p>📍 {pickupAddress}</p>
-          <p>🏁 {dropAddress}</p>
-
-          <p className="text-green-600 font-bold text-lg mt-2">
-            ₹{activeRide?.fare}
-          </p>
         </div>
       )}
 
