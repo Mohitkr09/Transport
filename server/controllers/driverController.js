@@ -63,6 +63,7 @@ exports.loginDriver = async (req, res) => {
         role: "driver",
       },
     });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -80,13 +81,14 @@ exports.getDriverProfile = async (req, res) => {
     }
 
     return send(res, true, { driver });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ONLINE / OFFLINE
+ONLINE / OFFLINE (FIXED)
 ========================================================= */
 exports.updateDriverStatus = async (req, res) => {
   try {
@@ -99,15 +101,15 @@ exports.updateDriverStatus = async (req, res) => {
     const { isOnline } = req.body;
 
     driver.isOnline = isOnline;
-    driver.isAvailable = isOnline;
 
-    if (!isOnline) driver.currentRide = null;
-
+    // let schema handle availability
     await driver.save();
 
     return send(res, true, {
       message: `Driver is now ${isOnline ? "Online" : "Offline"}`,
+      driver
     });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -131,13 +133,14 @@ exports.updateDriverLocation = async (req, res) => {
     await driver.save();
 
     return send(res, true, { message: "Location updated" });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-GET NEARBY RIDES
+GET NEARBY RIDES (SMART)
 ========================================================= */
 exports.getNearbyRides = async (req, res) => {
   try {
@@ -150,47 +153,53 @@ exports.getNearbyRides = async (req, res) => {
     const rides = await Ride.find({
       status: "searching",
       driver: null,
+      vehicleType: driver.vehicleType,
       rejectedDrivers: { $ne: driver._id },
-    }).limit(10);
+    })
+    .sort({ createdAt: -1 })
+    .limit(10);
 
     return send(res, true, { rides });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT RIDE
+ACCEPT RIDE (SAFE)
 ========================================================= */
 exports.acceptRide = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
 
-    if (!driver || !driver.isAvailable) {
+    if (!driver || !driver.isAvailable || driver.currentRide) {
       return send(res, false, { message: "Driver not available" }, 400);
     }
 
-    const ride = await Ride.findOneAndUpdate(
-      { _id: req.params.id, status: "searching" },
-      {
-        driver: driver._id,
-        status: "accepted",
-        acceptedAt: new Date(),
-      },
-      { new: true }
-    ).populate("user");
+    const ride = await Ride.findOne({
+      _id: req.params.id,
+      status: "searching",
+      rejectedDrivers: { $ne: driver._id }
+    });
 
     if (!ride) {
       return send(res, false, { message: "Ride already taken" }, 400);
     }
 
+    ride.driver = driver._id;
+    ride.status = "accepted";
+    ride.acceptedAt = new Date();
+    await ride.save();
+
     driver.isAvailable = false;
     driver.currentRide = ride._id;
     await driver.save();
 
-    emitToUser(req, ride.user._id, "rideAccepted", ride);
+    emitToUser(req, ride.user, "rideAccepted", ride);
 
     return send(res, true, { ride });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -215,6 +224,7 @@ exports.rejectRide = async (req, res) => {
     }
 
     return send(res, true, { message: "Ride rejected" });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -238,6 +248,7 @@ exports.startRide = async (req, res) => {
     emitToUser(req, ride.user, "rideStarted", ride);
 
     return send(res, true, { ride });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }
@@ -268,6 +279,7 @@ exports.completeRide = async (req, res) => {
     emitToUser(req, ride.user, "rideCompleted", ride);
 
     return send(res, true, { message: "Ride completed" });
+
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
   }

@@ -54,11 +54,11 @@ const driverSchema = new mongoose.Schema(
       }
     },
 
-    // 🔥 IMPORTANT (used in matching)
+    // 🔥 FIX: NOT required anymore
     vehicleType: {
       type: String,
       enum: ["bike", "auto", "car"],
-      required: true
+      default: null
     },
 
     /* ================= LOCATION ================= */
@@ -70,21 +70,8 @@ const driverSchema = new mongoose.Schema(
         default: "Point"
       },
       coordinates: {
-        type: [Number], // [lng, lat]
-        default: [77.1025, 28.7041], // 🔥 fallback (Delhi)
-        validate: {
-          validator: function (val) {
-            return (
-              Array.isArray(val) &&
-              val.length === 2 &&
-              val[0] >= -180 &&
-              val[0] <= 180 &&
-              val[1] >= -90 &&
-              val[1] <= 90
-            );
-          },
-          message: "Coordinates must be valid [lng, lat]"
-        }
+        type: [Number],
+        default: [77.1025, 28.7041],
       }
     },
 
@@ -125,7 +112,7 @@ const driverSchema = new mongoose.Schema(
 );
 
 /* =========================================================
-🔥 GEO INDEX (CRITICAL)
+🔥 GEO INDEX
 ========================================================= */
 driverSchema.index({ location: "2dsphere" });
 
@@ -140,33 +127,32 @@ driverSchema.index({ isOnline: 1, isAvailable: 1, vehicleType: 1 });
 driverSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
-  if (
-    this.password.startsWith("$2a$") ||
-    this.password.startsWith("$2b$")
-  ) {
-    return;
-  }
-
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password.trim(), salt);
 });
 
 /* =========================================================
-🔥 AUTO STATUS LOGIC (VERY IMPORTANT)
+🔥 FIX: AUTO SYNC vehicleType
+========================================================= */
+driverSchema.pre("save", function () {
+  if (this.vehicle?.type) {
+    this.vehicleType = this.vehicle.type;
+  }
+});
+
+/* =========================================================
+🔥 STATUS LOGIC
 ========================================================= */
 driverSchema.pre("save", function () {
 
-  // ❌ Offline → not available
   if (!this.isOnline) {
     this.isAvailable = false;
   }
 
-  // ✅ Online + no ride → available
   if (this.isOnline && !this.currentRide) {
     this.isAvailable = true;
   }
 
-  // ❌ If has ride → not available
   if (this.currentRide) {
     this.isAvailable = false;
   }
@@ -175,7 +161,7 @@ driverSchema.pre("save", function () {
 });
 
 /* =========================================================
-📍 UPDATE LOCATION TIMESTAMP
+📍 LOCATION TIMESTAMP
 ========================================================= */
 driverSchema.pre("save", function () {
   if (this.isModified("location")) {
@@ -184,14 +170,14 @@ driverSchema.pre("save", function () {
 });
 
 /* =========================================================
-🔑 COMPARE PASSWORD
+🔑 PASSWORD CHECK
 ========================================================= */
 driverSchema.methods.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword.trim(), this.password);
 };
 
 /* =========================================================
-📍 STATIC: FIND NEARBY DRIVERS (🔥 USED IN DISPATCH)
+📍 NEARBY DRIVER SEARCH
 ========================================================= */
 driverSchema.statics.getNearbyDrivers = function (
   lat,
