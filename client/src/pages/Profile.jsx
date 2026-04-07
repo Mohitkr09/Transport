@@ -28,7 +28,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  /* ================= FETCH ALL DATA ================= */
+  /* ================= FETCH ================= */
   const fetchData = async () => {
     try {
       setRefreshing(true);
@@ -44,16 +44,12 @@ export default function Profile() {
       setUser(userData);
       setRidesCount(rides.length);
 
-      // 💰 calculate wallet (demo logic)
       const total = rides.reduce((sum, r) => sum + (r.fare || 0), 0);
       setWallet(total);
 
-    } catch (err) {
-      console.error("Profile fetch error:", err);
-
+    } catch {
       const localUser = JSON.parse(localStorage.getItem("user"));
       if (localUser) setUser(localUser);
-
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -76,24 +72,23 @@ export default function Profile() {
     { icon: <Settings />, label: "Settings", path: "/settings" },
   ];
 
-  /* ================= LOADING ================= */
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin">
-          <RefreshCw size={40} className="text-indigo-600" />
-        </div>
+      <div className="h-screen flex items-center justify-center bg-white dark:bg-black">
+        <RefreshCw size={40} className="animate-spin text-indigo-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-24">
+    <div className="min-h-screen pb-24 
+      bg-gray-100 dark:bg-black 
+      text-gray-900 dark:text-white transition">
 
-      {/* 🔥 HEADER */}
-      <div className="bg-gradient-to-r from-indigo-600 to-blue-500 h-44 rounded-b-3xl shadow-lg relative">
+      {/* HEADER */}
+      <div className="bg-gradient-to-r from-indigo-600 to-blue-500 
+        h-44 rounded-b-3xl shadow-lg relative">
 
-        {/* REFRESH BUTTON */}
         <button
           onClick={fetchData}
           className="absolute right-4 top-4 bg-white/20 p-2 rounded-full text-white hover:bg-white/30"
@@ -102,62 +97,71 @@ export default function Profile() {
         </button>
       </div>
 
-      {/* 🔥 PROFILE CARD */}
-      <div className="relative -mt-24 mx-4 md:mx-10 bg-white rounded-3xl shadow-xl p-6 transition hover:shadow-2xl">
+      {/* PROFILE CARD */}
+      <div className="relative -mt-24 mx-4 md:mx-10 
+        bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl
+        rounded-3xl shadow-xl p-6">
 
         <div className="flex flex-col md:flex-row items-center gap-4">
 
           {/* AVATAR */}
-          <div className="w-20 h-20 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white flex items-center justify-center text-2xl font-bold overflow-hidden shadow-lg">
+          <div className="w-20 h-20 rounded-full 
+            bg-gradient-to-r from-indigo-500 to-blue-500 
+            text-white flex items-center justify-center text-2xl font-bold shadow-lg">
             {user?.avatar ? (
-              <img src={user.avatar} className="w-full h-full object-cover" />
+              <img src={user.avatar} className="w-full h-full rounded-full object-cover" />
             ) : (
-              user?.name?.charAt(0)?.toUpperCase() || <User />
+              user?.name?.charAt(0)?.toUpperCase()
             )}
           </div>
 
-          {/* USER INFO */}
+          {/* INFO */}
           <div className="text-center md:text-left flex-1">
             <h2 className="text-xl font-bold">{user?.name}</h2>
-            <p className="text-gray-500 text-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
               {user?.phone || user?.email}
             </p>
 
             <button
               onClick={() => navigate("/edit-profile")}
-              className="mt-2 flex items-center gap-1 text-sm text-indigo-600 font-semibold hover:underline"
+              className="mt-2 flex items-center gap-1 text-sm text-indigo-600 hover:underline"
             >
               <Pencil size={14} /> Edit Profile
             </button>
           </div>
 
-          {/* SETTINGS */}
           <button
             onClick={() => navigate("/settings")}
-            className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"
+            className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full"
           >
             <Settings />
           </button>
         </div>
 
-        {/* 🔥 STATS */}
+        {/* STATS */}
         <div className="grid grid-cols-3 gap-4 mt-6 text-center">
+
           <Stat label="Rides" value={ridesCount} />
+
           <Stat label="Rating" value={user?.rating || 4.5} highlight />
+
           <Stat label="Wallet" value={`₹${wallet}`} />
+
         </div>
       </div>
 
-      {/* 🔥 MENU */}
+      {/* MENU */}
       <div className="mt-6 mx-4 md:mx-10 space-y-3">
         {menuItems.map((item, i) => (
           <div
             key={i}
             onClick={() => item.path && navigate(item.path)}
-            className="bg-white rounded-2xl shadow p-4 flex items-center justify-between hover:scale-[1.02] hover:shadow-md transition cursor-pointer"
+            className="bg-white dark:bg-gray-900 
+            rounded-2xl shadow p-4 flex items-center justify-between 
+            hover:scale-[1.02] hover:shadow-md transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-gray-100 rounded-lg">
+              <div className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg">
                 {item.icon}
               </div>
               <div>
@@ -172,8 +176,11 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* 🔻 BOTTOM NAV */}
-      <div className="fixed bottom-3 left-1/2 transform -translate-x-1/2 w-[90%] bg-white shadow-xl rounded-2xl flex justify-around py-3 md:hidden">
+      {/* BOTTOM NAV */}
+      <div className="fixed bottom-3 left-1/2 transform -translate-x-1/2 w-[90%] 
+        bg-white dark:bg-gray-900 
+        shadow-xl rounded-2xl flex justify-around py-3 md:hidden">
+
         <NavItem icon={<Home />} label="Ride" onClick={() => navigate("/")} />
         <NavItem icon={<Navigation />} label="Services" />
         <NavItem icon={<Palmtree />} label="Travel" />
@@ -183,9 +190,9 @@ export default function Profile() {
   );
 }
 
-/* 🔥 STAT COMPONENT */
+/* STAT */
 const Stat = ({ label, value, highlight }) => (
-  <div>
+  <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl">
     <p className={`font-bold text-lg ${highlight ? "text-yellow-500" : ""}`}>
       {value}
     </p>
@@ -193,7 +200,7 @@ const Stat = ({ label, value, highlight }) => (
   </div>
 );
 
-/* 🔥 NAV ITEM */
+/* NAV ITEM */
 const NavItem = ({ icon, label, onClick, active }) => (
   <div
     onClick={onClick}
