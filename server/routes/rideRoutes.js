@@ -59,18 +59,15 @@ USER ROUTES
 /* CREATE RIDE */
 router.post("/", protect, safe("createRide"));
 
-/* ✅ USER RIDE HISTORY (USED IN PROFILE) */
+/* USER RIDES */
 router.get("/my", protect, safe("getUserRides"));
 
-/* ✅ PAYMENT HISTORY (NEW) */
+/* PAYMENTS */
 router.get("/payments", protect, safe("getUserPayments"));
 
 /* ======================================================
-🔥 DRIVER ROUTES
+DRIVER ROUTES
 ====================================================== */
-
-/* NEARBY RIDES */
-router.get("/nearby", protect, driverOnly, safe("getNearbyRides"));
 
 /* ACCEPT / REJECT */
 router.put("/:id/accept", protect, driverOnly, safe("acceptRide"));
@@ -91,11 +88,22 @@ router.put("/:id/cancel", protect, safe("cancelRide"));
 router.post("/:id/rate", protect, safe("rateRide"));
 
 /* ======================================================
-ADMIN
+ADMIN ROUTES (SAFE FALLBACK)
 ====================================================== */
 
-router.get("/admin/all", protect, adminOnly, safe("getAllRides"));
-router.put("/admin/:id/cancel", protect, adminOnly, safe("adminCancelRide"));
+router.get(
+  "/admin/all",
+  protect,
+  adminOnly,
+  safe("getAllRides") // only works if exists
+);
+
+router.put(
+  "/admin/:id/cancel",
+  protect,
+  adminOnly,
+  safe("adminCancelRide") // only works if exists
+);
 
 /* ======================================================
 GET SINGLE RIDE

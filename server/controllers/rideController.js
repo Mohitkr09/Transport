@@ -37,6 +37,7 @@ exports.createRide = async (req, res) => {
       status: "searching"
     });
 
+    /* 🔥 FIND NEARBY DRIVERS */
     const pickupCoords = pickupLocation.location.coordinates;
 
     const drivers = await Driver.find({
@@ -52,6 +53,7 @@ exports.createRide = async (req, res) => {
       }
     });
 
+    /* 🔥 SOCKET EMIT */
     const io = req.app.get("io");
     const onlineDrivers = req.app.get("onlineDrivers") || {};
 
@@ -96,25 +98,12 @@ exports.getRideById = async (req, res) => {
 ====================================================== */
 exports.getUserRides = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ success: false });
-    }
-
-    const userId = req.user._id || req.user.id;
+    const userId = req.user?._id || req.user?.id;
 
     const rides = await Ride.find({ user: userId })
       .sort({ createdAt: -1 });
 
-    const formatted = rides.map(r => ({
-      _id: r._id,
-      pickup: r.pickupLocation?.address || "N/A",
-      drop: r.dropLocation?.address || "N/A",
-      fare: r.fare ?? 0,
-      status: r.status,
-      createdAt: r.createdAt
-    }));
-
-    res.json({ success: true, rides: formatted });
+    res.json({ success: true, rides });
 
   } catch (err) {
     console.error("❌ getUserRides:", err);
@@ -123,21 +112,13 @@ exports.getUserRides = async (req, res) => {
 };
 
 /* ======================================================
-💳 USER PAYMENTS (🔥 FIXED)
+💳 USER PAYMENTS
 ====================================================== */
 exports.getUserPayments = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized"
-      });
-    }
+    const userId = req.user?._id || req.user?.id;
 
-    const userId = req.user._id || req.user.id;
-
-    const rides = await Ride.find({ user: userId })
-      .sort({ createdAt: -1 });
+    const rides = await Ride.find({ user: userId });
 
     const payments = rides.map((r) => ({
       rideId: r._id,
@@ -146,17 +127,11 @@ exports.getUserPayments = async (req, res) => {
       status: r.paymentStatus || "paid"
     }));
 
-    res.json({
-      success: true,
-      payments
-    });
+    res.json({ success: true, payments });
 
   } catch (err) {
     console.error("❌ Payment API ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch payments"
-    });
+    res.status(500).json({ success: false });
   }
 };
 
@@ -199,6 +174,36 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* ======================================================
+❌ REJECT RIDE (🔥 FIXED)
+====================================================== */
+exports.rejectRide = async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.id);
+
+    if (!ride) {
+      return res.status(404).json({ success: false, message: "Ride not found" });
+    }
+
+    if (ride.status !== "searching") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot reject this ride"
+      });
+    }
+
+    // Optional: mark rejected OR keep searching
+    ride.status = "searching"; // keep available for others
+    await ride.save();
+
+    res.json({ success: true, message: "Ride rejected" });
+
+  } catch (err) {
+    console.error("❌ rejectRide:", err);
+    res.status(500).json({ success: false });
+  }
+};
+
+/* ======================================================
 🚦 START / COMPLETE / CANCEL / RATE
 ====================================================== */
 exports.startRide = async (req, res) => {
@@ -206,7 +211,9 @@ exports.startRide = async (req, res) => {
     const ride = await Ride.findById(req.params.id);
     if (!ride) return res.status(404).json({ success: false });
 
-    await ride.startRide();
+    ride.status = "ongoing";
+    await ride.save();
+
     res.json({ success: true });
 
   } catch {
@@ -219,7 +226,9 @@ exports.completeRide = async (req, res) => {
     const ride = await Ride.findById(req.params.id);
     if (!ride) return res.status(404).json({ success: false });
 
-    await ride.completeRide();
+    ride.status = "completed";
+    await ride.save();
+
     res.json({ success: true });
 
   } catch {
@@ -232,7 +241,9 @@ exports.cancelRide = async (req, res) => {
     const ride = await Ride.findById(req.params.id);
     if (!ride) return res.status(404).json({ success: false });
 
-    await ride.cancelRide();
+    ride.status = "cancelled";
+    await ride.save();
+
     res.json({ success: true });
 
   } catch {
@@ -243,6 +254,9 @@ exports.cancelRide = async (req, res) => {
 exports.rateRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
+
+    if (!ride) return res.status(404).json({ success: false });
+
     ride.rating = req.body.rating;
     await ride.save();
 

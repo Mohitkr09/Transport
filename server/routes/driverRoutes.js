@@ -3,7 +3,9 @@ const router = express.Router();
 
 const driverController = require("../controllers/driverController");
 const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
+
 const Driver = require("../models/Driver");
+const Ride = require("../models/Ride");
 
 /* =================================================
 SAFE ASYNC HANDLER
@@ -11,7 +13,11 @@ SAFE ASYNC HANDLER
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch((err) => {
     console.error("🔥 Route Error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+
+    res.status(500).json({
+      success: false,
+      message: err.message || "Server error"
+    });
   });
 };
 
@@ -24,7 +30,7 @@ router.use((req, res, next) => {
 });
 
 /* =================================================
-HEALTH
+HEALTH CHECK
 ================================================= */
 router.get("/health", (req, res) => {
   res.json({ success: true, message: "Driver API working" });
@@ -43,7 +49,7 @@ router.post(
     await Driver.findByIdAndUpdate(req.user.id, {
       isOnline: false,
       isAvailable: false,
-      socketId: null
+      currentRide: null
     });
 
     res.json({ success: true, message: "Driver logged out" });
@@ -57,18 +63,7 @@ router.get(
   "/me",
   protect,
   driverOnly,
-  asyncHandler(async (req, res) => {
-    const driver = await Driver.findById(req.user.id);
-
-    if (!driver) {
-      return res.status(404).json({
-        success: false,
-        message: "Driver not found"
-      });
-    }
-
-    res.json({ success: true, driver });
-  })
+  asyncHandler(driverController.getDriverProfile)
 );
 
 /* =================================================
@@ -78,85 +73,59 @@ router.put(
   "/online",
   protect,
   driverOnly,
-  asyncHandler(async (req, res) => {
-    const { isOnline } = req.body;
-
-    const driver = await Driver.findByIdAndUpdate(
-      req.user.id,
-      {
-        isOnline,
-        isAvailable: isOnline
-      },
-      { new: true }
-    );
-
-    res.json({ success: true, driver });
-  })
+  asyncHandler(driverController.updateDriverStatus)
 );
 
 router.put(
   "/location",
   protect,
   driverOnly,
-  asyncHandler(async (req, res) => {
-    const { lat, lng } = req.body;
+  asyncHandler(driverController.updateDriverLocation)
+);
 
-    if (!lat || !lng) {
-      return res.status(400).json({
+/* =================================================
+🔥 DRIVER STATS (FIXED + OPTIMIZED)
+================================================= */
+router.get(
+  "/stats",
+  protect,
+  driverOnly,
+  asyncHandler(async (req, res) => {
+    const driverId = req.user?._id || req.user?.id;
+
+    if (!driverId) {
+      return res.status(401).json({
         success: false,
-        message: "lat & lng required"
+        message: "Unauthorized"
       });
     }
 
-    const driver = await Driver.findById(req.user.id);
+    const rides = await Ride.find({
+      driver: driverId,
+      status: "completed"
+    }).select("fare");
 
-    if (!driver) {
-      return res.status(404).json({ success: false });
-    }
+    const totalRides = rides.length;
+    const totalEarnings = rides.reduce(
+      (sum, r) => sum + (r.fare || 0),
+      0
+    );
 
-    driver.location = {
-      type: "Point",
-      coordinates: [Number(lng), Number(lat)]
-    };
-
-    await driver.save();
-
-    res.json({ success: true });
+    res.json({
+      success: true,
+      stats: { totalRides, totalEarnings }
+    });
   })
 );
 
 /* =================================================
-🔥 PUBLIC NEARBY DRIVERS (FIXED)
+NEARBY RIDES
 ================================================= */
-/* 🚀 THIS IS THE MOST IMPORTANT FIX */
 router.get(
-  "/nearby",
-  asyncHandler(async (req, res) => {
-    const { lat, lng } = req.query;
-
-    if (!lat || !lng) {
-      return res.status(400).json({
-        success: false,
-        message: "lat & lng required"
-      });
-    }
-
-    const drivers = await Driver.find({
-      isOnline: true,
-      isAvailable: true,
-      location: {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [parseFloat(lng), parseFloat(lat)]
-          },
-          $maxDistance: 5000
-        }
-      }
-    }).select("location");
-
-    res.json({ success: true, drivers });
-  })
+  "/rides",
+  protect,
+  driverOnly,
+  asyncHandler(driverController.getNearbyRides)
 );
 
 /* =================================================
@@ -191,40 +160,26 @@ router.put(
 );
 
 /* =================================================
-ADMIN
+ADMIN ROUTES
 ================================================= */
 router.get(
   "/all",
   protect,
   adminOnly,
-  asyncHandler(driverController.getAllDrivers)
+  asyncHandler(async (req, res) => {
+    const drivers = await Driver.find().select("-password");
+    res.json({ success: true, drivers });
+  })
 );
 
 router.put(
   "/:id/approve",
   protect,
   adminOnly,
-  asyncHandler(driverController.approveDriver)
-);
-
-router.delete(
-  "/:id",
-  protect,
-  adminOnly,
-  asyncHandler(driverController.rejectDriver)
-);
-
-/* =================================================
-DEV TOOL
-================================================= */
-router.put(
-  "/force-available/:id",
-  protect,
-  adminOnly,
   asyncHandler(async (req, res) => {
     const driver = await Driver.findByIdAndUpdate(
       req.params.id,
-      { isAvailable: true, isOnline: true },
+      { isApproved: true },
       { new: true }
     );
 
@@ -232,8 +187,19 @@ router.put(
   })
 );
 
+router.delete(
+  "/:id",
+  protect,
+  adminOnly,
+  asyncHandler(async (req, res) => {
+    await Driver.findByIdAndDelete(req.params.id);
+
+    res.json({ success: true, message: "Driver removed" });
+  })
+);
+
 /* =================================================
-404
+404 HANDLER
 ================================================= */
 router.use((req, res) => {
   res.status(404).json({

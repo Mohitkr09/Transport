@@ -2,11 +2,11 @@ const User = require("../models/User");
 const Driver = require("../models/Driver");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const sendEmail = require("../utils/sendEmail"); // 🔥 NEW
 
 /* ======================================================
 TOKEN
 ====================================================== */
-
 const generateToken = (id, role) => {
   if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET missing in .env");
@@ -18,9 +18,8 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER USER / ADMIN
+REGISTER USER / ADMIN + EMAIL
 ====================================================== */
-
 exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
@@ -36,9 +35,7 @@ exports.register = async (req, res) => {
     password = password.trim();
     role = role?.toLowerCase().trim() || "user";
 
-    if (!["user", "admin"].includes(role)) {
-      role = "user";
-    }
+    if (!["user", "admin"].includes(role)) role = "user";
 
     if (password.length < 6) {
       return res.status(400).json({
@@ -58,6 +55,7 @@ exports.register = async (req, res) => {
       });
     }
 
+    /* 🔥 CREATE USER */
     const user = await User.create({
       name,
       email,
@@ -66,6 +64,36 @@ exports.register = async (req, res) => {
       role,
     });
 
+    /* 🔥 SEND EMAIL */
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Welcome to TransportX 🚗",
+        html: `
+          <div style="font-family:Arial;padding:20px;">
+            <h2 style="color:#4f46e5;">🚗 TransportX</h2>
+            <h3>Welcome ${user.name} 👋</h3>
+            <p>Your account has been successfully created.</p>
+            <p>Start booking rides now 🚀</p>
+
+            <a href="http://localhost:5173"
+              style="display:inline-block;
+              margin-top:10px;
+              padding:10px 20px;
+              background:#4f46e5;
+              color:white;
+              border-radius:8px;
+              text-decoration:none;">
+              Book Ride
+            </a>
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.log("⚠️ Email failed but user created:", emailErr.message);
+    }
+
+    /* 🔥 TOKEN */
     const token = generateToken(user._id, role);
 
     res.status(201).json({
@@ -82,18 +110,18 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 REGISTER ERROR:", err);
+    console.error("🔥 REGISTER ERROR:", err.message);
+
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: err.message || "Server error",
     });
   }
 };
 
 /* ======================================================
-LOGIN (FIXED 🚀)
+LOGIN
 ====================================================== */
-
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
@@ -109,20 +137,15 @@ exports.login = async (req, res) => {
     password = password.trim();
     role = role.toLowerCase().trim();
 
-    console.log("🔐 LOGIN:", { email, role });
-
     let account = null;
 
-    /* ================= DRIVER ================= */
-
+    /* DRIVER */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
-
       if (account) account.role = "driver";
     }
 
-    /* ================= USER / ADMIN ================= */
-
+    /* USER / ADMIN */
     else if (role === "user" || role === "admin") {
       account = await User.findOne({ email }).select("+password");
 
@@ -141,16 +164,12 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= CHECK ================= */
-
     if (!account) {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
       });
     }
-
-    /* ================= PASSWORD ================= */
 
     const isMatch = await bcrypt.compare(password, account.password);
 
@@ -161,8 +180,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= DRIVER APPROVAL ================= */
-
+    /* DRIVER APPROVAL */
     if (role === "driver" && !account.isApproved) {
       return res.status(403).json({
         success: false,
@@ -170,13 +188,11 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= UPDATE WITHOUT SAVE (🔥 FIX) ================= */
-
+    /* UPDATE LAST LOGIN */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(account._id, {
         isOnline: true,
         isAvailable: true,
-        lastActive: new Date(),
         lastLogin: new Date(),
       });
     } else {
@@ -185,11 +201,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* ================= TOKEN ================= */
-
     const token = generateToken(account._id, account.role || role);
-
-    /* ================= RESPONSE ================= */
 
     res.json({
       success: true,
@@ -205,7 +217,7 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 LOGIN ERROR:", err);
+    console.error("🔥 LOGIN ERROR:", err.message);
 
     res.status(500).json({
       success: false,
@@ -217,7 +229,6 @@ exports.login = async (req, res) => {
 /* ======================================================
 GET ME
 ====================================================== */
-
 exports.getMe = async (req, res) => {
   try {
     if (!req.user) {
@@ -232,8 +243,6 @@ exports.getMe = async (req, res) => {
       user: req.user,
     });
   } catch (err) {
-    console.error("GET ME ERROR:", err);
-
     res.status(500).json({
       success: false,
       message: "Failed to fetch user",
@@ -244,7 +253,6 @@ exports.getMe = async (req, res) => {
 /* ======================================================
 LOGOUT
 ====================================================== */
-
 exports.logout = async (req, res) => {
   try {
     if (req.user?.role === "driver") {
@@ -260,8 +268,6 @@ exports.logout = async (req, res) => {
       message: "Logged out",
     });
   } catch (err) {
-    console.error("LOGOUT ERROR:", err);
-
     res.status(500).json({
       success: false,
       message: "Logout failed",

@@ -4,7 +4,6 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const http = require("http");
-const dns = require("dns");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
@@ -42,8 +41,8 @@ app.use(morgan("dev"));
 /* ================= CORS ================= */
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://transport-mpb5.onrender.com"
-];
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: allowedOrigins,
@@ -61,6 +60,11 @@ app.use("/api/ride", rideRoutes);
 app.use("/api/location", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
 
+/* ================= HEALTH ================= */
+app.get("/health", (req, res) => {
+  res.json({ success: true, message: "Server running ✅" });
+});
+
 /* ================= ROOT ================= */
 app.get("/", (req, res) => res.send("🚀 API Running"));
 
@@ -75,9 +79,7 @@ const io = new Server(server, {
   }
 });
 
-/* ======================================================
-🔥 IMPORTANT MAPS (FIX)
-====================================================== */
+/* ================= GLOBAL MAPS ================= */
 const onlineDrivers = {};
 const onlineUsers = {};
 
@@ -99,7 +101,6 @@ io.use((socket, next) => {
       user = decoded;
     }
 
-    // fallback
     if (!user && socket.handshake.auth?.userId) {
       user = {
         id: socket.handshake.auth.userId,
@@ -128,10 +129,12 @@ io.on("connection", async (socket) => {
 
     if (!userId) return;
 
-    /* ✅ STORE SOCKET */
+    /* JOIN PERSONAL ROOM */
+    socket.join(userId.toString());
+
+    /* STORE SOCKET */
     if (role === "driver") {
       onlineDrivers[userId] = socket.id;
-      console.log("🚗 Driver mapped:", userId, socket.id);
 
       await Driver.findByIdAndUpdate(userId, {
         isOnline: true,
@@ -141,24 +144,23 @@ io.on("connection", async (socket) => {
 
     if (role === "user") {
       onlineUsers[userId] = socket.id;
-      console.log("👤 User mapped:", userId, socket.id);
     }
-
-    /* PERSONAL ROOM */
-    socket.join(userId.toString());
 
     /* ================= EVENTS ================= */
 
+    /* JOIN RIDE ROOM */
     socket.on("joinRide", (rideId) => {
       socket.join(rideId.toString());
     });
 
+    /* DRIVER LOCATION UPDATE */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
       if (rideId) {
         io.to(rideId.toString()).emit("driverMoved", { lat, lng });
       }
     });
 
+    /* DISCONNECT */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
@@ -179,6 +181,15 @@ io.on("connection", async (socket) => {
   } catch (err) {
     console.log("⚠️ Socket error:", err.message);
   }
+});
+
+/* ================= ERROR HANDLER ================= */
+app.use((err, req, res, next) => {
+  console.error("🔥 Server Error:", err.message);
+  res.status(500).json({
+    success: false,
+    message: err.message || "Server error"
+  });
 });
 
 /* ================= START ================= */

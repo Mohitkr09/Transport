@@ -13,17 +13,19 @@ const generateToken = (id) =>
 const send = (res, success, data = {}, code = 200) =>
   res.status(code).json({ success, ...data });
 
-/* =========================================================
-🔥 SAFE USER ID (CRITICAL FIX)
-========================================================= */
-const getUserId = (req) => req.user?.id || req.user?._id;
+const getUserId = (req) => req.user?._id || req.user?.id;
 
 /* =========================================================
-SOCKET HELPERS
+SOCKET HELPER
 ========================================================= */
-const emitToUser = (userId, event, payload) => {
-  if (!global.io) return;
-  global.io.to(userId.toString()).emit(event, payload);
+const emitToUser = (req, userId, event, payload) => {
+  const io = req.app.get("io");
+  const onlineUsers = req.app.get("onlineUsers") || {};
+
+  const socketId = onlineUsers[userId.toString()];
+  if (socketId) {
+    io.to(socketId).emit(event, payload);
+  }
 };
 
 /* =========================================================
@@ -51,7 +53,6 @@ exports.loginDriver = async (req, res) => {
 
     driver.isOnline = true;
     driver.isAvailable = true;
-
     await driver.save();
 
     return send(res, true, {
@@ -59,7 +60,6 @@ exports.loginDriver = async (req, res) => {
       user: {
         id: driver._id,
         name: driver.name,
-        email: driver.email,
         role: "driver",
       },
     });
@@ -69,15 +69,11 @@ exports.loginDriver = async (req, res) => {
 };
 
 /* =========================================================
-PROFILE (🔥 FIXED)
+PROFILE
 ========================================================= */
 exports.getDriverProfile = async (req, res) => {
   try {
-    const userId = getUserId(req);
-
-    console.log("🔍 DRIVER PROFILE ID:", userId);
-
-    const driver = await Driver.findById(userId).select("-password");
+    const driver = await Driver.findById(getUserId(req)).select("-password");
 
     if (!driver) {
       return send(res, false, { message: "Driver not found" }, 404);
@@ -85,7 +81,6 @@ exports.getDriverProfile = async (req, res) => {
 
     return send(res, true, { driver });
   } catch (err) {
-    console.error("❌ PROFILE ERROR:", err.message);
     return send(res, false, { message: err.message }, 500);
   }
 };
@@ -95,27 +90,23 @@ ONLINE / OFFLINE
 ========================================================= */
 exports.updateDriverStatus = async (req, res) => {
   try {
-    const userId = getUserId(req);
-    const { isOnline } = req.body;
-
-    const driver = await Driver.findById(userId);
+    const driver = await Driver.findById(getUserId(req));
 
     if (!driver) {
       return send(res, false, { message: "Driver not found" }, 404);
     }
 
+    const { isOnline } = req.body;
+
     driver.isOnline = isOnline;
     driver.isAvailable = isOnline;
 
-    if (!isOnline) {
-      driver.currentRide = null;
-    }
+    if (!isOnline) driver.currentRide = null;
 
     await driver.save();
 
     return send(res, true, {
       message: `Driver is now ${isOnline ? "Online" : "Offline"}`,
-      isOnline,
     });
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
@@ -127,14 +118,10 @@ LOCATION
 ========================================================= */
 exports.updateDriverLocation = async (req, res) => {
   try {
-    const userId = getUserId(req);
     const { lat, lng } = req.body;
 
-    const driver = await Driver.findById(userId);
-
-    if (!driver) {
-      return send(res, false, { message: "Driver not found" }, 404);
-    }
+    const driver = await Driver.findById(getUserId(req));
+    if (!driver) return send(res, false, { message: "Driver not found" }, 404);
 
     driver.location = {
       type: "Point",
@@ -154,42 +141,17 @@ GET NEARBY RIDES
 ========================================================= */
 exports.getNearbyRides = async (req, res) => {
   try {
-    const userId = getUserId(req);
-
-    const driver = await Driver.findById(userId);
+    const driver = await Driver.findById(getUserId(req));
 
     if (!driver || !driver.isOnline) {
       return send(res, false, { message: "Driver offline" }, 400);
     }
 
-    let rides = [];
-
-    if (driver.location?.coordinates?.length) {
-      const [lng, lat] = driver.location.coordinates;
-
-      rides = await Ride.find({
-        status: "searching_driver",
-        driver: null,
-        rejectedDrivers: { $ne: driver._id },
-        "pickupLocation.location": {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: [lng, lat],
-            },
-            $maxDistance: 10000,
-          },
-        },
-      }).limit(10);
-    }
-
-    if (rides.length === 0) {
-      rides = await Ride.find({
-        status: "searching_driver",
-        driver: null,
-        rejectedDrivers: { $ne: driver._id },
-      }).limit(10);
-    }
+    const rides = await Ride.find({
+      status: "searching",
+      driver: null,
+      rejectedDrivers: { $ne: driver._id },
+    }).limit(10);
 
     return send(res, true, { rides });
   } catch (err) {
@@ -202,27 +164,21 @@ ACCEPT RIDE
 ========================================================= */
 exports.acceptRide = async (req, res) => {
   try {
-    const userId = getUserId(req);
-
-    const driver = await Driver.findById(userId);
+    const driver = await Driver.findById(getUserId(req));
 
     if (!driver || !driver.isAvailable) {
       return send(res, false, { message: "Driver not available" }, 400);
     }
 
     const ride = await Ride.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        status: "searching_driver",
-        driver: null,
-      },
+      { _id: req.params.id, status: "searching" },
       {
         driver: driver._id,
         status: "accepted",
         acceptedAt: new Date(),
       },
       { new: true }
-    ).populate("driver", "name");
+    ).populate("user");
 
     if (!ride) {
       return send(res, false, { message: "Ride already taken" }, 400);
@@ -232,16 +188,7 @@ exports.acceptRide = async (req, res) => {
     driver.currentRide = ride._id;
     await driver.save();
 
-    emitToUser(ride.user, "rideAccepted", ride);
-
-    /* REMOVE FROM OTHER DRIVERS */
-    const drivers = await Driver.find({ isOnline: true });
-
-    drivers.forEach((d) => {
-      if (d.socketId) {
-        global.io.to(d.socketId).emit("rideTaken", ride._id);
-      }
-    });
+    emitToUser(req, ride.user._id, "rideAccepted", ride);
 
     return send(res, true, { ride });
   } catch (err) {
@@ -254,7 +201,7 @@ REJECT RIDE
 ========================================================= */
 exports.rejectRide = async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const driverId = getUserId(req);
 
     const ride = await Ride.findById(req.params.id);
 
@@ -262,8 +209,8 @@ exports.rejectRide = async (req, res) => {
       return send(res, false, { message: "Ride not found" }, 404);
     }
 
-    if (!ride.rejectedDrivers.includes(userId)) {
-      ride.rejectedDrivers.push(userId);
+    if (!ride.rejectedDrivers.includes(driverId)) {
+      ride.rejectedDrivers.push(driverId);
       await ride.save();
     }
 
@@ -278,11 +225,9 @@ START RIDE
 ========================================================= */
 exports.startRide = async (req, res) => {
   try {
-    const userId = getUserId(req);
-
     const ride = await Ride.findById(req.params.id);
 
-    if (!ride || String(ride.driver) !== userId) {
+    if (!ride || String(ride.driver) !== String(getUserId(req))) {
       return send(res, false, { message: "Unauthorized" }, 403);
     }
 
@@ -290,7 +235,7 @@ exports.startRide = async (req, res) => {
     ride.startedAt = new Date();
     await ride.save();
 
-    emitToUser(ride.user, "rideStarted", ride);
+    emitToUser(req, ride.user, "rideStarted", ride);
 
     return send(res, true, { ride });
   } catch (err) {
@@ -303,11 +248,11 @@ COMPLETE RIDE
 ========================================================= */
 exports.completeRide = async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const driverId = getUserId(req);
 
     const ride = await Ride.findById(req.params.id);
 
-    if (!ride || String(ride.driver) !== userId) {
+    if (!ride || String(ride.driver) !== String(driverId)) {
       return send(res, false, { message: "Unauthorized" }, 403);
     }
 
@@ -315,12 +260,12 @@ exports.completeRide = async (req, res) => {
     ride.completedAt = new Date();
     await ride.save();
 
-    const driver = await Driver.findById(userId);
+    const driver = await Driver.findById(driverId);
     driver.isAvailable = true;
     driver.currentRide = null;
     await driver.save();
 
-    emitToUser(ride.user, "rideCompleted", ride);
+    emitToUser(req, ride.user, "rideCompleted", ride);
 
     return send(res, true, { message: "Ride completed" });
   } catch (err) {

@@ -9,7 +9,6 @@ const Navbar = () => {
   const location = useLocation();
   const dropdownRef = useRef(null);
 
-  /* ================= AUTH ================= */
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role") || "";
   const user = JSON.parse(localStorage.getItem("user") || "null");
@@ -17,31 +16,17 @@ const Navbar = () => {
   const isDriver = role === "driver";
   const isUser = role === "user";
 
-  /* ================= STATE ================= */
   const [openProfile, setOpenProfile] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
 
-  /* ================= NOTIFICATIONS ================= */
-  useEffect(() => {
-    if (!token || !isUser) return;
-
-    const stored = localStorage.getItem("notifications");
-    if (stored) {
-      const unread = JSON.parse(stored).filter(n => !n.read).length;
-      setNotifCount(unread);
-    }
-  }, [token, isUser]);
-
-  /* ================= SCROLL EFFECT ================= */
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  /* ================= CLOSE DROPDOWN ================= */
   useEffect(() => {
     const close = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -52,7 +37,6 @@ const Navbar = () => {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  /* ================= LOGOUT ================= */
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/";
@@ -65,14 +49,15 @@ const Navbar = () => {
 
   const isActive = (path) => location.pathname === path;
 
-  /* ================= UI ================= */
   return (
     <nav
       className={`fixed top-0 w-full z-50 transition-all duration-300 border-b
-      ${scrolled
-        ? "bg-white/90 backdrop-blur-lg shadow-md"
-        : "bg-white/70 backdrop-blur-md"}
-      `}
+      ${
+        scrolled
+          ? "bg-white/90 dark:bg-black/80 backdrop-blur-xl shadow-lg"
+          : "bg-white/70 dark:bg-black/70 backdrop-blur-md"
+      }
+      border-gray-200 dark:border-gray-800`}
     >
       <div className="max-w-7xl mx-auto flex items-center h-16 px-4 md:px-6">
 
@@ -110,13 +95,14 @@ const Navbar = () => {
 
           <ThemeToggle />
 
-          {/* 🔔 NOTIFICATION */}
+          {/* NOTIFICATION */}
           {token && isUser && (
             <div
               onClick={() => go("/notifications")}
-              className="relative p-2 rounded-full hover:bg-gray-100 cursor-pointer transition"
+              className="relative p-2 rounded-full 
+              hover:bg-gray-200 dark:hover:bg-gray-800 cursor-pointer transition"
             >
-              <Bell size={20} />
+              <Bell className="text-gray-800 dark:text-white" size={20} />
               {notifCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
                   {notifCount}
@@ -128,21 +114,12 @@ const Navbar = () => {
           {/* PROFILE */}
           {token && (
             <div ref={dropdownRef} className="relative">
-
               <button
                 onClick={() => setOpenProfile(!openProfile)}
                 className="flex items-center justify-center w-10 h-10 rounded-full 
-                bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold shadow-md hover:scale-105 transition"
+                bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md hover:scale-105"
               >
-                {user?.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt="profile"
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                ) : (
-                  user?.name?.charAt(0)?.toUpperCase() || <User size={18} />
-                )}
+                {user?.name?.charAt(0)?.toUpperCase() || <User size={18} />}
               </button>
 
               <AnimatePresence>
@@ -151,45 +128,34 @@ const Navbar = () => {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="absolute right-0 mt-3 w-64 bg-white rounded-2xl shadow-xl p-4"
+                    className="absolute right-0 mt-3 w-64 
+                    bg-white dark:bg-gray-900 
+                    text-gray-900 dark:text-white
+                    rounded-2xl shadow-xl p-4 border dark:border-gray-700"
                   >
-                    {/* USER INFO */}
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-full bg-indigo-500 text-white flex items-center justify-center">
-                        {user?.name?.charAt(0)?.toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="font-semibold">{user?.name}</p>
-                        <p className="text-sm text-gray-500 capitalize">{role}</p>
-                      </div>
-                    </div>
+                    <p className="font-semibold">{user?.name}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">
+                      {role}
+                    </p>
 
-                    <hr className="my-2" />
+                    <hr className="my-2 border-gray-200 dark:border-gray-700" />
 
-                    {/* MENU */}
-                    {isUser && (
-                      <DropdownItem label="My Profile" go={() => go("/profile")} />
-                    )}
-
-                    {isDriver && (
-                      <DropdownItem label="Dashboard" go={() => go("/driver/dashboard")} />
-                    )}
-
+                    <DropdownItem label="Profile" go={() => go("/profile")} />
                     <DropdownItem label="Settings" go={() => go("/settings")} />
-
                     <DropdownItem label="Logout" go={handleLogout} danger />
-
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
           )}
 
-          {/* MOBILE MENU */}
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden">
+          {/* MOBILE */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="md:hidden text-gray-800 dark:text-white"
+          >
             {mobileOpen ? <X /> : <Menu />}
           </button>
-
         </div>
       </div>
 
@@ -200,24 +166,12 @@ const Navbar = () => {
             initial={{ height: 0 }}
             animate={{ height: "auto" }}
             exit={{ height: 0 }}
-            className="md:hidden bg-white px-6 py-4 space-y-3 shadow-lg"
+            className="md:hidden bg-white dark:bg-black px-6 py-4 space-y-3 shadow-lg"
           >
             <MobileItem label="Home" go={() => go("/")} />
             <MobileItem label="About" go={() => go("/about")} />
             <MobileItem label="Contact" go={() => go("/contact")} />
             {isUser && <MobileItem label="Book Ride" go={() => go("/book")} />}
-
-            {token ? (
-              <>
-                <MobileItem label="Profile" go={() => go("/profile")} />
-                <MobileItem label="Logout" go={handleLogout} />
-              </>
-            ) : (
-              <>
-                <MobileItem label="Login" go={() => go("/login")} />
-                <MobileItem label="Register" go={() => go("/register")} />
-              </>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -225,13 +179,15 @@ const Navbar = () => {
   );
 };
 
-/* ================= COMPONENTS ================= */
+/* COMPONENTS */
 
 const NavItem = ({ label, go, active }) => (
   <button
     onClick={go}
-    className={`relative font-medium transition ${
-      active ? "text-indigo-600" : "text-gray-600 hover:text-indigo-500"
+    className={`relative font-medium transition 
+    ${active
+      ? "text-indigo-600 dark:text-indigo-400"
+      : "text-gray-700 dark:text-gray-200 hover:text-indigo-500"
     }`}
   >
     {label}
@@ -239,7 +195,10 @@ const NavItem = ({ label, go, active }) => (
 );
 
 const MobileItem = ({ label, go }) => (
-  <button onClick={go} className="block w-full text-left py-2">
+  <button
+    onClick={go}
+    className="block w-full text-left py-2 text-gray-800 dark:text-white"
+  >
     {label}
   </button>
 );
@@ -247,10 +206,10 @@ const MobileItem = ({ label, go }) => (
 const DropdownItem = ({ label, go, danger }) => (
   <button
     onClick={go}
-    className={`block w-full text-left py-2 px-2 rounded-lg transition ${
-      danger
-        ? "text-red-500 hover:bg-red-50"
-        : "hover:bg-gray-100"
+    className={`block w-full text-left py-2 px-2 rounded-lg transition
+    ${danger
+      ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-900"
+      : "hover:bg-gray-100 dark:hover:bg-gray-800"
     }`}
   >
     {label}
