@@ -68,7 +68,7 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    // ✅ prevent redirect on auth pages
+    // prevent redirect on auth pages
     if (
       pathname.startsWith("/login") ||
       pathname.startsWith("/register") ||
@@ -87,7 +87,7 @@ function RoleRedirect() {
       navigate("/profile", { replace: true });
     }
 
-  }, [pathname]);
+  }, [pathname, navigate]);   // ✅ FIXED
 
   return null;
 }

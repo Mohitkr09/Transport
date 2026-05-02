@@ -40,28 +40,33 @@ const Home = () => {
   ====================================================== */
 
   useEffect(() => {
-
     try {
       const token = localStorage.getItem("token");
-      const user = JSON.parse(localStorage.getItem("user") || "null");
+      const userStr = localStorage.getItem("user");
 
-      if (!token || !user) return;
+      // ✅ SAFE CHECK (prevents crash)
+      if (!token || !userStr) return;
+
+      let user = null;
+      try {
+        user = JSON.parse(userStr);
+      } catch {
+        console.error("Invalid user JSON");
+        return;
+      }
+
+      if (!user || !user.role) return;
 
       if (user.role === "driver") {
         navigate("/driver/dashboard", { replace: true });
-      }
-
-      else if (user.role === "admin") {
+      } else if (user.role === "admin") {
         navigate("/admin/dashboard", { replace: true });
       }
-
-      // ✅ user stays on home
 
     } catch (err) {
       console.error("User parse error:", err);
     }
-
-  }, [navigate]);
+  }, [navigate]); // ✅ stable dependency
 
 
 
