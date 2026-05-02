@@ -35,11 +35,17 @@ export default function Register() {
   const handleRegister = async () => {
     if (loading) return;
 
-    if (!form.name || !form.email || !form.password || !form.phone) {
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+    const password = form.password.trim();
+    const phone = form.phone.trim();
+    const role = form.role;
+
+    if (!name || !email || !password || !phone) {
       return setError("All fields are required");
     }
 
-    if (form.password.length < 6) {
+    if (password.length < 6) {
       return setError("Password must be at least 6 characters");
     }
 
@@ -49,11 +55,11 @@ export default function Register() {
       setSuccess("");
 
       const res = await api.post("/auth/register", {
-        name: form.name.trim(),
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-        phone: form.phone.trim(),
-        role: form.role,
+        name,
+        email,
+        password,
+        phone,
+        role,
       });
 
       if (!res.data?.success) {
@@ -61,15 +67,27 @@ export default function Register() {
       }
 
       setSuccess("🎉 Account created successfully!");
-      setTimeout(() => navigate("/"), 1500);
+
+      // ✅ FIXED REDIRECT
+      setTimeout(() => navigate("/login"), 1500);
 
     } catch (err) {
       if (err.code === "ECONNABORTED") {
         setError("Server timeout. Try again.");
-      } else if (!err.response) {
+      } 
+      else if (!err.response) {
         setError("Server unavailable. Please wait 30s.");
-      } else {
-        setError(err.response.data?.message || "Registration failed");
+      } 
+      else {
+        const status = err.response.status;
+
+        // ✅ HANDLE 409 PROPERLY
+        if (status === 409) {
+          setError("User already exists. Redirecting to login...");
+          setTimeout(() => navigate("/login"), 1500);
+        } else {
+          setError(err.response.data?.message || "Registration failed");
+        }
       }
     } finally {
       setLoading(false);
@@ -138,7 +156,7 @@ export default function Register() {
             disabled={loading}
             className={`w-full py-2 rounded-xl text-white font-semibold transition-all duration-300 ${
               loading
-                ? "bg-gray-400"
+                ? "bg-gray-400 cursor-not-allowed"
                 : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
             }`}
           >
@@ -160,9 +178,9 @@ export default function Register() {
 
         {/* LOGIN LINK */}
         <div className="mt-6 text-center text-sm text-gray-600">
-          Already have an account?{' '}
+          Already have an account?{" "}
           <span
-            onClick={() => navigate('/')}
+            onClick={() => navigate("/login")}
             className="text-indigo-600 font-semibold cursor-pointer hover:underline"
           >
             Login
