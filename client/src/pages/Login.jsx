@@ -3,7 +3,6 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 /* ================= API ================= */
-
 const BASE =
   import.meta.env.VITE_API_URL ||
   "https://transport-mpb5.onrender.com";
@@ -14,8 +13,6 @@ const api = axios.create({
   baseURL: API,
   timeout: 15000,
 });
-
-/* ================= COMPONENT ================= */
 
 export default function Login() {
   const navigate = useNavigate();
@@ -29,21 +26,13 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  /* ===== AUTO REDIRECT ===== */
   useEffect(() => {
-    try {
-      const token = localStorage.getItem("token");
-      const role = localStorage.getItem("role");
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("role");
 
-      if (token && role) {
-        redirectUser(role);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    if (token && role) redirectUser(role);
   }, []);
 
-  /* ===== REDIRECT ===== */
   const redirectUser = (role) => {
     const r = role.toLowerCase();
 
@@ -52,12 +41,10 @@ export default function Login() {
     else navigate("/book");
   };
 
-  /* ===== INPUT ===== */
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  /* ===== LOGIN ===== */
   const handleLogin = async () => {
     if (loading) return;
 
@@ -82,23 +69,17 @@ export default function Login() {
 
       const data = res.data;
 
-      if (!data?.token) {
-        throw new Error("Invalid response");
-      }
+      if (!data?.token) throw new Error("Invalid response");
 
       const finalRole = (data.role || role).toLowerCase();
 
-      /* ===== SAVE ===== */
       localStorage.setItem("token", data.token);
       localStorage.setItem("role", finalRole);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      /* ===== REDIRECT ===== */
       redirectUser(finalRole);
 
     } catch (err) {
-      console.error(err);
-
       if (err.response) {
         const status = err.response.status;
 
@@ -108,27 +89,25 @@ export default function Login() {
       } else {
         setError("Server not reachable");
       }
-
     } finally {
       setLoading(false);
     }
   };
 
-  /* ===== ENTER KEY ===== */
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
   };
 
-  /* ===== UI ===== */
   return (
-    <div className="min-h-screen flex items-center justify-center
-    bg-gradient-to-br from-indigo-500 to-purple-600">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+      <div className="backdrop-blur-xl bg-white/90 p-8 rounded-3xl shadow-2xl w-[380px] border border-white/40">
 
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-[350px]">
-
-        <h2 className="text-2xl font-bold mb-6 text-center">
-          Login
+        <h2 className="text-3xl font-bold text-center mb-2 text-gray-800">
+          Welcome Back 👋
         </h2>
+        <p className="text-center text-gray-500 mb-6 text-sm">
+          Login to your TransportX account
+        </p>
 
         <div className="space-y-4">
 
@@ -136,7 +115,7 @@ export default function Login() {
             name="role"
             value={form.role}
             onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           >
             <option value="user">User</option>
             <option value="driver">Driver</option>
@@ -150,7 +129,7 @@ export default function Login() {
             value={form.email}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
           <input
@@ -160,21 +139,20 @@ export default function Login() {
             value={form.password}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
           <button
             onClick={handleLogin}
             disabled={loading}
-            className={`w-full py-2 rounded-lg text-white ${
+            className={`w-full py-2 rounded-xl text-white font-semibold transition-all duration-300 ${
               loading
                 ? "bg-gray-400"
-                : "bg-indigo-600 hover:bg-indigo-700"
+                : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
             }`}
           >
             {loading ? "Logging in..." : "Login"}
           </button>
-
         </div>
 
         {error && (
@@ -182,6 +160,17 @@ export default function Login() {
             {error}
           </p>
         )}
+
+        {/* ===== SIGNUP SECTION ===== */}
+        <div className="mt-6 text-center text-sm text-gray-600">
+          Don't have an account?{' '}
+          <span
+            onClick={() => navigate('/signup')}
+            className="text-indigo-600 font-semibold cursor-pointer hover:underline"
+          >
+            Sign up
+          </span>
+        </div>
 
       </div>
     </div>

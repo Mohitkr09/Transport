@@ -7,10 +7,8 @@ export default function DriverDashboard() {
 
   const [online, setOnline] = useState(false);
   const [profile, setProfile] = useState(null);
-
   const [incomingRide, setIncomingRide] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
-
   const [timer, setTimer] = useState(10);
   const [driverLocation, setDriverLocation] = useState(null);
 
@@ -21,6 +19,26 @@ export default function DriverDashboard() {
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
+  const unlockedRef = useRef(false); // 🔥 FIX
+
+  /* ================= 🔊 UNLOCK AUDIO ================= */
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioRef.current) return;
+
+      audioRef.current.play()
+        .then(() => {
+          audioRef.current.pause();
+          unlockedRef.current = true;
+          console.log("🔊 Audio unlocked");
+        })
+        .catch(() => {});
+
+      window.removeEventListener("click", unlock);
+    };
+
+    window.addEventListener("click", unlock);
+  }, []);
 
   /* ================= 🔊 SOUND ================= */
   useEffect(() => {
@@ -31,11 +49,11 @@ export default function DriverDashboard() {
   }, []);
 
   const playSound = () => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
+    if (!audioRef.current || !unlockedRef.current) return;
 
+    audioRef.current.currentTime = 0;
     audioRef.current.play().catch(() => {
-      console.log("🔇 autoplay blocked");
+      console.log("❌ Sound blocked");
     });
   };
 
@@ -67,7 +85,7 @@ export default function DriverDashboard() {
     fetchStats();
   }, []);
 
-  /* ================= SOCKET (FIXED) ================= */
+  /* ================= SOCKET ================= */
   useEffect(() => {
     if (!profile?._id) return;
 
@@ -83,15 +101,9 @@ export default function DriverDashboard() {
 
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      console.log("✅ Connected to socket");
-    });
-
     socket.on("newRideRequest", (ride) => {
-      console.log("🚨 NEW RIDE:", ride);
-
       setIncomingRide(ride);
-      playSound(); // 🔊 ALERT
+      playSound(); // 🔊 FIXED
     });
 
     socket.on("rideAccepted", (ride) => {
@@ -104,7 +116,7 @@ export default function DriverDashboard() {
     return () => socket.disconnect();
   }, [profile]);
 
-  /* ================= FALLBACK (IMPORTANT) ================= */
+  /* ================= FALLBACK ================= */
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -182,7 +194,7 @@ export default function DriverDashboard() {
     stopSound();
   };
 
-  /* ================= MAP ROUTE ================= */
+  /* ================= MAP ================= */
   const rideData = activeRide || incomingRide;
 
   const pickupCoords = rideData?.pickupLocation?.location?.coordinates;
@@ -198,9 +210,7 @@ export default function DriverDashboard() {
 
   /* ================= UI ================= */
   return (
-    <div className="min-h-screen p-4 
-      bg-gray-100 dark:bg-gray-950 
-      text-gray-900 dark:text-white">
+    <div className="min-h-screen p-4 bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white">
 
       {/* HEADER */}
       <div className="flex justify-between items-center mb-6">
@@ -226,7 +236,7 @@ export default function DriverDashboard() {
         </div>
       </div>
 
-      {/* MAP WITH ROUTE */}
+      {/* MAP */}
       <div className="h-[400px] rounded-xl overflow-hidden">
         <LiveMap
           driverLocation={driverLocation}
@@ -235,30 +245,43 @@ export default function DriverDashboard() {
         />
       </div>
 
-      {/* RIDE POPUP */}
+      {/* 🚨 IMPROVED POPUP */}
       {incomingRide && (
-        <div className="fixed bottom-0 w-full bg-white dark:bg-gray-900 p-5 shadow-xl">
-          <h3 className="text-red-500 font-bold">
-            🚨 New Ride ({timer}s)
-          </h3>
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
 
-          <p>{rideData?.pickupLocation?.address}</p>
-          <p>{rideData?.dropLocation?.address}</p>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
 
-          <div className="flex gap-3 mt-3">
-            <button
-              onClick={() => acceptRide(incomingRide._id)}
-              className="bg-green-600 text-white px-4 py-2 rounded"
-            >
-              Accept
-            </button>
+          <div className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-t-3xl p-6 shadow-2xl">
 
-            <button
-              onClick={() => rejectRide(incomingRide._id)}
-              className="bg-gray-500 text-white px-4 py-2 rounded"
-            >
-              Reject
-            </button>
+            <h3 className="text-lg font-bold text-red-500 animate-pulse">
+              🚨 New Ride ({timer}s)
+            </h3>
+
+            <div className="mt-3 text-sm space-y-1">
+              <p><b>📍 Pickup:</b> {rideData?.pickupLocation?.address}</p>
+              <p><b>🏁 Drop:</b> {rideData?.dropLocation?.address}</p>
+            </div>
+
+            <div className="text-2xl font-bold text-green-600 mt-3">
+              ₹{rideData?.fare}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => acceptRide(incomingRide._id)}
+                className="flex-1 bg-green-600 text-white py-3 rounded-xl"
+              >
+                Accept
+              </button>
+
+              <button
+                onClick={() => rejectRide(incomingRide._id)}
+                className="flex-1 bg-gray-300 dark:bg-gray-700 py-3 rounded-xl"
+              >
+                Reject
+              </button>
+            </div>
+
           </div>
         </div>
       )}

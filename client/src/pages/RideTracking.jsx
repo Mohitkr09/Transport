@@ -12,14 +12,13 @@ export default function RideTracking() {
 
   const socketRef = useRef(null);
   const mapRef = useRef(null);
+  const animationRef = useRef(null);
 
   const { isLoaded } = useGoogleMaps();
 
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
-
-  const animationRef = useRef(null);
 
   /* ================= FETCH ================= */
   useEffect(() => {
@@ -28,7 +27,7 @@ export default function RideTracking() {
     });
   }, [rideId]);
 
-  /* ================= SMOOTH ANIMATION ================= */
+  /* ================= SMOOTH DRIVER ================= */
   const animateDriver = (start, end) => {
     let progress = 0;
 
@@ -42,9 +41,7 @@ export default function RideTracking() {
 
       setDriverPos({ lat, lng });
 
-      if (mapRef.current) {
-        mapRef.current.panTo({ lat, lng });
-      }
+      mapRef.current?.panTo({ lat, lng });
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(step);
@@ -66,7 +63,6 @@ export default function RideTracking() {
     socket.on("driverMoved", ({ lat, lng }) => {
       setDriverPos((prev) => {
         if (!prev) return { lat, lng };
-
         animateDriver(prev, { lat, lng });
         return prev;
       });
@@ -110,7 +106,12 @@ export default function RideTracking() {
   }, [ride]);
 
   if (!ride || !isLoaded) {
-    return <div className="h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="h-screen flex items-center justify-center 
+      bg-white dark:bg-black text-black dark:text-white">
+        Loading...
+      </div>
+    );
   }
 
   const pickup = {
@@ -123,8 +124,20 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
+  /* ================= STATUS TEXT ================= */
+  const getStatus = () => {
+    switch (ride.status) {
+      case "searching": return "🔍 Searching Driver...";
+      case "accepted": return "🚗 Driver is on the way";
+      case "ongoing": return "🛣️ Ride in progress";
+      case "completed": return "🎉 Ride Completed";
+      default: return "Loading...";
+    }
+  };
+
   return (
-    <div className="h-screen w-full relative">
+    <div className="h-screen w-full relative 
+    bg-gray-100 dark:bg-black transition">
 
       {/* MAP */}
       <GoogleMap
@@ -135,13 +148,9 @@ export default function RideTracking() {
         options={{ disableDefaultUI: true }}
       >
 
-        {/* PICKUP */}
         <Marker position={pickup} />
-
-        {/* DROP */}
         <Marker position={drop} />
 
-        {/* 🚗 DRIVER */}
         {driverPos && (
           <Marker
             position={driverPos}
@@ -152,7 +161,6 @@ export default function RideTracking() {
           />
         )}
 
-        {/* ROUTE */}
         {routePath.length > 1 && (
           <Polyline
             path={routePath}
@@ -166,21 +174,24 @@ export default function RideTracking() {
       </GoogleMap>
 
       {/* 🔥 TOP STATUS */}
-      <div className="absolute top-0 w-full p-4 bg-black/60 text-white text-center font-semibold">
-        {ride.status === "searching" && "Searching Driver..."}
-        {ride.status === "accepted" && "Driver is on the way 🚗"}
-        {ride.status === "ongoing" && "Ride in progress 🛣️"}
-        {ride.status === "completed" && "Ride Completed 🎉"}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 
+        px-6 py-2 rounded-full 
+        bg-white/70 dark:bg-gray-900/80 
+        backdrop-blur-xl shadow text-sm font-semibold">
+
+        {getStatus()}
       </div>
 
       {/* 🔥 BOTTOM PANEL */}
-      <div className="absolute bottom-0 w-full bg-white p-6 rounded-t-3xl shadow-2xl">
+      <div className="absolute bottom-0 w-full 
+        bg-white dark:bg-gray-900 
+        rounded-t-3xl p-6 shadow-2xl">
 
-        <h2 className="font-bold text-xl">
+        <h2 className="font-bold text-lg text-gray-900 dark:text-white">
           {ride.driver?.name || "Finding Driver..."}
         </h2>
 
-        <div className="mt-3 text-sm text-gray-600 space-y-1">
+        <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-1">
           <p>📍 {ride.pickupLocation.address}</p>
           <p>🏁 {ride.dropLocation.address}</p>
         </div>
@@ -190,7 +201,8 @@ export default function RideTracking() {
             ₹ {ride.fare}
           </p>
 
-          <button className="bg-red-500 text-white px-4 py-2 rounded-xl">
+          <button className="bg-red-500 hover:bg-red-600 
+            text-white px-4 py-2 rounded-xl transition">
             Cancel
           </button>
         </div>

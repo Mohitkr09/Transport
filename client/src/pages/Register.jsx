@@ -2,9 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-/* ======================================================
-API CONFIG
-====================================================== */
+/* ================= API ================= */
 const BASE =
   import.meta.env.VITE_API_URL ||
   "https://transport-mpb5.onrender.com";
@@ -13,12 +11,9 @@ const API = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
 const api = axios.create({
   baseURL: API,
-  timeout: 20000
+  timeout: 20000,
 });
 
-/* ======================================================
-COMPONENT
-====================================================== */
 export default function Register() {
   const navigate = useNavigate();
 
@@ -27,22 +22,16 @@ export default function Register() {
     email: "",
     password: "",
     phone: "",
-    role: "user" // default
+    role: "user",
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  /* ======================================================
-  INPUT HANDLER
-  ====================================================== */
   const update = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
-  /* ======================================================
-  REGISTER HANDLER
-  ====================================================== */
   const handleRegister = async () => {
     if (loading) return;
 
@@ -64,7 +53,7 @@ export default function Register() {
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: form.phone.trim(),
-        role: form.role // 👈 IMPORTANT
+        role: form.role,
       });
 
       if (!res.data?.success) {
@@ -72,7 +61,6 @@ export default function Register() {
       }
 
       setSuccess("🎉 Account created successfully!");
-
       setTimeout(() => navigate("/"), 1500);
 
     } catch (err) {
@@ -88,113 +76,98 @@ export default function Register() {
     }
   };
 
-  /* ======================================================
-  UI
-  ====================================================== */
   return (
-    <div className="min-h-screen flex items-center justify-center
-                    bg-gradient-to-br from-indigo-500 to-purple-600
-                    dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+      <div className="backdrop-blur-xl bg-white/90 p-8 rounded-3xl shadow-2xl w-[400px] border border-white/40">
 
-      <div className="bg-white dark:bg-gray-900
-                      p-8 rounded-2xl shadow-xl w-[350px]
-                      text-gray-800 dark:text-gray-100">
-
-        <h2 className="text-2xl font-bold mb-6 text-center">
-          Create Account
+        <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">
+          Create Account 🚀
         </h2>
+        <p className="text-center text-gray-500 text-sm mb-6">
+          Join TransportX and start your journey
+        </p>
 
         <div className="space-y-4">
 
-          {/* ROLE */}
           <select
             name="role"
             value={form.role}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-lg
-                       bg-white dark:bg-gray-800
-                       border-gray-300 dark:border-gray-700"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           >
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
 
-          {/* NAME */}
           <input
             name="name"
             placeholder="Full Name"
             value={form.name}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
-          {/* EMAIL */}
           <input
             name="email"
             type="email"
-            placeholder="Email"
+            placeholder="Email Address"
             value={form.email}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
-          {/* PHONE */}
           <input
             name="phone"
             placeholder="Phone Number"
             value={form.phone}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
-          {/* PASSWORD */}
           <input
             name="password"
             type="password"
             placeholder="Password"
             value={form.password}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-lg"
+            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
           />
 
-          {/* BUTTON */}
           <button
             onClick={handleRegister}
             disabled={loading}
-            className={`w-full py-2 rounded-lg font-semibold transition
-              ${
-                loading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-indigo-600 text-white hover:bg-indigo-700"
-              }`}
+            className={`w-full py-2 rounded-xl text-white font-semibold transition-all duration-300 ${
+              loading
+                ? "bg-gray-400"
+                : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
+            }`}
           >
             {loading ? "Creating account..." : "Register"}
           </button>
         </div>
 
-        {/* SUCCESS */}
         {success && (
           <p className="text-green-500 text-sm mt-3 text-center">
             {success}
           </p>
         )}
 
-        {/* ERROR */}
         {error && (
           <p className="text-red-500 text-sm mt-3 text-center">
             {error}
           </p>
         )}
 
-        <p className="text-sm text-center mt-4">
-          Already have an account?
+        {/* LOGIN LINK */}
+        <div className="mt-6 text-center text-sm text-gray-600">
+          Already have an account?{' '}
           <span
-            onClick={() => navigate("/")}
-            className="text-indigo-600 font-semibold cursor-pointer ml-1"
+            onClick={() => navigate('/')}
+            className="text-indigo-600 font-semibold cursor-pointer hover:underline"
           >
             Login
           </span>
-        </p>
+        </div>
 
       </div>
     </div>

@@ -22,7 +22,6 @@ const RideTracking = lazy(() => import("./pages/RideTracking"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Profile = lazy(() => import("./pages/Profile"));
 
-/* 🔥 ADD THESE */
 const RideHistory = lazy(() => import("./pages/RideHistory"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
@@ -58,7 +57,7 @@ function BackendWakeup() {
   return null;
 }
 
-/* ================= ROLE REDIRECT (FIXED) ================= */
+/* ================= ROLE REDIRECT ================= */
 function RoleRedirect() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -69,9 +68,13 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    if (pathname.startsWith("/login") || pathname.startsWith("/register")) return;
+    // ✅ prevent redirect on auth pages
+    if (
+      pathname.startsWith("/login") ||
+      pathname.startsWith("/register") ||
+      pathname.startsWith("/signup")
+    ) return;
 
-    // ✅ FIXED (no window.location)
     if (role === "driver" && !pathname.startsWith("/driver")) {
       navigate("/driver/dashboard", { replace: true });
     }
@@ -108,6 +111,7 @@ function Layout({ children }) {
   const hideLayout =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
+    pathname.startsWith("/signup") ||
     pathname.startsWith("/admin");
 
   return (
@@ -136,10 +140,14 @@ export default function App() {
 
             {/* PUBLIC */}
             <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+
+            {/* ✅ FIX: BOTH ROUTES */}
+            <Route path="/register" element={<Register />} />
+            <Route path="/signup" element={<Register />} />
+
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
 
             {/* USER */}
             <Route
@@ -169,7 +177,6 @@ export default function App() {
               }
             />
 
-            {/* 🔥 FIXED ROUTES */}
             <Route
               path="/rides"
               element={
@@ -234,8 +241,8 @@ export default function App() {
               <Route path="settings" element={<Settings />} />
             </Route>
 
-            {/* FALLBACK */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* ✅ FIXED FALLBACK */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
 
           </Routes>
         </Suspense>
