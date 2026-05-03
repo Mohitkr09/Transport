@@ -60,8 +60,8 @@ app.use("/api/ride", rideRoutes);
 app.use("/api/location", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
 
-/* ================= HEALTH ================= */
-app.get("/health", (req, res) => {
+/* ================= HEALTH (FIXED) ================= */
+app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server running ✅" });
 });
 
@@ -87,7 +87,7 @@ app.set("io", io);
 app.set("onlineDrivers", onlineDrivers);
 app.set("onlineUsers", onlineUsers);
 
-/* ================= SOCKET AUTH ================= */
+/* ================= SOCKET AUTH (FIXED) ================= */
 io.use((socket, next) => {
   try {
     let user = null;
@@ -108,14 +108,17 @@ io.use((socket, next) => {
       };
     }
 
-    if (!user) return next(new Error("Unauthorized"));
+    if (!user) {
+      console.log("❌ Socket Unauthorized");
+      return next(); // ✅ FIXED (NO ERROR THROW)
+    }
 
     socket.user = user;
     next();
 
   } catch (err) {
     console.log("❌ Socket Auth Error:", err.message);
-    next(new Error("Unauthorized"));
+    next(); // ✅ FIXED
   }
 });
 
@@ -125,14 +128,12 @@ io.on("connection", async (socket) => {
     const userId = socket.user?.id;
     const role = socket.user?.role;
 
-    console.log("🟢 Connected:", role, userId);
-
     if (!userId) return;
 
-    /* JOIN PERSONAL ROOM */
+    console.log("🟢 Connected:", role, userId);
+
     socket.join(userId.toString());
 
-    /* STORE SOCKET */
     if (role === "driver") {
       onlineDrivers[userId] = socket.id;
 
@@ -146,21 +147,16 @@ io.on("connection", async (socket) => {
       onlineUsers[userId] = socket.id;
     }
 
-    /* ================= EVENTS ================= */
-
-    /* JOIN RIDE ROOM */
     socket.on("joinRide", (rideId) => {
       socket.join(rideId.toString());
     });
 
-    /* DRIVER LOCATION UPDATE */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
       if (rideId) {
         io.to(rideId.toString()).emit("driverMoved", { lat, lng });
       }
     });
 
-    /* DISCONNECT */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
@@ -186,6 +182,7 @@ io.on("connection", async (socket) => {
 /* ================= ERROR HANDLER ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 Server Error:", err.message);
+
   res.status(500).json({
     success: false,
     message: err.message || "Server error"

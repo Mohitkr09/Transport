@@ -1,24 +1,15 @@
 const express = require("express");
 const router = express.Router();
 
-/* ================= IMPORTS ================= */
-const {
-  register,
-  login
-} = require("../controllers/authController");
-
-/* 🔥 IMPORTANT FIX HERE */
+const { register, login, getMe } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 
-/* ================= ASYNC WRAPPER ================= */
-const asyncHandler = (fn) => (req, res, next) =>
-  Promise.resolve(fn(req, res, next)).catch(next);
-
 /* ================= VALIDATION ================= */
-const validateRegister = (req, res, next) => {
-  const { name, email, password } = req.body;
 
-  if (!name || !email || !password) {
+const validateRegister = (req, res, next) => {
+  const { name, email, password, phone } = req.body;
+
+  if (!name || !email || !password || !phone) {
     return res.status(400).json({
       success: false,
       message: "All fields are required",
@@ -36,12 +27,12 @@ const validateRegister = (req, res, next) => {
 };
 
 const validateLogin = (req, res, next) => {
-  const { email, password } = req.body;
+  const { email, password, role } = req.body;
 
-  if (!email || !password) {
+  if (!email || !password || !role) {
     return res.status(400).json({
       success: false,
-      message: "Email and password required",
+      message: "Email, password and role required",
     });
   }
 
@@ -50,39 +41,12 @@ const validateLogin = (req, res, next) => {
 
 /* ================= ROUTES ================= */
 
-/* 🔐 REGISTER */
-router.post(
-  "/register",
-  validateRegister,
-  asyncHandler(register)
-);
+router.post("/register", validateRegister, register);
+router.post("/login", validateLogin, login);
+router.get("/me", protect, getMe);
 
-/* 🔐 LOGIN */
-router.post(
-  "/login",
-  validateLogin,
-  asyncHandler(login)
-);
-
-/* 👤 GET CURRENT USER */
-router.get(
-  "/me",
-  protect, // ✅ NOW WORKS
-  asyncHandler(async (req, res) => {
-    res.status(200).json({
-      success: true,
-      user: req.user,
-    });
-  })
-);
-
-/* ❤️ HEALTH CHECK */
 router.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "Auth routes working",
-  });
+  res.json({ success: true, message: "Auth routes working" });
 });
 
-/* ================= EXPORT ================= */
 module.exports = router;

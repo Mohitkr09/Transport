@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 /* ================= API ================= */
 const BASE =
   import.meta.env.VITE_API_URL ||
-  "https://transport-mpb5.onrender.com";
+  "http://localhost:5000";   // ✅ FIXED (local first)
 
 const API = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
@@ -32,6 +32,7 @@ export default function Register() {
   const update = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
+  /* ================= REGISTER ================= */
   const handleRegister = async () => {
     if (loading) return;
 
@@ -68,32 +69,48 @@ export default function Register() {
 
       setSuccess("🎉 Account created successfully!");
 
-      // ✅ FIXED REDIRECT
+      // ✅ redirect after success
       setTimeout(() => navigate("/login"), 1500);
 
     } catch (err) {
+      console.log("🔥 REGISTER ERROR:", err);
+
+      // ✅ FIXED ERROR HANDLING (MOST IMPORTANT)
       if (err.code === "ECONNABORTED") {
         setError("Server timeout. Try again.");
       } 
       else if (!err.response) {
-        setError("Server unavailable. Please wait 30s.");
+        setError("Backend not reachable. Start server.");
       } 
       else {
         const status = err.response.status;
 
-        // ✅ HANDLE 409 PROPERLY
         if (status === 409) {
-          setError("User already exists. Redirecting to login...");
+          setError("User already exists. Redirecting...");
           setTimeout(() => navigate("/login"), 1500);
-        } else {
-          setError(err.response.data?.message || "Registration failed");
+        } 
+        else if (status === 400) {
+          setError(err.response.data?.message || "Invalid input");
+        } 
+        else if (status === 500) {
+          setError("Server error. Please try again.");
+        } 
+        else {
+          // ✅ FINAL SAFE FALLBACK
+          setError(
+            err.response?.data?.message ||
+            err.message ||
+            "Something went wrong"
+          );
         }
       }
+
     } finally {
       setLoading(false);
     }
   };
 
+  /* ================= UI ================= */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
       <div className="backdrop-blur-xl bg-white/90 p-8 rounded-3xl shadow-2xl w-[400px] border border-white/40">
@@ -176,7 +193,6 @@ export default function Register() {
           </p>
         )}
 
-        {/* LOGIN LINK */}
         <div className="mt-6 text-center text-sm text-gray-600">
           Already have an account?{" "}
           <span

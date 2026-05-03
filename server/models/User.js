@@ -7,8 +7,6 @@ USER SCHEMA
 
 const userSchema = new mongoose.Schema(
   {
-    /* ================= BASIC INFO ================= */
-
     name: {
       type: String,
       required: [true, "Name required"],
@@ -23,7 +21,6 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Invalid email"],
-      index: true,
     },
 
     password: {
@@ -38,24 +35,18 @@ const userSchema = new mongoose.Schema(
       required: [true, "Phone required"],
       trim: true,
       match: [/^[0-9]{10,15}$/, "Invalid phone number"],
-      index: true,
     },
 
     role: {
       type: String,
       enum: ["user", "driver", "admin"],
       default: "user",
-      index: true,
     },
-
-    /* ================= PROFILE ================= */
 
     avatar: {
       type: String,
       default: null,
     },
-
-    /* ================= LOCATION ================= */
 
     location: {
       type: {
@@ -71,8 +62,6 @@ const userSchema = new mongoose.Schema(
 
     lastLocationUpdate: Date,
 
-    /* ================= ACCOUNT STATUS ================= */
-
     isActive: {
       type: Boolean,
       default: true,
@@ -84,8 +73,6 @@ const userSchema = new mongoose.Schema(
     },
 
     lastLogin: Date,
-
-    /* ================= SECURITY ================= */
 
     otp: {
       code: Number,
@@ -101,25 +88,22 @@ const userSchema = new mongoose.Schema(
 );
 
 /* ======================================================
-INDEXES (FIXED - NO DUPLICATES)
+INDEXES
 ====================================================== */
 
 userSchema.index({ location: "2dsphere" });
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ phone: 1 });
 
 /* ======================================================
-PASSWORD HASH (FIXED + SAFE)
+PASSWORD HASH (SAFE)
 ====================================================== */
 
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+userSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
 
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (err) {
-    next(err);
-  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 /* ======================================================
@@ -127,9 +111,6 @@ METHODS
 ====================================================== */
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
-  if (!this.password) {
-    throw new Error("Password not selected. Use .select('+password')");
-  }
   return bcrypt.compare(enteredPassword, this.password);
 };
 
@@ -138,7 +119,7 @@ userSchema.methods.updateLocation = function (lat, lng) {
 
   this.location = {
     type: "Point",
-    coordinates: [Number(lng), Number(lat)], // lng first (GeoJSON)
+    coordinates: [Number(lng), Number(lat)],
   };
 
   this.lastLocationUpdate = new Date();
@@ -147,7 +128,7 @@ userSchema.methods.updateLocation = function (lat, lng) {
 userSchema.methods.setOTP = function (code) {
   this.otp = {
     code: Number(code),
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
   };
 };
 
@@ -158,9 +139,7 @@ userSchema.methods.verifyOTP = function (input) {
     this.otp.code === Number(input) &&
     this.otp.expiresAt > new Date();
 
-  if (isValid) {
-    this.otp = undefined;
-  }
+  if (isValid) this.otp = undefined;
 
   return isValid;
 };
@@ -173,11 +152,11 @@ userSchema.virtual("isOnline").get(function () {
   if (!this.lastLogin) return false;
 
   const diff = Date.now() - new Date(this.lastLogin).getTime();
-  return diff < 5 * 60 * 1000; // 5 min
+  return diff < 5 * 60 * 1000;
 });
 
 /* ======================================================
-JSON CLEANUP (SAFE)
+JSON CLEANUP
 ====================================================== */
 
 userSchema.set("toJSON", {

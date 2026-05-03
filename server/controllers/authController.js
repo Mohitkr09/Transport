@@ -2,7 +2,7 @@ const User = require("../models/User");
 const Driver = require("../models/Driver");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const sendEmail = require("../utils/sendEmail"); // 🔥 NEW
+const sendEmail = require("../utils/sendEmail");
 
 /* ======================================================
 TOKEN
@@ -18,12 +18,13 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER USER / ADMIN + EMAIL
+REGISTER (FINAL FIXED 🚀)
 ====================================================== */
 exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
 
+    /* ===== VALIDATION ===== */
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
@@ -44,6 +45,7 @@ exports.register = async (req, res) => {
       });
     }
 
+    /* ===== CHECK EXIST ===== */
     const exists = await User.findOne({
       $or: [{ email }, { phone }],
     });
@@ -55,7 +57,7 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* 🔥 CREATE USER */
+    /* ===== CREATE USER ===== */
     const user = await User.create({
       name,
       email,
@@ -64,39 +66,21 @@ exports.register = async (req, res) => {
       role,
     });
 
-    /* 🔥 SEND EMAIL */
-    try {
-      await sendEmail({
+    /* ===== SAFE EMAIL (CRITICAL FIX) ===== */
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      sendEmail({
         to: user.email,
         subject: "Welcome to TransportX 🚗",
-        html: `
-          <div style="font-family:Arial;padding:20px;">
-            <h2 style="color:#4f46e5;">🚗 TransportX</h2>
-            <h3>Welcome ${user.name} 👋</h3>
-            <p>Your account has been successfully created.</p>
-            <p>Start booking rides now 🚀</p>
-
-            <a href="http://localhost:5173"
-              style="display:inline-block;
-              margin-top:10px;
-              padding:10px 20px;
-              background:#4f46e5;
-              color:white;
-              border-radius:8px;
-              text-decoration:none;">
-              Book Ride
-            </a>
-          </div>
-        `,
+        html: `<h2>Welcome ${user.name}</h2>`,
+      }).catch(err => {
+        console.log("⚠️ Email failed:", err.message);
       });
-    } catch (emailErr) {
-      console.log("⚠️ Email failed but user created:", emailErr.message);
     }
 
-    /* 🔥 TOKEN */
+    /* ===== TOKEN ===== */
     const token = generateToken(user._id, role);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       token,
       role,
@@ -110,9 +94,24 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 REGISTER ERROR:", err.message);
+    console.error("🔥 REGISTER ERROR FULL:", err);
 
-    res.status(500).json({
+    /* ===== REAL ERROR RESPONSE (IMPORTANT) ===== */
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Email or phone already exists",
+      });
+    }
+
+    if (err.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    return res.status(500).json({
       success: false,
       message: err.message || "Server error",
     });
@@ -120,7 +119,7 @@ exports.register = async (req, res) => {
 };
 
 /* ======================================================
-LOGIN
+LOGIN (SAFE)
 ====================================================== */
 exports.login = async (req, res) => {
   try {
@@ -146,7 +145,7 @@ exports.login = async (req, res) => {
     }
 
     /* USER / ADMIN */
-    else if (role === "user" || role === "admin") {
+    else {
       account = await User.findOne({ email }).select("+password");
 
       if (account && account.role !== role) {
@@ -155,13 +154,6 @@ exports.login = async (req, res) => {
           message: "Invalid role selected",
         });
       }
-    }
-
-    else {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid role",
-      });
     }
 
     if (!account) {
@@ -188,7 +180,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* UPDATE LAST LOGIN */
+    /* UPDATE LOGIN */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(account._id, {
         isOnline: true,
@@ -203,7 +195,7 @@ exports.login = async (req, res) => {
 
     const token = generateToken(account._id, account.role || role);
 
-    res.json({
+    return res.json({
       success: true,
       token,
       role: account.role || role,
@@ -217,9 +209,9 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 LOGIN ERROR:", err.message);
+    console.error("🔥 LOGIN ERROR FULL:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal Server Error",
     });
