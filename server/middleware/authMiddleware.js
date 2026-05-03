@@ -7,11 +7,11 @@ exports.protect = async (req, res, next) => {
   try {
     let token;
 
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
-    ) {
-      token = req.headers.authorization.split(" ")[1];
+    /* ================= GET TOKEN ================= */
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
     }
 
     if (!token) {
@@ -21,10 +21,12 @@ exports.protect = async (req, res, next) => {
       });
     }
 
+    /* ================= VERIFY ================= */
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     let user;
 
+    /* ================= FETCH USER ================= */
     if (decoded.role === "driver") {
       user = await Driver.findById(decoded.id).select("-password");
     } else {
@@ -38,17 +40,19 @@ exports.protect = async (req, res, next) => {
       });
     }
 
+    /* ================= FINAL FIX ================= */
     req.user = {
-      id: user._id.toString(),
+      _id: user._id,                 // ✅ FIX (IMPORTANT)
+      id: user._id.toString(),       // optional
       role: decoded.role,
       name: user.name,
       email: user.email,
     };
 
-    next(); // ✅ correct
+    next();
 
   } catch (err) {
-    console.error("AUTH ERROR:", err.message);
+    console.error("🔥 AUTH ERROR:", err.message);
 
     return res.status(401).json({
       success: false,
@@ -59,7 +63,7 @@ exports.protect = async (req, res, next) => {
 
 /* ================= ADMIN ================= */
 exports.adminOnly = (req, res, next) => {
-  if (req.user?.role !== "admin") {
+  if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({
       success: false,
       message: "Admin only",
@@ -70,7 +74,7 @@ exports.adminOnly = (req, res, next) => {
 
 /* ================= DRIVER ================= */
 exports.driverOnly = (req, res, next) => {
-  if (req.user?.role !== "driver") {
+  if (!req.user || req.user.role !== "driver") {
     return res.status(403).json({
       success: false,
       message: "Driver only",

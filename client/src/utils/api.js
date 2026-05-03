@@ -1,21 +1,18 @@
 import axios from "axios";
 
 /* ======================================================
-ENV CONFIG (ROBUST)
+ENV CONFIG (FINAL ROBUST)
 ====================================================== */
 
-// 🔥 Accept both:
-// - https://domain.com
-// - https://domain.com/api
 const RAW_BASE = import.meta.env.VITE_API_URL;
 
 if (!RAW_BASE) {
   throw new Error("❌ VITE_API_URL missing");
 }
 
-// normalize
+/* normalize */
 const ROOT_URL = RAW_BASE.replace(/\/$/, "").replace(/\/api$/, "");
-const BASE_URL = `${ROOT_URL}/api`; // ✅ always force /api
+const BASE_URL = `${ROOT_URL}/api`;
 
 /* ======================================================
 AXIOS INSTANCE
@@ -23,31 +20,35 @@ AXIOS INSTANCE
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 20000, // ⏱️ increase for Render cold start
+  timeout: 20000,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
 /* ======================================================
-REQUEST INTERCEPTOR
+REQUEST INTERCEPTOR (🔥 FIXED TOKEN HANDLING)
 ====================================================== */
 
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
 
+    // ✅ Attach token correctly
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers = {
+        ...config.headers,
+        Authorization: `Bearer ${token}`,
+      };
     }
 
-    // 🔥 Prevent accidental double /api
+    // 🔥 Prevent double /api
     if (config.url?.startsWith("/api")) {
       config.url = config.url.replace(/^\/api/, "");
     }
 
     console.log(
-      `%cAPI → ${config.method?.toUpperCase()} ${BASE_URL}${config.url}`,
+      `%cAPI → ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`,
       "color:#6366f1;font-weight:bold"
     );
 
@@ -57,7 +58,7 @@ api.interceptors.request.use(
 );
 
 /* ======================================================
-RESPONSE INTERCEPTOR
+RESPONSE INTERCEPTOR (🔥 SAFE + SMART RETRY)
 ====================================================== */
 
 api.interceptors.response.use(
@@ -80,13 +81,12 @@ api.interceptors.response.use(
 
     /* ================= NETWORK ERROR ================= */
     if (!error.response) {
-      console.warn("⚠️ Backend unreachable or network error");
+      console.warn("⚠️ Network error / backend unreachable");
 
-      // 🔁 Retry once after short delay (Render cold start)
       if (original && !original._retry) {
         original._retry = true;
 
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 2000));
         return api(original);
       }
 
@@ -95,28 +95,37 @@ api.interceptors.response.use(
 
     /* ================= AUTH ERROR ================= */
     if (error.response.status === 401) {
-      localStorage.clear();
-      window.location.href = "/login";
+      console.warn("🔐 Unauthorized request");
+
+      // ❗ Only redirect if user is NOT on login page
+      if (!window.location.pathname.includes("/login")) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("role");
+
+        window.location.href = "/login";
+      }
+
       return Promise.reject(error);
     }
 
-    /* ================= 🔥 RENDER WAKE FIX ================= */
+    /* ================= RENDER WAKE ================= */
     if (
-      [404, 500, 502, 503].includes(error.response.status) &&
+      [500, 502, 503, 504].includes(error.response.status) &&
       original &&
       !original._retry
     ) {
       original._retry = true;
 
       try {
-        console.log("🔄 Waking backend...");
+        console.log("🔄 Waking backend (Render cold start)...");
 
         await fetch(`${ROOT_URL}/api/health`);
       } catch (e) {
         console.warn("Health check failed");
       }
 
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 2000));
 
       return api(original);
     }
@@ -146,6 +155,10 @@ export const setToken = (token) => {
 export const setUser = (user) => {
   localStorage.setItem("user", JSON.stringify(user));
   localStorage.setItem("role", user.role);
+};
+
+export const getToken = () => {
+  return localStorage.getItem("token");
 };
 
 export const logout = () => {
