@@ -22,11 +22,20 @@ const vehicles = [
   { id: "car", label: "Cab", img: cabImg, rate: 18 }
 ];
 
+/* 🌙 DARK MAP STYLE */
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] }
+];
+
 export default function BookRide() {
   const navigate = useNavigate();
   const socketRef = useRef(null);
   const debounceRef = useRef(null);
   const { isLoaded, loadError } = useGoogleMaps();
+
+  const [isDark, setIsDark] = useState(false);
 
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
@@ -42,14 +51,33 @@ export default function BookRide() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  /* ================= SOCKET ================= */
+  /* 🌙 LISTEN TO DARK MODE */
   useEffect(() => {
-    const socket = io(SOCKET_URL);
+    const checkTheme = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+
+    checkTheme();
+
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"]
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  /* SOCKET */
+  useEffect(() => {
+    const socket = io(SOCKET_URL, {
+      auth: { token: localStorage.getItem("token") }
+    });
     socketRef.current = socket;
     return () => socket.disconnect();
   }, []);
 
-  /* ================= GEO CODE (🔥 FIX) ================= */
+  /* GEO CODE */
   const geocodeAddress = (address, setter) => {
     return new Promise((resolve) => {
       if (!address || !window.google) return resolve(null);
@@ -61,14 +89,12 @@ export default function BookRide() {
           const coords = { lat: loc.lat(), lng: loc.lng() };
           setter(coords);
           resolve(coords);
-        } else {
-          resolve(null);
-        }
+        } else resolve(null);
       });
     });
   };
 
-  /* ================= CURRENT LOCATION ================= */
+  /* CURRENT LOCATION */
   const handleCurrentLocation = () => {
     navigator.geolocation.getCurrentPosition((pos) => {
       const lat = pos.coords.latitude;
@@ -82,7 +108,7 @@ export default function BookRide() {
     });
   };
 
-  /* ================= AUTOCOMPLETE ================= */
+  /* AUTOCOMPLETE */
   const fetchSuggestions = (query, setter) => {
     if (!query || !window.google) return setter([]);
 
@@ -104,12 +130,11 @@ export default function BookRide() {
     });
   };
 
-  /* ================= ROUTE ================= */
-  const calculateRoute = () => {
-    if (!pickupCoords || !dropCoords || !window.google) return;
+  /* ROUTE */
+  useEffect(() => {
+    if (!pickupCoords || !dropCoords) return;
 
     const service = new window.google.maps.DirectionsService();
-
     service.route(
       {
         origin: pickupCoords,
@@ -119,7 +144,6 @@ export default function BookRide() {
       (result, status) => {
         if (status === "OK") {
           setDirections(result);
-
           const leg = result.routes[0].legs[0];
           const km = leg.distance.value / 1000;
           const mins = leg.duration.value / 60;
@@ -136,27 +160,20 @@ export default function BookRide() {
         }
       }
     );
-  };
-
-  useEffect(() => {
-    calculateRoute();
   }, [pickupCoords, dropCoords]);
 
-  /* ================= BOOK RIDE ================= */
+  /* BOOK RIDE */
   const handleBookRide = async () => {
     setMessage("");
 
-    // 🔥 AUTO FIX (convert typed address → coords)
     if (!pickupCoords) await geocodeAddress(pickup, setPickupCoords);
     if (!dropCoords) await geocodeAddress(drop, setDropCoords);
 
-    if (!pickupCoords || !dropCoords) {
+    if (!pickupCoords || !dropCoords)
       return setMessage("Please select valid locations");
-    }
 
-    if (!vehicleType) {
+    if (!vehicleType)
       return setMessage("Select vehicle");
-    }
 
     try {
       setLoading(true);
@@ -175,24 +192,18 @@ export default function BookRide() {
       });
 
       navigate(`/track/${res.data.ride._id}`);
-
     } catch (err) {
-      console.error(err);
       setMessage(err.response?.data?.message || "Booking failed");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= STATES ================= */
-  if (loadError)
-    return <p className="text-center mt-10 text-red-500">Map failed</p>;
-
-  if (!isLoaded)
-    return <p className="text-center mt-10">Loading map...</p>;
+  if (loadError) return <p className="text-red-500 text-center">Map failed</p>;
+  if (!isLoaded) return <p className="text-center">Loading...</p>;
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen">
+    <div className={`flex flex-col lg:flex-row min-h-screen ${isDark ? "bg-gray-900" : ""}`}>
 
       {/* MAP */}
       <div className="w-full lg:w-2/3 h-[40vh] lg:h-screen">
@@ -200,6 +211,9 @@ export default function BookRide() {
           mapContainerStyle={{ width: "100%", height: "100%" }}
           center={pickupCoords || { lat: 28.6139, lng: 77.209 }}
           zoom={13}
+          options={{
+            styles: isDark ? darkMapStyle : [],
+          }}
         >
           {pickupCoords && <Marker position={pickupCoords} />}
           {dropCoords && <Marker position={dropCoords} />}
@@ -208,34 +222,24 @@ export default function BookRide() {
       </div>
 
       {/* PANEL */}
-      <div className="w-full lg:w-1/3 p-4 sm:p-6 bg-white overflow-y-auto">
+      <div className={`w-full lg:w-1/3 p-5 overflow-y-auto ${
+        isDark ? "bg-gray-800 text-white" : "bg-white"
+      }`}>
 
         <h2 className="text-xl font-bold mb-4">🚗 Book Ride</h2>
 
         <button
           onClick={handleCurrentLocation}
-          className="w-full mb-3 py-3 rounded-xl bg-gray-200"
+          className={`w-full mb-3 py-3 rounded-xl ${
+            isDark ? "bg-gray-700" : "bg-gray-200"
+          }`}
         >
           📍 Use Current Location
         </button>
 
-        <InputBox {...{
-          value: pickup, setValue: setPickup,
-          suggestions: pickupSuggestions, setSuggestions: setPickupSuggestions,
-          setCoords: setPickupCoords, fetchSuggestions, getCoords,
-          placeholder: "Pickup Location"
-        }} />
+        <InputBox {...{ value: pickup, setValue: setPickup, suggestions: pickupSuggestions, setSuggestions: setPickupSuggestions, setCoords: setPickupCoords, fetchSuggestions, getCoords, placeholder: "Pickup Location", isDark }} />
 
-        <InputBox {...{
-          value: drop, setValue: setDrop,
-          suggestions: dropSuggestions, setSuggestions: setDropSuggestions,
-          setCoords: setDropCoords, fetchSuggestions, getCoords,
-          placeholder: "Drop Location"
-        }} />
-
-        <p className="text-xs text-gray-500 mb-2">
-          Select from suggestions for best results
-        </p>
+        <InputBox {...{ value: drop, setValue: setDrop, suggestions: dropSuggestions, setSuggestions: setDropSuggestions, setCoords: setDropCoords, fetchSuggestions, getCoords, placeholder: "Drop Location", isDark }} />
 
         {/* VEHICLES */}
         <div className="mt-3 space-y-3">
@@ -244,7 +248,11 @@ export default function BookRide() {
               key={v.id}
               onClick={() => setVehicleType(v.id)}
               className={`flex justify-between p-4 rounded-xl cursor-pointer ${
-                vehicleType === v.id ? "bg-indigo-100" : "bg-gray-100"
+                vehicleType === v.id
+                  ? "bg-indigo-500 text-white"
+                  : isDark
+                  ? "bg-gray-700"
+                  : "bg-gray-100"
               }`}
             >
               <div className="flex gap-3">
@@ -271,15 +279,13 @@ export default function BookRide() {
           {loading ? "Booking..." : "Confirm Booking"}
         </button>
 
-        {message && (
-          <p className="text-red-500 mt-2">{message}</p>
-        )}
+        {message && <p className="text-red-500 mt-2">{message}</p>}
       </div>
     </div>
   );
 }
 
-/* ================= INPUT ================= */
+/* INPUT */
 const InputBox = ({
   value,
   setValue,
@@ -288,11 +294,14 @@ const InputBox = ({
   setCoords,
   fetchSuggestions,
   getCoords,
-  placeholder
+  placeholder,
+  isDark
 }) => (
   <div className="relative mb-3">
     <input
-      className="w-full p-3 rounded-xl border"
+      className={`w-full p-3 rounded-xl border ${
+        isDark ? "bg-gray-700 text-white border-gray-600" : ""
+      }`}
       placeholder={placeholder}
       value={value}
       onChange={(e) => {
@@ -302,7 +311,9 @@ const InputBox = ({
     />
 
     {suggestions.length > 0 && (
-      <div className="absolute w-full bg-white border rounded-xl mt-1 z-50 max-h-40 overflow-y-auto">
+      <div className={`absolute w-full rounded-xl mt-1 z-50 max-h-40 overflow-y-auto ${
+        isDark ? "bg-gray-700 text-white" : "bg-white border"
+      }`}>
         {suggestions.map((s, i) => (
           <div
             key={i}
@@ -311,7 +322,7 @@ const InputBox = ({
               getCoords(s.place_id, setCoords);
               setSuggestions([]);
             }}
-            className="p-2 cursor-pointer hover:bg-gray-100"
+            className="p-2 cursor-pointer hover:bg-indigo-500 hover:text-white"
           >
             {s.description}
           </div>

@@ -7,6 +7,13 @@ import { GoogleMap, Marker, Polyline } from "@react-google-maps/api";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
+/* 🌙 DARK MAP STYLE */
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] }
+];
+
 export default function RideTracking() {
   const { rideId } = useParams();
 
@@ -19,6 +26,24 @@ export default function RideTracking() {
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
+  const [isDark, setIsDark] = useState(false);
+
+  /* 🌙 THEME LISTENER */
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+
+    checkTheme();
+
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"]
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   /* ================= FETCH ================= */
   useEffect(() => {
@@ -53,7 +78,10 @@ export default function RideTracking() {
 
   /* ================= SOCKET ================= */
   useEffect(() => {
-    const socket = io(SOCKET_URL);
+    const socket = io(SOCKET_URL, {
+      auth: { token: localStorage.getItem("token") }
+    });
+
     socketRef.current = socket;
 
     socket.on("connect", () => {
@@ -108,7 +136,7 @@ export default function RideTracking() {
   if (!ride || !isLoaded) {
     return (
       <div className="h-screen flex items-center justify-center 
-      bg-white dark:bg-black text-black dark:text-white">
+      bg-white dark:bg-black text-black dark:text-white transition">
         Loading...
       </div>
     );
@@ -124,7 +152,7 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
-  /* ================= STATUS TEXT ================= */
+  /* ================= STATUS ================= */
   const getStatus = () => {
     switch (ride.status) {
       case "searching": return "🔍 Searching Driver...";
@@ -136,8 +164,8 @@ export default function RideTracking() {
   };
 
   return (
-    <div className="h-screen w-full relative 
-    bg-gray-100 dark:bg-black transition">
+    <div className={`h-screen w-full relative transition-all duration-500
+      ${isDark ? "bg-black" : "bg-gray-100"}`}>
 
       {/* MAP */}
       <GoogleMap
@@ -145,9 +173,11 @@ export default function RideTracking() {
         zoom={15}
         center={driverPos || pickup}
         onLoad={(map) => (mapRef.current = map)}
-        options={{ disableDefaultUI: true }}
+        options={{
+          disableDefaultUI: true,
+          styles: isDark ? darkMapStyle : []
+        }}
       >
-
         <Marker position={pickup} />
         <Marker position={drop} />
 
@@ -170,22 +200,23 @@ export default function RideTracking() {
             }}
           />
         )}
-
       </GoogleMap>
 
-      {/* 🔥 TOP STATUS */}
+      {/* STATUS BADGE */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 
         px-6 py-2 rounded-full 
-        bg-white/70 dark:bg-gray-900/80 
-        backdrop-blur-xl shadow text-sm font-semibold">
+        bg-white/60 dark:bg-gray-900/70 
+        backdrop-blur-xl shadow-lg 
+        text-sm font-semibold transition">
 
         {getStatus()}
       </div>
 
-      {/* 🔥 BOTTOM PANEL */}
+      {/* BOTTOM PANEL */}
       <div className="absolute bottom-0 w-full 
-        bg-white dark:bg-gray-900 
-        rounded-t-3xl p-6 shadow-2xl">
+        rounded-t-3xl p-5 sm:p-6 
+        bg-white/80 dark:bg-gray-900/80 
+        backdrop-blur-xl shadow-2xl transition">
 
         <h2 className="font-bold text-lg text-gray-900 dark:text-white">
           {ride.driver?.name || "Finding Driver..."}
@@ -197,7 +228,7 @@ export default function RideTracking() {
         </div>
 
         <div className="mt-4 flex justify-between items-center">
-          <p className="text-green-600 text-xl font-bold">
+          <p className="text-green-500 text-xl font-bold">
             ₹ {ride.fare}
           </p>
 
@@ -206,9 +237,7 @@ export default function RideTracking() {
             Cancel
           </button>
         </div>
-
       </div>
-
     </div>
   );
 }
