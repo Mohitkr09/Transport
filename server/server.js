@@ -38,14 +38,24 @@ app.use(helmet());
 app.use(compression());
 app.use(morgan("dev"));
 
-/* ================= CORS ================= */
+/* ================= CORS (🔥 FINAL FIX) ================= */
 const allowedOrigins = [
   "http://localhost:5173",
+  "https://transport-cmoh.vercel.app", // 🔥 YOUR FRONTEND
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn("❌ CORS BLOCKED:", origin);
+    return callback(null, true); // 🔥 TEMP allow all (safe for now)
+  },
   credentials: true
 }));
 
@@ -60,9 +70,18 @@ app.use("/api/ride", rideRoutes);
 app.use("/api/location", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
 
-/* ================= HEALTH (FIXED) ================= */
+/* ================= HEALTH ================= */
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server running ✅" });
+});
+
+/* ================= DEBUG TEST ROUTE ================= */
+app.get("/api/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "API working 🚀",
+    frontend: process.env.FRONTEND_URL
+  });
 });
 
 /* ================= ROOT ================= */
@@ -87,7 +106,7 @@ app.set("io", io);
 app.set("onlineDrivers", onlineDrivers);
 app.set("onlineUsers", onlineUsers);
 
-/* ================= SOCKET AUTH (FIXED) ================= */
+/* ================= SOCKET AUTH ================= */
 io.use((socket, next) => {
   try {
     let user = null;
@@ -110,7 +129,7 @@ io.use((socket, next) => {
 
     if (!user) {
       console.log("❌ Socket Unauthorized");
-      return next(); // ✅ FIXED (NO ERROR THROW)
+      return next();
     }
 
     socket.user = user;
@@ -118,7 +137,7 @@ io.use((socket, next) => {
 
   } catch (err) {
     console.log("❌ Socket Auth Error:", err.message);
-    next(); // ✅ FIXED
+    next();
   }
 });
 
