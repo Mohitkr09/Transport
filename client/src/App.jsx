@@ -9,7 +9,7 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-/* PAGES */
+/* ================= LAZY PAGES ================= */
 const Home = lazy(() => import("./pages/Home"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
@@ -21,7 +21,6 @@ const Contact = lazy(() => import("./pages/Contact"));
 const RideTracking = lazy(() => import("./pages/RideTracking"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Profile = lazy(() => import("./pages/Profile"));
-
 const RideHistory = lazy(() => import("./pages/RideHistory"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
@@ -48,10 +47,12 @@ function BackendWakeup() {
     if (called.current) return;
     called.current = true;
 
-    const url = import.meta.env.VITE_API_URL;
-    if (!url) return;
+    const base = import.meta.env.VITE_API_URL;
+    if (!base) return;
 
-    fetch(`${url}/health`).catch(() => {});
+    const root = base.replace(/\/api$/, "");
+
+    fetch(`${root}/api/health`).catch(() => {});
   }, []);
 
   return null;
@@ -68,12 +69,8 @@ function RoleRedirect() {
 
     if (!token || !role) return;
 
-    // prevent redirect on auth pages
-    if (
-      pathname.startsWith("/login") ||
-      pathname.startsWith("/register") ||
-      pathname.startsWith("/signup")
-    ) return;
+    // ❌ Don't redirect on auth pages
+    if (["/login", "/register", "/signup"].includes(pathname)) return;
 
     if (role === "driver" && !pathname.startsWith("/driver")) {
       navigate("/driver/dashboard", { replace: true });
@@ -83,11 +80,7 @@ function RoleRedirect() {
       navigate("/admin/dashboard", { replace: true });
     }
 
-    if (role === "user" && pathname.startsWith("/admin")) {
-      navigate("/profile", { replace: true });
-    }
-
-  }, [pathname, navigate]);   // ✅ FIXED
+  }, [pathname, navigate]);
 
   return null;
 }
@@ -106,8 +99,6 @@ function Layout({ children }) {
   const { pathname } = useLocation();
   const role = localStorage.getItem("role");
 
-  const isAdmin = role === "admin";
-
   const hideLayout =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
@@ -116,11 +107,11 @@ function Layout({ children }) {
 
   return (
     <>
-      {!hideLayout && !isAdmin && <Navbar />}
+      {!hideLayout && role !== "admin" && <Navbar />}
 
       <div className={!hideLayout ? "pt-16 min-h-screen flex flex-col" : ""}>
         <div className="flex-grow">{children}</div>
-        {!hideLayout && !isAdmin && <Footer />}
+        {!hideLayout && role !== "admin" && <Footer />}
       </div>
     </>
   );
@@ -141,11 +132,8 @@ export default function App() {
             {/* PUBLIC */}
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
-
-            {/* ✅ FIX: BOTH ROUTES */}
             <Route path="/register" element={<Register />} />
             <Route path="/signup" element={<Register />} />
-
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
 
@@ -195,7 +183,6 @@ export default function App() {
               }
             />
 
-            {/* PROFILE */}
             <Route
               path="/profile"
               element={
@@ -241,8 +228,8 @@ export default function App() {
               <Route path="settings" element={<Settings />} />
             </Route>
 
-            {/* ✅ FIXED FALLBACK */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            {/* FALLBACK */}
+            <Route path="*" element={<Navigate to="/" replace />} />
 
           </Routes>
         </Suspense>
