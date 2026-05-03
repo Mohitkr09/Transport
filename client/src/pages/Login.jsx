@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
 
 /* ================= API ================= */
 const BASE =
@@ -11,9 +12,10 @@ const API = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
 const api = axios.create({
   baseURL: API,
-  timeout: 15000,
+  timeout: 20000,
 });
 
+/* ================= COMPONENT ================= */
 export default function Login() {
   const navigate = useNavigate();
 
@@ -23,9 +25,11 @@ export default function Login() {
     role: "user",
   });
 
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  /* ================= AUTO REDIRECT ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
@@ -41,49 +45,37 @@ export default function Login() {
     else navigate("/book");
   };
 
-  const handleChange = (e) => {
+  const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
-  };
 
+  /* ================= VALIDATION ================= */
+  const isValidEmail = /\S+@\S+\.\S+/.test(form.email);
+
+  /* ================= LOGIN ================= */
   const handleLogin = async () => {
     if (loading) return;
 
-    const email = form.email.trim().toLowerCase();
-    const password = form.password.trim();
-    const role = form.role;
-
-    if (!email || !password) {
-      setError("Enter email and password");
-      return;
-    }
+    if (!isValidEmail) return setError("Enter valid email");
+    if (!form.password) return setError("Enter password");
 
     try {
       setLoading(true);
       setError("");
 
-      const res = await api.post("/auth/login", {
-        email,
-        password,
-        role,
-      });
-
+      const res = await api.post("/auth/login", form);
       const data = res.data;
 
-      if (!data?.token) throw new Error("Invalid response");
-
-      const finalRole = (data.role || role).toLowerCase();
-
       localStorage.setItem("token", data.token);
-      localStorage.setItem("role", finalRole);
+      localStorage.setItem("role", data.role);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      redirectUser(finalRole);
+      redirectUser(data.role);
 
     } catch (err) {
       if (err.response) {
         const status = err.response.status;
 
-        if (status === 401) setError("Invalid email or password");
+        if (status === 401) setError("Invalid credentials");
         else if (status === 403) setError("Driver not approved");
         else setError(err.response.data?.message || "Login failed");
       } else {
@@ -94,83 +86,124 @@ export default function Login() {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleLogin();
+  /* ================= FLOATING INPUT ================= */
+  const Input = ({ name, label, type = "text" }) => {
+    const value = form[name];
+
+    return (
+      <div className="relative">
+        <input
+          name={name}
+          type={type}
+          value={value}
+          onChange={handleChange}
+          className="peer w-full px-4 pt-5 pb-2 rounded-xl border focus:ring-2 focus:ring-indigo-400 outline-none"
+        />
+        <label className="absolute left-3 top-2 text-sm text-gray-500 transition-all 
+          peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-base
+          peer-focus:top-2 peer-focus:text-sm peer-focus:text-indigo-500">
+          {label}
+        </label>
+      </div>
+    );
   };
 
+  /* ================= UI ================= */
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
-      <div className="backdrop-blur-xl bg-white/90 p-8 rounded-3xl shadow-2xl w-[380px] border border-white/40">
+    <div className="min-h-screen flex items-center justify-center px-4 sm:px-6 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
 
-        <h2 className="text-3xl font-bold text-center mb-2 text-gray-800">
+      <div className="w-full max-w-md sm:max-w-lg backdrop-blur-xl bg-white/80 rounded-3xl shadow-2xl p-6 sm:p-8 border border-white/40">
+
+        <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2">
           Welcome Back 👋
         </h2>
+
         <p className="text-center text-gray-500 mb-6 text-sm">
           Login to your TransportX account
         </p>
 
         <div className="space-y-4">
 
+          {/* ROLE */}
           <select
             name="role"
             value={form.role}
             onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-indigo-400"
           >
             <option value="user">User</option>
             <option value="driver">Driver</option>
             <option value="admin">Admin</option>
           </select>
 
-          <input
-            name="email"
-            type="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
-          />
+          {/* EMAIL */}
+          <div className="relative">
+            <input
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              className="w-full px-4 py-3 rounded-xl border"
+              placeholder="Email"
+            />
+            <div className="absolute right-3 top-3">
+              {form.email &&
+                (isValidEmail ? (
+                  <CheckCircle className="text-green-500" size={20} />
+                ) : (
+                  <XCircle className="text-red-500" size={20} />
+                ))}
+            </div>
+          </div>
 
-          <input
-            name="password"
-            type="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
-          />
+          {/* PASSWORD */}
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+              className="w-full px-4 py-3 rounded-xl border pr-10"
+              placeholder="Password"
+            />
+            <div
+              className="absolute right-3 top-3 cursor-pointer"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
+            </div>
+          </div>
 
+          {/* BUTTON */}
           <button
             onClick={handleLogin}
             disabled={loading}
-            className={`w-full py-2 rounded-xl text-white font-semibold transition-all duration-300 ${
+            className={`w-full py-3 rounded-xl text-white font-semibold transition-all ${
               loading
                 ? "bg-gray-400"
-                : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
+                : "bg-indigo-600 hover:bg-indigo-700 hover:scale-[1.02]"
             }`}
           >
             {loading ? "Logging in..." : "Login"}
           </button>
         </div>
 
+        {/* ERROR */}
         {error && (
-          <p className="text-red-500 text-sm mt-3 text-center">
+          <p className="text-red-500 text-sm mt-4 text-center">
             {error}
           </p>
         )}
 
-        {/* ===== SIGNUP SECTION ===== */}
-        <div className="mt-6 text-center text-sm text-gray-600">
-          Don't have an account?{' '}
+        {/* SIGNUP */}
+        <p className="text-center text-sm mt-6">
+          Don’t have an account?{" "}
           <span
-            onClick={() => navigate('/signup')}
-            className="text-indigo-600 font-semibold cursor-pointer hover:underline"
+            onClick={() => navigate("/signup")}
+            className="text-indigo-600 cursor-pointer font-semibold hover:underline"
           >
             Sign up
           </span>
-        </div>
+        </p>
 
       </div>
     </div>
