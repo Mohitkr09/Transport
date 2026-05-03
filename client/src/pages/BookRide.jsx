@@ -42,28 +42,49 @@ export default function BookRide() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  /* ================= SOCKET ================= */
   useEffect(() => {
     const socket = io(SOCKET_URL);
     socketRef.current = socket;
     return () => socket.disconnect();
   }, []);
 
-  const handleCurrentLocation = () => {
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-
-      setPickupCoords({ lat, lng });
+  /* ================= GEO CODE (🔥 FIX) ================= */
+  const geocodeAddress = (address, setter) => {
+    return new Promise((resolve) => {
+      if (!address || !window.google) return resolve(null);
 
       const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ location: { lat, lng } }, (res) => {
-        if (res[0]) setPickup(res[0].formatted_address);
+      geocoder.geocode({ address }, (res) => {
+        if (res?.[0]) {
+          const loc = res[0].geometry.location;
+          const coords = { lat: loc.lat(), lng: loc.lng() };
+          setter(coords);
+          resolve(coords);
+        } else {
+          resolve(null);
+        }
       });
     });
   };
 
+  /* ================= CURRENT LOCATION ================= */
+  const handleCurrentLocation = () => {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      setPickupCoords({ lat, lng });
+
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (res) => {
+        if (res?.[0]) setPickup(res[0].formatted_address);
+      });
+    });
+  };
+
+  /* ================= AUTOCOMPLETE ================= */
   const fetchSuggestions = (query, setter) => {
-    if (!query) return setter([]);
+    if (!query || !window.google) return setter([]);
 
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -77,13 +98,15 @@ export default function BookRide() {
   const getCoords = (placeId, setter) => {
     const geocoder = new window.google.maps.Geocoder();
     geocoder.geocode({ placeId }, (res) => {
+      if (!res?.[0]) return;
       const loc = res[0].geometry.location;
       setter({ lat: loc.lat(), lng: loc.lng() });
     });
   };
 
+  /* ================= ROUTE ================= */
   const calculateRoute = () => {
-    if (!pickupCoords || !dropCoords) return;
+    if (!pickupCoords || !dropCoords || !window.google) return;
 
     const service = new window.google.maps.DirectionsService();
 
@@ -116,49 +139,63 @@ export default function BookRide() {
   };
 
   useEffect(() => {
-    if (pickupCoords && dropCoords && isLoaded) calculateRoute();
-  }, [pickupCoords, dropCoords, isLoaded]);
+    calculateRoute();
+  }, [pickupCoords, dropCoords]);
 
+  /* ================= BOOK RIDE ================= */
   const handleBookRide = async () => {
-    if (!vehicleType) return setMessage("Select vehicle");
+    setMessage("");
+
+    // 🔥 AUTO FIX (convert typed address → coords)
+    if (!pickupCoords) await geocodeAddress(pickup, setPickupCoords);
+    if (!dropCoords) await geocodeAddress(drop, setDropCoords);
+
+    if (!pickupCoords || !dropCoords) {
+      return setMessage("Please select valid locations");
+    }
+
+    if (!vehicleType) {
+      return setMessage("Select vehicle");
+    }
 
     try {
       setLoading(true);
+
       const res = await api.post("/ride", {
         pickupLocation: {
           address: pickup,
-          location: {
-            type: "Point",
-            coordinates: [pickupCoords.lng, pickupCoords.lat]
-          }
+          coordinates: [pickupCoords.lng, pickupCoords.lat]
         },
         dropLocation: {
           address: drop,
-          location: {
-            type: "Point",
-            coordinates: [dropCoords.lng, dropCoords.lat]
-          }
+          coordinates: [dropCoords.lng, dropCoords.lat]
         },
         vehicleType,
         distance
       });
 
       navigate(`/track/${res.data.ride._id}`);
-    } catch {
-      setMessage("Booking failed");
+
+    } catch (err) {
+      console.error(err);
+      setMessage(err.response?.data?.message || "Booking failed");
     } finally {
       setLoading(false);
     }
   };
 
-  if (loadError) return <p>Error loading map</p>;
-  if (!isLoaded) return <p>Loading...</p>;
+  /* ================= STATES ================= */
+  if (loadError)
+    return <p className="text-center mt-10 text-red-500">Map failed</p>;
+
+  if (!isLoaded)
+    return <p className="text-center mt-10">Loading map...</p>;
 
   return (
-    <div className="h-screen flex flex-col lg:flex-row bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white">
+    <div className="flex flex-col lg:flex-row min-h-screen">
 
       {/* MAP */}
-      <div className="lg:w-2/3 h-[40vh] lg:h-screen">
+      <div className="w-full lg:w-2/3 h-[40vh] lg:h-screen">
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
           center={pickupCoords || { lat: 28.6139, lng: 77.209 }}
@@ -171,18 +208,13 @@ export default function BookRide() {
       </div>
 
       {/* PANEL */}
-      <div className="lg:w-1/3 w-full p-4 sm:p-6 
-        bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl 
-        border-l border-gray-200 dark:border-gray-800
-        shadow-2xl rounded-t-3xl lg:rounded-none overflow-y-auto">
+      <div className="w-full lg:w-1/3 p-4 sm:p-6 bg-white overflow-y-auto">
 
-        <h2 className="text-2xl font-bold mb-4">🚗 Book Ride</h2>
+        <h2 className="text-xl font-bold mb-4">🚗 Book Ride</h2>
 
         <button
           onClick={handleCurrentLocation}
-          className="w-full mb-3 py-3 rounded-xl 
-          bg-gray-200 dark:bg-gray-800 
-          text-gray-800 dark:text-white"
+          className="w-full mb-3 py-3 rounded-xl bg-gray-200"
         >
           📍 Use Current Location
         </button>
@@ -201,51 +233,53 @@ export default function BookRide() {
           placeholder: "Drop Location"
         }} />
 
+        <p className="text-xs text-gray-500 mb-2">
+          Select from suggestions for best results
+        </p>
+
         {/* VEHICLES */}
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           {vehiclePrices.map((v) => (
             <div
               key={v.id}
               onClick={() => setVehicleType(v.id)}
-              className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer transition
-              ${vehicleType === v.id
-                ? "bg-indigo-100 dark:bg-indigo-900 border border-indigo-500"
-                : "bg-white dark:bg-gray-800 hover:shadow-lg"
+              className={`flex justify-between p-4 rounded-xl cursor-pointer ${
+                vehicleType === v.id ? "bg-indigo-100" : "bg-gray-100"
               }`}
             >
-              <div className="flex items-center gap-4">
-                <img src={v.img} className="w-14" />
+              <div className="flex gap-3">
+                <img src={v.img} className="w-12" />
                 <div>
-                  <h3 className="font-semibold">{v.label}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {eta} min
-                  </p>
+                  <p>{v.label}</p>
+                  <p className="text-sm">{eta} min</p>
                 </div>
               </div>
-              <p className="font-bold text-indigo-600 dark:text-indigo-400">
-                ₹{v.price}
-              </p>
+              <p>₹{v.price}</p>
             </div>
           ))}
         </div>
 
         <button
           onClick={handleBookRide}
-          className="w-full mt-5 py-4 rounded-2xl font-semibold text-white
-          bg-gradient-to-r from-green-500 to-emerald-600"
+          disabled={!pickup || !drop || !vehicleType}
+          className={`w-full mt-4 py-3 rounded-xl text-white ${
+            pickup && drop && vehicleType
+              ? "bg-green-500"
+              : "bg-gray-400 cursor-not-allowed"
+          }`}
         >
           {loading ? "Booking..." : "Confirm Booking"}
         </button>
 
         {message && (
-          <p className="text-red-500 dark:text-red-400 mt-2">{message}</p>
+          <p className="text-red-500 mt-2">{message}</p>
         )}
       </div>
     </div>
   );
 }
 
-/* INPUT BOX */
+/* ================= INPUT ================= */
 const InputBox = ({
   value,
   setValue,
@@ -258,11 +292,7 @@ const InputBox = ({
 }) => (
   <div className="relative mb-3">
     <input
-      className="w-full p-3 rounded-xl border 
-      bg-white dark:bg-gray-800 
-      text-gray-900 dark:text-white
-      placeholder-gray-500 dark:placeholder-gray-400
-      border-gray-300 dark:border-gray-700"
+      className="w-full p-3 rounded-xl border"
       placeholder={placeholder}
       value={value}
       onChange={(e) => {
@@ -272,7 +302,7 @@ const InputBox = ({
     />
 
     {suggestions.length > 0 && (
-      <div className="absolute w-full bg-white dark:bg-gray-800 border rounded-xl mt-1 z-50 shadow-lg max-h-40 overflow-y-auto">
+      <div className="absolute w-full bg-white border rounded-xl mt-1 z-50 max-h-40 overflow-y-auto">
         {suggestions.map((s, i) => (
           <div
             key={i}
@@ -281,7 +311,7 @@ const InputBox = ({
               getCoords(s.place_id, setCoords);
               setSuggestions([]);
             }}
-            className="p-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-2 cursor-pointer hover:bg-gray-100"
           >
             {s.description}
           </div>

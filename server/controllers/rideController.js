@@ -16,21 +16,49 @@ exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    /* ================= AUTH ================= */
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
     }
 
-    if (!pickupLocation?.location || !dropLocation?.location) {
+    /* ================= VALIDATION ================= */
+    if (
+      !pickupLocation ||
+      !pickupLocation.coordinates ||
+      !dropLocation ||
+      !dropLocation.coordinates
+    ) {
       return res.status(400).json({
         success: false,
         message: "Pickup & Drop coordinates required"
       });
     }
 
+    /* ================= FORMAT FIX ================= */
+    const formattedPickup = {
+      address: pickupLocation.address || "",
+      location: {
+        type: "Point",
+        coordinates: pickupLocation.coordinates
+      }
+    };
+
+    const formattedDrop = {
+      address: dropLocation.address || "",
+      location: {
+        type: "Point",
+        coordinates: dropLocation.coordinates
+      }
+    };
+
+    /* ================= CREATE ================= */
     const ride = await Ride.create({
       user: req.user._id,
-      pickupLocation,
-      dropLocation,
+      pickupLocation: formattedPickup,
+      dropLocation: formattedDrop,
       vehicleType,
       distanceKm: distance || 5,
       fare: calculateFare(vehicleType, distance || 5),
@@ -38,31 +66,43 @@ exports.createRide = async (req, res) => {
       rejectedDrivers: []
     });
 
-    /* 🔥 FIND NEAREST DRIVERS */
-    const pickupCoords = pickupLocation.location.coordinates;
+    /* ================= DRIVER SEARCH ================= */
+    let drivers = [];
+    try {
+      const [lng, lat] = pickupLocation.coordinates;
 
-    const drivers = await Driver.getNearbyDrivers(
-      pickupCoords[1],
-      pickupCoords[0],
-      vehicleType
-    );
+      drivers = await Driver.getNearbyDrivers(lat, lng, vehicleType);
+    } catch (err) {
+      console.warn("⚠️ Driver search failed:", err.message);
+    }
 
-    /* 🔥 SOCKET EMIT */
-    const io = req.app.get("io");
-    const onlineDrivers = req.app.get("onlineDrivers") || {};
+    /* ================= SOCKET ================= */
+    try {
+      const io = req.app.get("io");
+      const onlineDrivers = req.app.get("onlineDrivers") || {};
 
-    drivers.forEach((driver) => {
-      const socketId = onlineDrivers[driver._id.toString()];
-      if (socketId) {
-        io.to(socketId).emit("newRideRequest", ride);
-      }
+      drivers.forEach((driver) => {
+        const socketId = onlineDrivers[driver._id.toString()];
+        if (socketId) {
+          io.to(socketId).emit("newRideRequest", ride);
+        }
+      });
+    } catch (err) {
+      console.warn("⚠️ Socket emit failed:", err.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      ride
     });
 
-    res.status(201).json({ success: true, ride });
-
   } catch (err) {
-    console.error("❌ createRide:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("🔥 createRide FULL ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Server error"
+    });
   }
 };
 
