@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 /* ================= API ================= */
 const BASE =
   import.meta.env.VITE_API_URL ||
-  "http://localhost:5000";   // ✅ FIXED (local first)
+  "http://localhost:5000";
 
 const API = BASE.endsWith("/api") ? BASE : `${BASE}/api`;
 
@@ -27,7 +27,6 @@ export default function Register() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const update = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -53,7 +52,6 @@ export default function Register() {
     try {
       setLoading(true);
       setError("");
-      setSuccess("");
 
       const res = await api.post("/auth/register", {
         name,
@@ -63,44 +61,38 @@ export default function Register() {
         role,
       });
 
-      if (!res.data?.success) {
-        throw new Error(res.data?.message || "Registration failed");
+      const data = res.data;
+
+      if (!data?.token) {
+        throw new Error("Invalid response from server");
       }
 
-      setSuccess("🎉 Account created successfully!");
+      /* ================= SAVE USER ================= */
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("role", data.role);
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-      // ✅ redirect after success
-      setTimeout(() => navigate("/login"), 1500);
+      /* ================= REDIRECT TO HOME ================= */
+      navigate("/");   // 🔥 MAIN CHANGE
 
     } catch (err) {
       console.log("🔥 REGISTER ERROR:", err);
 
-      // ✅ FIXED ERROR HANDLING (MOST IMPORTANT)
       if (err.code === "ECONNABORTED") {
         setError("Server timeout. Try again.");
-      } 
-      else if (!err.response) {
-        setError("Backend not reachable. Start server.");
-      } 
-      else {
+      } else if (!err.response) {
+        setError("Backend not reachable.");
+      } else {
         const status = err.response.status;
 
         if (status === 409) {
-          setError("User already exists. Redirecting...");
-          setTimeout(() => navigate("/login"), 1500);
-        } 
-        else if (status === 400) {
+          setError("User already exists");
+        } else if (status === 400) {
           setError(err.response.data?.message || "Invalid input");
-        } 
-        else if (status === 500) {
-          setError("Server error. Please try again.");
-        } 
-        else {
-          // ✅ FINAL SAFE FALLBACK
+        } else {
           setError(
             err.response?.data?.message ||
-            err.message ||
-            "Something went wrong"
+            "Registration failed"
           );
         }
       }
@@ -118,6 +110,7 @@ export default function Register() {
         <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">
           Create Account 🚀
         </h2>
+
         <p className="text-center text-gray-500 text-sm mb-6">
           Join TransportX and start your journey
         </p>
@@ -128,7 +121,7 @@ export default function Register() {
             name="role"
             value={form.role}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-2 border rounded-xl"
           >
             <option value="user">User</option>
             <option value="admin">Admin</option>
@@ -139,24 +132,24 @@ export default function Register() {
             placeholder="Full Name"
             value={form.name}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-2 border rounded-xl"
           />
 
           <input
             name="email"
             type="email"
-            placeholder="Email Address"
+            placeholder="Email"
             value={form.email}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-2 border rounded-xl"
           />
 
           <input
             name="phone"
-            placeholder="Phone Number"
+            placeholder="Phone"
             value={form.phone}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-2 border rounded-xl"
           />
 
           <input
@@ -165,27 +158,22 @@ export default function Register() {
             placeholder="Password"
             value={form.password}
             onChange={update}
-            className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full px-4 py-2 border rounded-xl"
           />
 
           <button
             onClick={handleRegister}
             disabled={loading}
-            className={`w-full py-2 rounded-xl text-white font-semibold transition-all duration-300 ${
+            className={`w-full py-2 rounded-xl text-white ${
               loading
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
+                ? "bg-gray-400"
+                : "bg-indigo-600 hover:bg-indigo-700"
             }`}
           >
-            {loading ? "Creating account..." : "Register"}
+            {loading ? "Creating..." : "Register"}
           </button>
-        </div>
 
-        {success && (
-          <p className="text-green-500 text-sm mt-3 text-center">
-            {success}
-          </p>
-        )}
+        </div>
 
         {error && (
           <p className="text-red-500 text-sm mt-3 text-center">
@@ -197,7 +185,7 @@ export default function Register() {
           Already have an account?{" "}
           <span
             onClick={() => navigate("/login")}
-            className="text-indigo-600 font-semibold cursor-pointer hover:underline"
+            className="text-indigo-600 font-semibold cursor-pointer"
           >
             Login
           </span>
