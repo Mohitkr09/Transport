@@ -8,7 +8,7 @@ const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 
 /* =================================================
-SAFE ASYNC HANDLER
+SAFE HANDLER
 ================================================= */
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch((err) => {
@@ -30,7 +30,7 @@ router.use((req, res, next) => {
 });
 
 /* =================================================
-HEALTH CHECK
+HEALTH
 ================================================= */
 router.get("/health", (req, res) => {
   res.json({ success: true, message: "Driver API working ✅" });
@@ -86,7 +86,7 @@ router.put(
 );
 
 /* =================================================
-🔥 DRIVER STATS
+🔥 UPDATED DRIVER STATS (FULL REAL DATA)
 ================================================= */
 router.get(
   "/stats",
@@ -95,13 +95,32 @@ router.get(
   asyncHandler(async (req, res) => {
     const driverId = req.user?._id || req.user?.id;
 
-    if (!driverId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized"
-      });
-    }
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
+    /* 🔥 COUNTS */
+    const accepted = await Ride.countDocuments({
+      driver: driverId,
+      status: { $in: ["accepted", "ongoing", "completed"] },
+      acceptedAt: { $gte: last24h }
+    });
+
+    const completed = await Ride.countDocuments({
+      driver: driverId,
+      status: "completed",
+      completedAt: { $gte: last24h }
+    });
+
+    const missed = await Ride.countDocuments({
+      rejectedDrivers: driverId,
+      createdAt: { $gte: last24h }
+    });
+
+    const newRides = await Ride.countDocuments({
+      status: "searching",
+      createdAt: { $gte: last24h }
+    });
+
+    /* 🔥 EARNINGS */
     const rides = await Ride.find({
       driver: driverId,
       status: "completed"
@@ -115,13 +134,20 @@ router.get(
 
     res.json({
       success: true,
-      stats: { totalRides, totalEarnings }
+      stats: {
+        new: newRides,
+        accepted,
+        completed,
+        missed,
+        totalRides,
+        totalEarnings
+      }
     });
   })
 );
 
 /* =================================================
-🚗 NEARBY RIDES (MAIN ROUTE)
+NEARBY RIDES
 ================================================= */
 router.get(
   "/rides",
@@ -130,10 +156,7 @@ router.get(
   asyncHandler(driverController.getNearbyRides)
 );
 
-/* =================================================
-🔥 OPTIONAL FIX (IMPORTANT)
-Support old frontend: /ride/nearby
-================================================= */
+/* BACKWARD COMPAT */
 router.get(
   "/nearby",
   protect,
@@ -173,7 +196,7 @@ router.put(
 );
 
 /* =================================================
-ADMIN ROUTES
+ADMIN
 ================================================= */
 router.get(
   "/all",
@@ -206,13 +229,12 @@ router.delete(
   adminOnly,
   asyncHandler(async (req, res) => {
     await Driver.findByIdAndDelete(req.params.id);
-
     res.json({ success: true, message: "Driver removed" });
   })
 );
 
 /* =================================================
-404 HANDLER
+404
 ================================================= */
 router.use((req, res) => {
   res.status(404).json({

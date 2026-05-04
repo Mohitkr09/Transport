@@ -19,20 +19,17 @@ export default function DriverDashboard() {
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
-  const unlockedRef = useRef(false); // 🔥 FIX
+  const unlockedRef = useRef(false);
 
-  /* ================= 🔊 UNLOCK AUDIO ================= */
+  /* 🔊 AUDIO UNLOCK */
   useEffect(() => {
     const unlock = () => {
       if (!audioRef.current) return;
 
-      audioRef.current.play()
-        .then(() => {
-          audioRef.current.pause();
-          unlockedRef.current = true;
-          console.log("🔊 Audio unlocked");
-        })
-        .catch(() => {});
+      audioRef.current.play().then(() => {
+        audioRef.current.pause();
+        unlockedRef.current = true;
+      }).catch(() => {});
 
       window.removeEventListener("click", unlock);
     };
@@ -40,7 +37,7 @@ export default function DriverDashboard() {
     window.addEventListener("click", unlock);
   }, []);
 
-  /* ================= 🔊 SOUND ================= */
+  /* 🔊 SOUND */
   useEffect(() => {
     const audio = new Audio("/sounds/ride-alert.mp3");
     audio.loop = true;
@@ -50,11 +47,8 @@ export default function DriverDashboard() {
 
   const playSound = () => {
     if (!audioRef.current || !unlockedRef.current) return;
-
     audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(() => {
-      console.log("❌ Sound blocked");
-    });
+    audioRef.current.play().catch(() => {});
   };
 
   const stopSound = () => {
@@ -63,7 +57,7 @@ export default function DriverDashboard() {
     audioRef.current.currentTime = 0;
   };
 
-  /* ================= PROFILE ================= */
+  /* PROFILE */
   useEffect(() => {
     api.get("/driver/me").then(res => {
       setProfile(res.data.driver);
@@ -71,7 +65,7 @@ export default function DriverDashboard() {
     });
   }, []);
 
-  /* ================= STATS ================= */
+  /* STATS */
   const fetchStats = async () => {
     try {
       const res = await api.get("/driver/stats");
@@ -85,7 +79,7 @@ export default function DriverDashboard() {
     fetchStats();
   }, []);
 
-  /* ================= SOCKET ================= */
+  /* SOCKET */
   useEffect(() => {
     if (!profile?._id) return;
 
@@ -94,16 +88,14 @@ export default function DriverDashboard() {
         token: localStorage.getItem("token"),
         userId: profile._id,
         role: "driver"
-      },
-      transports: ["websocket"],
-      reconnection: true
+      }
     });
 
     socketRef.current = socket;
 
     socket.on("newRideRequest", (ride) => {
       setIncomingRide(ride);
-      playSound(); // 🔊 FIXED
+      playSound();
     });
 
     socket.on("rideAccepted", (ride) => {
@@ -116,23 +108,7 @@ export default function DriverDashboard() {
     return () => socket.disconnect();
   }, [profile]);
 
-  /* ================= FALLBACK ================= */
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await api.get("/driver/rides");
-
-        if (res.data.rides?.length > 0 && !incomingRide) {
-          setIncomingRide(res.data.rides[0]);
-          playSound();
-        }
-      } catch {}
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [incomingRide]);
-
-  /* ================= TIMER ================= */
+  /* TIMER */
   useEffect(() => {
     if (!incomingRide) return;
 
@@ -151,7 +127,7 @@ export default function DriverDashboard() {
     return () => clearInterval(interval);
   }, [incomingRide]);
 
-  /* ================= LOCATION ================= */
+  /* LOCATION */
   useEffect(() => {
     if (!online) return;
 
@@ -173,7 +149,7 @@ export default function DriverDashboard() {
     return () => clearInterval(interval);
   }, [online, activeRide]);
 
-  /* ================= ACTIONS ================= */
+  /* ACTIONS */
   const toggleOnline = async () => {
     const newStatus = !online;
     await api.put("/driver/online", { isOnline: newStatus });
@@ -182,7 +158,8 @@ export default function DriverDashboard() {
 
   const acceptRide = async (id) => {
     const res = await api.put(`/ride/${id}/accept`);
-    setActiveRide(res.data.ride);
+
+    setActiveRide(res.data.ride); // populated ride
     setIncomingRide(null);
     stopSound();
     fetchStats();
@@ -194,7 +171,7 @@ export default function DriverDashboard() {
     stopSound();
   };
 
-  /* ================= MAP ================= */
+  /* MAP DATA */
   const rideData = activeRide || incomingRide;
 
   const pickupCoords = rideData?.pickupLocation?.location?.coordinates;
@@ -208,7 +185,6 @@ export default function DriverDashboard() {
     ? { lat: dropCoords[1], lng: dropCoords[0] }
     : null;
 
-  /* ================= UI ================= */
   return (
     <div className="min-h-screen p-4 bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white">
 
@@ -240,12 +216,46 @@ export default function DriverDashboard() {
       <div className="h-[400px] rounded-xl overflow-hidden">
         <LiveMap
           driverLocation={driverLocation}
-          userLocation={pickupLatLng}
+          pickupLocation={pickupLatLng}
           dropLocation={dropLatLng}
+          showRoute={true}
         />
       </div>
 
-      {/* 🚨 IMPROVED POPUP */}
+      {/* ACTIVE RIDE */}
+      {activeRide && (
+        <div className="mt-4 bg-white dark:bg-gray-900 p-5 rounded-xl shadow-lg">
+
+          <h3 className="text-lg font-bold mb-3">📋 Ride Details</h3>
+
+          <p><b>👤 User:</b> {activeRide?.user?.name || "N/A"}</p>
+          <p><b>📞 Phone:</b> {activeRide?.user?.phone || "N/A"}</p>
+
+          {/* 📞 CALL BUTTON */}
+          {activeRide?.user?.phone && (
+            <a
+              href={`tel:${activeRide.user.phone}`}
+              className="inline-block mt-3 bg-blue-600 text-white px-4 py-2 rounded-lg"
+            >
+              📞 Call User
+            </a>
+          )}
+
+          <p className="mt-3">
+            <b>📍 Pickup:</b> {activeRide?.pickupLocation?.address}
+          </p>
+
+          <p>
+            <b>🏁 Drop:</b> {activeRide?.dropLocation?.address}
+          </p>
+
+          <p className="mt-2 text-green-600 font-bold text-lg">
+            ₹ {activeRide?.fare}
+          </p>
+        </div>
+      )}
+
+      {/* INCOMING */}
       {incomingRide && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
 

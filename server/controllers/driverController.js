@@ -98,14 +98,12 @@ exports.updateDriverStatus = async (req, res) => {
       return send(res, false, { message: "Driver not found" }, 404);
     }
 
-    const { isOnline } = req.body;
-
-    driver.isOnline = isOnline;
+    driver.isOnline = req.body.isOnline;
     await driver.save();
 
     return send(res, true, {
-      message: `Driver is now ${isOnline ? "Online" : "Offline"}`,
-      driver
+      message: `Driver is now ${driver.isOnline ? "Online" : "Offline"}`,
+      driver,
     });
 
   } catch (err) {
@@ -138,33 +136,22 @@ exports.updateDriverLocation = async (req, res) => {
 };
 
 /* =========================================================
-🔥 FIXED GET NEARBY RIDES
+GET NEARBY RIDES
 ========================================================= */
 exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
 
-    if (!driver) {
-      return send(res, false, { message: "Driver not found" }, 404);
+    if (!driver || !driver.isOnline) {
+      return send(res, false, { message: "Driver offline" }, 400);
     }
 
-    if (!driver.isOnline) {
-      return send(res, false, { message: "Driver is offline" }, 400);
-    }
-
-    /* 🔥 IMPORTANT FIX */
     const vehicleType = driver.vehicleType || driver.vehicle?.type;
-
-    if (!vehicleType) {
-      return send(res, false, {
-        message: "Driver vehicle type missing"
-      }, 400);
-    }
 
     const rides = await Ride.find({
       status: "searching",
       driver: null,
-      vehicleType: vehicleType,
+      vehicleType,
       rejectedDrivers: { $ne: driver._id },
     })
       .sort({ createdAt: -1 })
@@ -173,13 +160,12 @@ exports.getNearbyRides = async (req, res) => {
     return send(res, true, { rides });
 
   } catch (err) {
-    console.error("❌ getNearbyRides:", err.message);
     return send(res, false, { message: err.message }, 500);
   }
 };
 
 /* =========================================================
-ACCEPT RIDE
+ACCEPT RIDE (🔥 FIXED)
 ========================================================= */
 exports.acceptRide = async (req, res) => {
   try {
@@ -189,10 +175,10 @@ exports.acceptRide = async (req, res) => {
       return send(res, false, { message: "Driver not available" }, 400);
     }
 
-    const ride = await Ride.findOne({
+    let ride = await Ride.findOne({
       _id: req.params.id,
       status: "searching",
-      rejectedDrivers: { $ne: driver._id }
+      rejectedDrivers: { $ne: driver._id },
     });
 
     if (!ride) {
@@ -208,7 +194,12 @@ exports.acceptRide = async (req, res) => {
     driver.currentRide = ride._id;
     await driver.save();
 
-    emitToUser(req, ride.user, "rideAccepted", ride);
+    /* 🔥 POPULATE USER */
+    ride = await Ride.findById(ride._id)
+      .populate("user", "name phone")
+      .populate("driver", "name");
+
+    emitToUser(req, ride.user._id, "rideAccepted", ride);
 
     return send(res, true, { ride });
 
@@ -218,7 +209,7 @@ exports.acceptRide = async (req, res) => {
 };
 
 /* =========================================================
-REJECT RIDE
+REJECT RIDE (TRACK MISSED)
 ========================================================= */
 exports.rejectRide = async (req, res) => {
   try {
@@ -236,30 +227,6 @@ exports.rejectRide = async (req, res) => {
     }
 
     return send(res, true, { message: "Ride rejected" });
-
-  } catch (err) {
-    return send(res, false, { message: err.message }, 500);
-  }
-};
-
-/* =========================================================
-START RIDE
-========================================================= */
-exports.startRide = async (req, res) => {
-  try {
-    const ride = await Ride.findById(req.params.id);
-
-    if (!ride || String(ride.driver) !== String(getUserId(req))) {
-      return send(res, false, { message: "Unauthorized" }, 403);
-    }
-
-    ride.status = "ongoing";
-    ride.startedAt = new Date();
-    await ride.save();
-
-    emitToUser(req, ride.user, "rideStarted", ride);
-
-    return send(res, true, { ride });
 
   } catch (err) {
     return send(res, false, { message: err.message }, 500);
@@ -291,6 +258,50 @@ exports.completeRide = async (req, res) => {
     emitToUser(req, ride.user, "rideCompleted", ride);
 
     return send(res, true, { message: "Ride completed" });
+
+  } catch (err) {
+    return send(res, false, { message: err.message }, 500);
+  }
+};
+
+/* =========================================================
+📊 DRIVER STATS (🔥 NEW)
+========================================================= */
+exports.getDriverStats = async (req, res) => {
+  try {
+    const driverId = getUserId(req);
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const accepted = await Ride.countDocuments({
+      driver: driverId,
+      status: { $in: ["accepted", "ongoing", "completed"] },
+      acceptedAt: { $gte: last24h },
+    });
+
+    const completed = await Ride.countDocuments({
+      driver: driverId,
+      status: "completed",
+      completedAt: { $gte: last24h },
+    });
+
+    const missed = await Ride.countDocuments({
+      rejectedDrivers: driverId,
+      createdAt: { $gte: last24h },
+    });
+
+    const newRides = await Ride.countDocuments({
+      status: "searching",
+      createdAt: { $gte: last24h },
+    });
+
+    return send(res, true, {
+      stats: {
+        new: newRides,
+        accepted,
+        completed,
+        missed,
+      },
+    });
 
   } catch (err) {
     return send(res, false, { message: err.message }, 500);

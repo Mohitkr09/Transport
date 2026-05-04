@@ -7,10 +7,19 @@ export default function DriverRequests() {
   const [rides, setRides] = useState([]);
   const [loadingId, setLoadingId] = useState(null);
   const [newRide, setNewRide] = useState(null);
-  const [coords, setCoords] = useState(null);
 
+  const [coords, setCoords] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [history, setHistory] = useState([]);
+
+  /* ✅ REAL STATS */
+  const [stats, setStats] = useState({
+    new: 0,
+    accepted: 0,
+    completed: 0,
+    missed: 0,
+    totalRides: 0,
+    totalEarnings: 0
+  });
 
   const socketRef = useRef(null);
   const audioRef = useRef(null);
@@ -29,13 +38,10 @@ export default function DriverRequests() {
 
       setRides(prev => [ride, ...prev]);
 
-      // save history
-      setHistory(prev => [
-        { ...ride, status: "new", time: Date.now() },
-        ...prev
-      ]);
-
       setTimeout(() => setNewRide(null), 4000);
+
+      /* 🔥 REFRESH STATS */
+      fetchStats();
     });
 
     return () => socket.disconnect();
@@ -51,7 +57,7 @@ export default function DriverRequests() {
     });
   }, []);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH RIDES ================= */
   const fetchRequests = async () => {
     try {
       const res = await api.get("/ride/nearby");
@@ -59,8 +65,17 @@ export default function DriverRequests() {
     } catch {}
   };
 
+  /* ================= FETCH STATS ================= */
+  const fetchStats = async () => {
+    try {
+      const res = await api.get("/driver/stats");
+      setStats(res.data.stats || {});
+    } catch {}
+  };
+
   useEffect(() => {
     fetchRequests();
+    fetchStats();
   }, []);
 
   /* ================= ACTION ================= */
@@ -70,22 +85,14 @@ export default function DriverRequests() {
 
       if (action === "accept") {
         await api.put(`/ride/${id}/accept`);
-
-        setHistory(prev => [
-          { _id: id, status: "accepted", time: Date.now() },
-          ...prev
-        ]);
-
       } else {
         await api.put(`/ride/${id}/reject`);
-
-        setHistory(prev => [
-          { _id: id, status: "missed", time: Date.now() },
-          ...prev
-        ]);
       }
 
       setRides(prev => prev.filter(r => r._id !== id));
+
+      /* 🔥 UPDATE REAL STATS */
+      fetchStats();
 
     } catch {
       alert("Action failed");
@@ -95,16 +102,6 @@ export default function DriverRequests() {
   };
 
   /* ================= FILTER ================= */
-  const last24h = Date.now() - 24 * 60 * 60 * 1000;
-
-  const filteredHistory = history.filter(h => h.time >= last24h);
-
-  const stats = {
-    new: filteredHistory.filter(h => h.status === "new").length,
-    accepted: filteredHistory.filter(h => h.status === "accepted").length,
-    missed: filteredHistory.filter(h => h.status === "missed").length
-  };
-
   const displayedRides =
     filter === "all"
       ? rides
@@ -116,7 +113,7 @@ export default function DriverRequests() {
   return (
     <div className="min-h-screen p-4 sm:p-6 
       bg-gray-100 dark:bg-gray-950 
-      text-gray-900 dark:text-white transition">
+      text-gray-900 dark:text-white">
 
       <audio
         ref={audioRef}
@@ -127,9 +124,11 @@ export default function DriverRequests() {
       <div className="flex flex-col sm:flex-row justify-between mb-6 gap-4">
         <h1 className="text-2xl sm:text-3xl font-bold">🚗 Ride Requests</h1>
 
-        <div className="flex gap-3 text-sm">
+        {/* ✅ REAL STATS */}
+        <div className="flex gap-3 text-sm flex-wrap">
           <Stat label="New" value={stats.new} />
           <Stat label="Accepted" value={stats.accepted} />
+          <Stat label="Completed" value={stats.completed} />
           <Stat label="Missed" value={stats.missed} />
         </div>
       </div>
@@ -193,13 +192,15 @@ export default function DriverRequests() {
               <div className="flex gap-3">
                 <button
                   onClick={() => handleAction(ride._id, "accept")}
+                  disabled={loadingId === ride._id}
                   className="flex-1 bg-green-600 text-white py-2 rounded-xl"
                 >
-                  Accept
+                  {loadingId === ride._id ? "..." : "Accept"}
                 </button>
 
                 <button
                   onClick={() => handleAction(ride._id, "reject")}
+                  disabled={loadingId === ride._id}
                   className="flex-1 bg-gray-200 dark:bg-gray-700 py-2 rounded-xl"
                 >
                   Reject
