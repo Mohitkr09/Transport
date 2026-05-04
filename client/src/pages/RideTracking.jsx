@@ -27,10 +27,12 @@ export default function RideTracking() {
   const [ride, setRide] = useState(null);
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
+  const [trail, setTrail] = useState([]);
+  const [heading, setHeading] = useState(0);
   const [isDark, setIsDark] = useState(false);
   const [loadingCancel, setLoadingCancel] = useState(false);
 
-  /* THEME */
+  /* ================= THEME ================= */
   useEffect(() => {
     const checkTheme = () => {
       setIsDark(document.documentElement.classList.contains("dark"));
@@ -47,26 +49,48 @@ export default function RideTracking() {
     return () => observer.disconnect();
   }, []);
 
-  /* FETCH */
+  /* ================= FETCH ================= */
   useEffect(() => {
     api.get(`/ride/${rideId}`).then((res) => {
       setRide(res.data.ride);
     });
   }, [rideId]);
 
-  /* DRIVER ANIMATION */
+  /* ================= ROTATION ================= */
+  const getHeading = (start, end) => {
+    const dx = end.lng - start.lng;
+    const dy = end.lat - start.lat;
+    return (Math.atan2(dy, dx) * 180) / Math.PI;
+  };
+
+  /* ================= SMOOTH ANIMATION ================= */
   const animateDriver = (start, end) => {
     let progress = 0;
     cancelAnimationFrame(animationRef.current);
 
     const step = () => {
-      progress += 0.02;
+      progress += 0.03;
+      if (progress > 1) progress = 1;
 
       const lat = start.lat + (end.lat - start.lat) * progress;
       const lng = start.lng + (end.lng - start.lng) * progress;
 
-      setDriverPos({ lat, lng });
-      mapRef.current?.panTo({ lat, lng });
+      const newPos = { lat, lng };
+
+      setDriverPos(newPos);
+
+      // 🔥 Limited trail (no lag)
+      setTrail(prev => {
+        const updated = [...prev, newPos];
+        return updated.slice(-50);
+      });
+
+      // 🔥 Smooth rotation
+      const angle = getHeading(start, end);
+      setHeading(prev => prev + (angle - prev) * 0.2);
+
+      // 🔥 Smooth camera follow
+      mapRef.current?.panTo(newPos);
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(step);
@@ -76,7 +100,7 @@ export default function RideTracking() {
     animationRef.current = requestAnimationFrame(step);
   };
 
-  /* SOCKET */
+  /* ================= SOCKET ================= */
   useEffect(() => {
     const socket = io(SOCKET_URL, {
       auth: { token: localStorage.getItem("token") }
@@ -88,7 +112,15 @@ export default function RideTracking() {
       socket.emit("joinRide", rideId);
     });
 
+    let lastUpdate = 0;
+
     socket.on("driverMoved", ({ lat, lng }) => {
+      const now = Date.now();
+
+      // 🔥 Throttle updates (smoothness)
+      if (now - lastUpdate < 800) return;
+      lastUpdate = now;
+
       setDriverPos((prev) => {
         if (!prev) return { lat, lng };
         animateDriver(prev, { lat, lng });
@@ -96,15 +128,12 @@ export default function RideTracking() {
       });
     });
 
-    /* 🔴 CANCEL EVENT → NO TOAST */
-    socket.on("rideCancelled", () => {
-      navigate("/");
-    });
+    socket.on("rideCancelled", () => navigate("/"));
 
     return () => socket.disconnect();
   }, [rideId]);
 
-  /* 🔥 CANCEL FUNCTION (ONLY ONE TOAST) */
+  /* ================= CANCEL ================= */
   const handleCancelRide = async () => {
     if (loadingCancel) return;
 
@@ -117,22 +146,17 @@ export default function RideTracking() {
 
       socketRef.current.emit("cancelRide", { rideId });
 
-      // ✅ ONLY ONE TOAST
       toast.success("Ride cancelled 🚫");
 
-      setTimeout(() => {
-        navigate("/");
-      }, 1000);
-
-    } catch (err) {
-      console.error(err);
+      setTimeout(() => navigate("/"), 1000);
+    } catch {
       toast.error("Cancel failed ❌");
     } finally {
       setLoadingCancel(false);
     }
   };
 
-  /* ROUTE */
+  /* ================= ROUTE ================= */
   useEffect(() => {
     if (!ride || !window.google) return;
 
@@ -167,12 +191,7 @@ export default function RideTracking() {
   }, [ride]);
 
   if (!ride || !isLoaded) {
-    return (
-      <div className="h-screen flex items-center justify-center 
-      bg-white dark:bg-black text-black dark:text-white">
-        Loading...
-      </div>
-    );
+    return <div className="h-screen flex items-center justify-center">Loading...</div>;
   }
 
   const pickup = {
@@ -189,8 +208,7 @@ export default function RideTracking() {
     <>
       <Toaster position="top-center" />
 
-      <div className={`h-screen w-full relative
-        ${isDark ? "bg-black" : "bg-gray-100"}`}>
+      <div className={`h-screen w-full relative ${isDark ? "bg-black" : "bg-gray-100"}`}>
 
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
@@ -205,52 +223,44 @@ export default function RideTracking() {
           <Marker position={pickup} />
           <Marker position={drop} />
 
+          {/* 🚗 DRIVER */}
           {driverPos && (
             <Marker
               position={driverPos}
               icon={{
                 url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
-                scaledSize: new window.google.maps.Size(50, 50)
+                scaledSize: new window.google.maps.Size(50, 50),
+                anchor: new window.google.maps.Point(25, 25),
+                rotation: heading
               }}
             />
           )}
 
+          {/* 🟢 ROUTE */}
           {routePath.length > 1 && (
-            <Polyline
-              path={routePath}
-              options={{
-                strokeColor: "#22c55e",
-                strokeWeight: 6
-              }}
-            />
+            <Polyline path={routePath} options={{ strokeColor: "#22c55e", strokeWeight: 6 }} />
+          )}
+
+          {/* 🔥 LIVE TRAIL */}
+          {trail.length > 1 && (
+            <Polyline path={trail} options={{ strokeColor: "#3b82f6", strokeWeight: 4 }} />
           )}
         </GoogleMap>
 
         {/* PANEL */}
-        <div className="absolute bottom-0 w-full 
-          rounded-t-3xl p-5 bg-white/80 dark:bg-gray-900/80 
-          backdrop-blur-xl shadow-2xl">
+        <div className="absolute bottom-0 w-full rounded-t-3xl p-5 bg-white/80 backdrop-blur-xl shadow-2xl">
+          <h2 className="font-bold text-lg">{ride.driver?.name}</h2>
 
-          <h2 className="font-bold text-lg text-gray-900 dark:text-white">
-            {ride.driver?.name || "Finding Driver..."}
-          </h2>
+          <p>📍 {ride.pickupLocation.address}</p>
+          <p>🏁 {ride.dropLocation.address}</p>
 
-          <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
-            <p>📍 {ride.pickupLocation.address}</p>
-            <p>🏁 {ride.dropLocation.address}</p>
-          </div>
-
-          <div className="mt-4 flex justify-between items-center">
-            <p className="text-green-500 text-xl font-bold">
-              ₹ {ride.fare}
-            </p>
+          <div className="flex justify-between items-center mt-3">
+            <p className="text-green-600 font-bold text-xl">₹ {ride.fare}</p>
 
             <button
               onClick={handleCancelRide}
               disabled={loadingCancel}
-              className="bg-red-500 hover:bg-red-600 
-              disabled:opacity-50 disabled:cursor-not-allowed
-              text-white px-4 py-2 rounded-xl"
+              className="bg-red-500 text-white px-4 py-2 rounded-xl"
             >
               {loadingCancel ? "Cancelling..." : "Cancel"}
             </button>
