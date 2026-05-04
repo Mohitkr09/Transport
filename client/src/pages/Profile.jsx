@@ -176,16 +176,7 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* BOTTOM NAV */}
-      <div className="fixed bottom-3 left-1/2 transform -translate-x-1/2 w-[90%] 
-        bg-white dark:bg-gray-900 
-        shadow-xl rounded-2xl flex justify-around py-3 md:hidden">
-
-        <NavItem icon={<Home />} label="Ride" onClick={() => navigate("/")} />
-        <NavItem icon={<Navigation />} label="Services" />
-        <NavItem icon={<Palmtree />} label="Travel" />
-        <NavItem icon={<User />} label="Profile" active />
-      </div>
+      
     </div>
   );
 }

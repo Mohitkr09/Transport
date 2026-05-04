@@ -2,10 +2,14 @@ const express = require("express");
 const router = express.Router();
 
 const rideController = require("../controllers/rideController");
-const { protect, adminOnly, driverOnly } = require("../middleware/authMiddleware");
+const {
+  protect,
+  adminOnly,
+  driverOnly,
+} = require("../middleware/authMiddleware");
 
 /* ======================================================
-SAFE HANDLER (NO CRASH)
+🛡 SAFE HANDLER (NO CRASH)
 ====================================================== */
 const safe = (fnName) => {
   const fn = rideController[fnName];
@@ -16,7 +20,7 @@ const safe = (fnName) => {
     return (req, res) =>
       res.status(500).json({
         success: false,
-        message: `Controller missing: ${fnName}`
+        message: `Controller missing: ${fnName}`,
       });
   }
 
@@ -24,36 +28,36 @@ const safe = (fnName) => {
     try {
       await fn(req, res, next);
     } catch (err) {
-      console.error(`🔥 Error in ${fnName}:`, err.message);
+      console.error(`🔥 Error in ${fnName}:`, err);
 
       res.status(500).json({
         success: false,
-        message: err.message || "Server error"
+        message: err.message || "Server error",
       });
     }
   };
 };
 
 /* ======================================================
-LOGGER (DEBUG)
+📊 LOGGER (DEBUG)
 ====================================================== */
 router.use((req, res, next) => {
-  console.log(`🚗 RIDE → ${req.method} ${req.originalUrl}`);
+  console.log(`🚗 RIDE API → ${req.method} ${req.originalUrl}`);
   next();
 });
 
 /* ======================================================
-HEALTH
+❤️ HEALTH CHECK
 ====================================================== */
 router.get("/health", (req, res) => {
   res.json({
     success: true,
-    message: "Ride routes working ✅"
+    message: "Ride routes working ✅",
   });
 });
 
 /* ======================================================
-USER ROUTES
+👤 USER ROUTES
 ====================================================== */
 
 /* CREATE RIDE */
@@ -66,7 +70,7 @@ router.get("/my", protect, safe("getUserRides"));
 router.get("/payments", protect, safe("getUserPayments"));
 
 /* ======================================================
-DRIVER ROUTES
+🚖 DRIVER ROUTES
 ====================================================== */
 
 /* ACCEPT / REJECT */
@@ -78,45 +82,40 @@ router.put("/:id/start", protect, driverOnly, safe("startRide"));
 router.put("/:id/complete", protect, driverOnly, safe("completeRide"));
 
 /* ======================================================
-COMMON ROUTES
+🔁 COMMON ROUTES (USER + DRIVER)
 ====================================================== */
 
-/* CANCEL */
+/* ❌ CANCEL RIDE (UPDATED) */
 router.put("/:id/cancel", protect, safe("cancelRide"));
 
-/* RATE */
+/* ⭐ RATE RIDE */
 router.post("/:id/rate", protect, safe("rateRide"));
 
+/* 📄 GET SINGLE RIDE */
+router.get("/:id", protect, safe("getRideById"));
+
 /* ======================================================
-ADMIN ROUTES (SAFE FALLBACK)
+🛠 ADMIN ROUTES
 ====================================================== */
 
-router.get(
-  "/admin/all",
-  protect,
-  adminOnly,
-  safe("getAllRides") // only works if exists
-);
+/* GET ALL RIDES */
+router.get("/admin/all", protect, adminOnly, safe("getAllRides"));
 
+/* FORCE CANCEL */
 router.put(
   "/admin/:id/cancel",
   protect,
   adminOnly,
-  safe("adminCancelRide") // only works if exists
+  safe("adminCancelRide")
 );
 
 /* ======================================================
-GET SINGLE RIDE
-====================================================== */
-router.get("/:id", protect, safe("getRideById"));
-
-/* ======================================================
-404 HANDLER
+🚫 404 HANDLER
 ====================================================== */
 router.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Ride route not found → ${req.method} ${req.originalUrl}`
+    message: `Ride route not found → ${req.method} ${req.originalUrl}`,
   });
 });
 

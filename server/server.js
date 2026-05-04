@@ -28,7 +28,7 @@ const connectDB = require("./config/db");
 const app = express();
 app.set("trust proxy", 1);
 
-/* ================= DB CONNECT ================= */
+/* ================= DB ================= */
 connectDB();
 
 /* ================= MIDDLEWARE ================= */
@@ -38,26 +38,30 @@ app.use(helmet());
 app.use(compression());
 app.use(morgan("dev"));
 
-/* ================= CORS (🔥 FINAL FIX) ================= */
+/* ================= CORS ================= */
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://transport-cmoh.vercel.app", // 🔥 YOUR FRONTEND
-  process.env.FRONTEND_URL
+  "https://transport-cmoh.vercel.app",
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.warn("❌ CORS BLOCKED:", origin);
+
+      // ⚠️ Change to `false` in production if strict security needed
       return callback(null, true);
-    }
-
-    console.warn("❌ CORS BLOCKED:", origin);
-    return callback(null, true); // 🔥 TEMP allow all (safe for now)
-  },
-  credentials: true
-}));
+    },
+    credentials: true,
+  })
+);
 
 /* ================= STATIC ================= */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -75,15 +79,6 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server running ✅" });
 });
 
-/* ================= DEBUG TEST ROUTE ================= */
-app.get("/api/test", (req, res) => {
-  res.json({
-    success: true,
-    message: "API working 🚀",
-    frontend: process.env.FRONTEND_URL
-  });
-});
-
 /* ================= ROOT ================= */
 app.get("/", (req, res) => res.send("🚀 API Running"));
 
@@ -94,8 +89,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 /* ================= GLOBAL MAPS ================= */
@@ -120,24 +115,24 @@ io.use((socket, next) => {
       user = decoded;
     }
 
+    // fallback (dev/testing)
     if (!user && socket.handshake.auth?.userId) {
       user = {
         id: socket.handshake.auth.userId,
-        role: socket.handshake.auth.role || "driver"
+        role: socket.handshake.auth.role || "user",
       };
     }
 
     if (!user) {
       console.log("❌ Socket Unauthorized");
-      return next();
+      return next(new Error("Unauthorized"));
     }
 
     socket.user = user;
     next();
-
   } catch (err) {
     console.log("❌ Socket Auth Error:", err.message);
-    next();
+    next(new Error("Auth failed"));
   }
 });
 
@@ -151,14 +146,16 @@ io.on("connection", async (socket) => {
 
     console.log("🟢 Connected:", role, userId);
 
+    /* JOIN PERSONAL ROOM */
     socket.join(userId.toString());
 
+    /* REGISTER USER */
     if (role === "driver") {
       onlineDrivers[userId] = socket.id;
 
       await Driver.findByIdAndUpdate(userId, {
         isOnline: true,
-        isAvailable: true
+        isAvailable: true,
       });
     }
 
@@ -166,16 +163,29 @@ io.on("connection", async (socket) => {
       onlineUsers[userId] = socket.id;
     }
 
+    /* ================= RIDE ROOM ================= */
     socket.on("joinRide", (rideId) => {
       socket.join(rideId.toString());
     });
 
+    /* ================= LIVE LOCATION ================= */
     socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
       if (rideId) {
         io.to(rideId.toString()).emit("driverMoved", { lat, lng });
       }
     });
 
+    /* ================= 🔴 CANCEL EVENT ================= */
+    socket.on("cancelRide", ({ rideId }) => {
+      if (rideId) {
+        io.to(rideId.toString()).emit("rideCancelled", {
+          rideId,
+          message: "Ride has been cancelled",
+        });
+      }
+    });
+
+    /* ================= DISCONNECT ================= */
     socket.on("disconnect", async () => {
       console.log("🔴 Disconnected:", userId);
 
@@ -184,7 +194,7 @@ io.on("connection", async (socket) => {
 
         await Driver.findByIdAndUpdate(userId, {
           isOnline: false,
-          isAvailable: false
+          isAvailable: false,
         });
       }
 
@@ -192,7 +202,6 @@ io.on("connection", async (socket) => {
         delete onlineUsers[userId];
       }
     });
-
   } catch (err) {
     console.log("⚠️ Socket error:", err.message);
   }
@@ -204,7 +213,7 @@ app.use((err, req, res, next) => {
 
   res.status(500).json({
     success: false,
-    message: err.message || "Server error"
+    message: err.message || "Server error",
   });
 });
 
