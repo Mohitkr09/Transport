@@ -1,23 +1,13 @@
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
-const jwt = require("jsonwebtoken");
 
-/* =========================================================
-TOKEN
-========================================================= */
-const generateToken = (id) =>
-  jwt.sign({ id, role: "driver" }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
-
+/* ================= HELPERS ================= */
 const send = (res, success, data = {}, code = 200) =>
   res.status(code).json({ success, ...data });
 
 const getUserId = (req) => req.user?._id || req.user?.id;
 
-/* =========================================================
-SOCKET HELPER
-========================================================= */
+/* ================= SOCKET ================= */
 const emitToUser = (req, userId, event, payload) => {
   const io = req.app.get("io");
   const onlineUsers = req.app.get("onlineUsers") || {};
@@ -28,61 +18,7 @@ const emitToUser = (req, userId, event, payload) => {
   }
 };
 
-/* =========================================================
-LOGIN
-========================================================= */
-exports.loginDriver = async (req, res) => {
-  try {
-    let { email, password } = req.body;
-
-    if (!email || !password) {
-      return send(res, false, { message: "Email & password required" }, 400);
-    }
-
-    email = email.toLowerCase().trim();
-    password = password.trim();
-
-    const driver = await Driver.findOne({ email }).select("+password");
-
-    if (!driver) {
-      return send(res, false, { message: "Invalid credentials" }, 401);
-    }
-
-    /* 🔥 FIX: USE BCRYPT */
-    const isMatch = await bcrypt.compare(password, driver.password);
-
-    if (!isMatch) {
-      return send(res, false, { message: "Invalid credentials" }, 401);
-    }
-
-    if (!driver.isApproved) {
-      return send(res, false, { message: "Not approved" }, 403);
-    }
-
-    driver.isOnline = true;
-    driver.isAvailable = true;
-    driver.lastLogin = new Date();
-    await driver.save();
-
-    return send(res, true, {
-      token: generateToken(driver._id),
-      user: {
-        id: driver._id,
-        name: driver.name,
-        email: driver.email,
-        role: "driver",
-      },
-    });
-
-  } catch (err) {
-    console.error("DRIVER LOGIN ERROR:", err);
-    return send(res, false, { message: err.message }, 500);
-  }
-};
-
-/* =========================================================
-PROFILE
-========================================================= */
+/* ================= PROFILE ================= */
 exports.getDriverProfile = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req)).select("-password");
@@ -98,9 +34,7 @@ exports.getDriverProfile = async (req, res) => {
   }
 };
 
-/* =========================================================
-ONLINE / OFFLINE
-========================================================= */
+/* ================= STATUS ================= */
 exports.updateDriverStatus = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
@@ -110,6 +44,8 @@ exports.updateDriverStatus = async (req, res) => {
     }
 
     driver.isOnline = req.body.isOnline;
+    if (!driver.isOnline) driver.isAvailable = false;
+
     await driver.save();
 
     return send(res, true, {
@@ -122,9 +58,7 @@ exports.updateDriverStatus = async (req, res) => {
   }
 };
 
-/* =========================================================
-LOCATION
-========================================================= */
+/* ================= LOCATION ================= */
 exports.updateDriverLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
@@ -134,9 +68,10 @@ exports.updateDriverLocation = async (req, res) => {
 
     driver.location = {
       type: "Point",
-      coordinates: [lng, lat],
+      coordinates: [Number(lng), Number(lat)],
     };
 
+    driver.lastLocationUpdate = new Date();
     await driver.save();
 
     return send(res, true, { message: "Location updated" });
@@ -146,9 +81,7 @@ exports.updateDriverLocation = async (req, res) => {
   }
 };
 
-/* =========================================================
-GET NEARBY RIDES
-========================================================= */
+/* ================= NEARBY RIDES ================= */
 exports.getNearbyRides = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
@@ -157,12 +90,9 @@ exports.getNearbyRides = async (req, res) => {
       return send(res, false, { message: "Driver offline" }, 400);
     }
 
-    const vehicleType = driver.vehicleType || driver.vehicle?.type;
-
     const rides = await Ride.find({
       status: "searching",
       driver: null,
-      vehicleType,
       rejectedDrivers: { $ne: driver._id },
     })
       .sort({ createdAt: -1 })
@@ -175,9 +105,7 @@ exports.getNearbyRides = async (req, res) => {
   }
 };
 
-/* =========================================================
-ACCEPT RIDE (🔥 FIXED)
-========================================================= */
+/* ================= ACCEPT RIDE ================= */
 exports.acceptRide = async (req, res) => {
   try {
     const driver = await Driver.findById(getUserId(req));
@@ -205,7 +133,6 @@ exports.acceptRide = async (req, res) => {
     driver.currentRide = ride._id;
     await driver.save();
 
-    /* 🔥 POPULATE USER */
     ride = await Ride.findById(ride._id)
       .populate("user", "name phone")
       .populate("driver", "name");
@@ -219,13 +146,10 @@ exports.acceptRide = async (req, res) => {
   }
 };
 
-/* =========================================================
-REJECT RIDE (TRACK MISSED)
-========================================================= */
+/* ================= REJECT RIDE ================= */
 exports.rejectRide = async (req, res) => {
   try {
     const driverId = getUserId(req);
-
     const ride = await Ride.findById(req.params.id);
 
     if (!ride) {
@@ -244,13 +168,10 @@ exports.rejectRide = async (req, res) => {
   }
 };
 
-/* =========================================================
-COMPLETE RIDE
-========================================================= */
+/* ================= COMPLETE RIDE ================= */
 exports.completeRide = async (req, res) => {
   try {
     const driverId = getUserId(req);
-
     const ride = await Ride.findById(req.params.id);
 
     if (!ride || String(ride.driver) !== String(driverId)) {
@@ -269,50 +190,6 @@ exports.completeRide = async (req, res) => {
     emitToUser(req, ride.user, "rideCompleted", ride);
 
     return send(res, true, { message: "Ride completed" });
-
-  } catch (err) {
-    return send(res, false, { message: err.message }, 500);
-  }
-};
-
-/* =========================================================
-📊 DRIVER STATS (🔥 NEW)
-========================================================= */
-exports.getDriverStats = async (req, res) => {
-  try {
-    const driverId = getUserId(req);
-    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    const accepted = await Ride.countDocuments({
-      driver: driverId,
-      status: { $in: ["accepted", "ongoing", "completed"] },
-      acceptedAt: { $gte: last24h },
-    });
-
-    const completed = await Ride.countDocuments({
-      driver: driverId,
-      status: "completed",
-      completedAt: { $gte: last24h },
-    });
-
-    const missed = await Ride.countDocuments({
-      rejectedDrivers: driverId,
-      createdAt: { $gte: last24h },
-    });
-
-    const newRides = await Ride.countDocuments({
-      status: "searching",
-      createdAt: { $gte: last24h },
-    });
-
-    return send(res, true, {
-      stats: {
-        new: newRides,
-        accepted,
-        completed,
-        missed,
-      },
-    });
 
   } catch (err) {
     return send(res, false, { message: err.message }, 500);

@@ -18,7 +18,7 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER (FINAL FIXED 🚀)
+REGISTER
 ====================================================== */
 exports.register = async (req, res) => {
   try {
@@ -66,6 +66,15 @@ exports.register = async (req, res) => {
       role,
     });
 
+    /* OPTIONAL EMAIL */
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      sendEmail({
+        to: user.email,
+        subject: "Welcome 🚗",
+        html: `<h2>Welcome ${user.name}</h2>`,
+      }).catch(() => {});
+    }
+
     const token = generateToken(user._id, role);
 
     res.status(201).json({
@@ -90,7 +99,9 @@ exports.register = async (req, res) => {
   }
 };
 
-/* ================= LOGIN ================= */
+/* ======================================================
+LOGIN (FINAL FIXED)
+====================================================== */
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
@@ -106,15 +117,39 @@ exports.login = async (req, res) => {
     password = password.trim();
     role = role.toLowerCase().trim();
 
-    let account;
+    let account = null;
 
-    /* DRIVER LOGIN */
+    /* ================= DRIVER ================= */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
-    } else {
+
+      if (!account) {
+        return res.status(401).json({
+          success: false,
+          message: "Driver not found",
+        });
+      }
+
+      if (!account.isApproved) {
+        return res.status(403).json({
+          success: false,
+          message: "Driver not approved",
+        });
+      }
+    }
+
+    /* ================= USER / ADMIN ================= */
+    else {
       account = await User.findOne({ email }).select("+password");
 
-      if (account && account.role !== role) {
+      if (!account) {
+        return res.status(401).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      if (account.role !== role) {
         return res.status(401).json({
           success: false,
           message: "Invalid role selected",
@@ -122,46 +157,30 @@ exports.login = async (req, res) => {
       }
     }
 
-    if (!account) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
-
+    /* ================= PASSWORD CHECK ================= */
     const isMatch = await bcrypt.compare(password, account.password);
 
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "Invalid email or password",
+        message: "Invalid password",
       });
     }
 
-    /* DRIVER APPROVAL CHECK */
-    if (role === "driver" && !account.isApproved) {
-      return res.status(403).json({
-        success: false,
-        message: "Driver not approved",
-      });
-    }
-
-    /* UPDATE LOGIN STATUS */
+    /* ================= UPDATE STATUS ================= */
     if (role === "driver") {
-      await Driver.findByIdAndUpdate(account._id, {
-        isOnline: true,
-        isAvailable: true,
-        lastLogin: new Date(),
-      });
+      account.isOnline = true;
+      account.isAvailable = true;
+      account.lastLogin = new Date();
+      await account.save();
     } else {
-      await User.findByIdAndUpdate(account._id, {
-        lastLogin: new Date(),
-      });
+      account.lastLogin = new Date();
+      await account.save();
     }
 
     const token = generateToken(account._id, role);
 
-    res.json({
+    return res.json({
       success: true,
       token,
       role,
@@ -176,12 +195,13 @@ exports.login = async (req, res) => {
 
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal Server Error",
     });
   }
 };
+
 /* ======================================================
 GET ME
 ====================================================== */
@@ -198,6 +218,7 @@ exports.getMe = async (req, res) => {
       success: true,
       user: req.user,
     });
+
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -223,6 +244,7 @@ exports.logout = async (req, res) => {
       success: true,
       message: "Logged out",
     });
+
   } catch (err) {
     res.status(500).json({
       success: false,
