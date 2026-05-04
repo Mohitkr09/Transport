@@ -18,12 +18,13 @@ const generateToken = (id, role) => {
 };
 
 /* ======================================================
-REGISTER
+REGISTER (FINAL FIXED 🚀)
 ====================================================== */
 exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
 
+    /* ===== VALIDATION ===== */
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
@@ -44,6 +45,7 @@ exports.register = async (req, res) => {
       });
     }
 
+    /* ===== CHECK EXIST ===== */
     const exists = await User.findOne({
       $or: [{ email }, { phone }],
     });
@@ -55,29 +57,30 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* 🔥 HASH PASSWORD */
-    const hashedPassword = await bcrypt.hash(password, 10);
-
+    /* ===== CREATE USER ===== */
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password,
       phone,
       role,
     });
 
-    /* OPTIONAL EMAIL */
+    /* ===== SAFE EMAIL (CRITICAL FIX) ===== */
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       sendEmail({
         to: user.email,
-        subject: "Welcome 🚗",
+        subject: "Welcome to TransportX 🚗",
         html: `<h2>Welcome ${user.name}</h2>`,
-      }).catch(() => {});
+      }).catch(err => {
+        console.log("⚠️ Email failed:", err.message);
+      });
     }
 
+    /* ===== TOKEN ===== */
     const token = generateToken(user._id, role);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       token,
       role,
@@ -91,8 +94,24 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("REGISTER ERROR:", err);
-    res.status(500).json({
+    console.error("🔥 REGISTER ERROR FULL:", err);
+
+    /* ===== REAL ERROR RESPONSE (IMPORTANT) ===== */
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Email or phone already exists",
+      });
+    }
+
+    if (err.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    return res.status(500).json({
       success: false,
       message: err.message || "Server error",
     });
@@ -100,7 +119,7 @@ exports.register = async (req, res) => {
 };
 
 /* ======================================================
-LOGIN (FINAL FIXED)
+LOGIN (SAFE)
 ====================================================== */
 exports.login = async (req, res) => {
   try {
@@ -119,37 +138,17 @@ exports.login = async (req, res) => {
 
     let account = null;
 
-    /* ================= DRIVER ================= */
+    /* DRIVER */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
-
-      if (!account) {
-        return res.status(401).json({
-          success: false,
-          message: "Driver not found",
-        });
-      }
-
-      if (!account.isApproved) {
-        return res.status(403).json({
-          success: false,
-          message: "Driver not approved",
-        });
-      }
+      if (account) account.role = "driver";
     }
 
-    /* ================= USER / ADMIN ================= */
+    /* USER / ADMIN */
     else {
       account = await User.findOne({ email }).select("+password");
 
-      if (!account) {
-        return res.status(401).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      if (account.role !== role) {
+      if (account && account.role !== role) {
         return res.status(401).json({
           success: false,
           message: "Invalid role selected",
@@ -157,44 +156,61 @@ exports.login = async (req, res) => {
       }
     }
 
-    /* ================= PASSWORD CHECK ================= */
+    if (!account) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, account.password);
 
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "Invalid password",
+        message: "Invalid email or password",
       });
     }
 
-    /* ================= UPDATE STATUS ================= */
-    if (role === "driver") {
-      account.isOnline = true;
-      account.isAvailable = true;
-      account.lastLogin = new Date();
-      await account.save();
-    } else {
-      account.lastLogin = new Date();
-      await account.save();
+    /* DRIVER APPROVAL */
+    if (role === "driver" && !account.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: "Driver not approved",
+      });
     }
 
-    const token = generateToken(account._id, role);
+    /* UPDATE LOGIN */
+    if (role === "driver") {
+      await Driver.findByIdAndUpdate(account._id, {
+        isOnline: true,
+        isAvailable: true,
+        lastLogin: new Date(),
+      });
+    } else {
+      await User.findByIdAndUpdate(account._id, {
+        lastLogin: new Date(),
+      });
+    }
+
+    const token = generateToken(account._id, account.role || role);
 
     return res.json({
       success: true,
       token,
-      role,
+      role: account.role || role,
       user: {
         id: account._id,
         name: account.name,
         email: account.email,
         phone: account.phone || "",
-        role,
+        role: account.role || role,
       },
     });
 
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
+    console.error("🔥 LOGIN ERROR FULL:", err);
+
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -218,7 +234,6 @@ exports.getMe = async (req, res) => {
       success: true,
       user: req.user,
     });
-
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -244,7 +259,6 @@ exports.logout = async (req, res) => {
       success: true,
       message: "Logged out",
     });
-
   } catch (err) {
     res.status(500).json({
       success: false,
