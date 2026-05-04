@@ -40,15 +40,13 @@ exports.createDriver = async (req, res) => {
       });
     }
 
-    /* 🔥 IMPORTANT FIX */
+    /* 🔥 IMPORTANT: NO HASH HERE */
     const plainPassword = password?.trim() || "123456";
-
-    const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
     const driver = await Driver.create({
       name,
       email,
-      password: hashedPassword,
+      password: plainPassword, // ✅ FIXED (plain password)
       phone,
       role: "driver",
 
@@ -69,11 +67,10 @@ exports.createDriver = async (req, res) => {
       isAvailable: false,
     });
 
-    /* 🔥 RETURN PASSWORD */
     res.status(201).json({
       success: true,
       message: "Driver created successfully",
-      defaultPassword: plainPassword, // ✅ FIXED
+      defaultPassword: plainPassword, // 🔥 important
       driver: {
         id: driver._id,
         name: driver.name,
