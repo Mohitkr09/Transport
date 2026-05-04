@@ -8,7 +8,6 @@ import toast, { Toaster } from "react-hot-toast";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
-/* 🌙 DARK MAP STYLE */
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
@@ -29,11 +28,9 @@ export default function RideTracking() {
   const [driverPos, setDriverPos] = useState(null);
   const [routePath, setRoutePath] = useState([]);
   const [isDark, setIsDark] = useState(false);
-
   const [loadingCancel, setLoadingCancel] = useState(false);
-  const [isCancellingUI, setIsCancellingUI] = useState(false);
 
-  /* 🌙 THEME */
+  /* THEME */
   useEffect(() => {
     const checkTheme = () => {
       setIsDark(document.documentElement.classList.contains("dark"));
@@ -50,14 +47,14 @@ export default function RideTracking() {
     return () => observer.disconnect();
   }, []);
 
-  /* ================= FETCH ================= */
+  /* FETCH */
   useEffect(() => {
     api.get(`/ride/${rideId}`).then((res) => {
       setRide(res.data.ride);
     });
   }, [rideId]);
 
-  /* ================= DRIVER ANIMATION ================= */
+  /* DRIVER ANIMATION */
   const animateDriver = (start, end) => {
     let progress = 0;
     cancelAnimationFrame(animationRef.current);
@@ -79,7 +76,7 @@ export default function RideTracking() {
     animationRef.current = requestAnimationFrame(step);
   };
 
-  /* ================= SOCKET ================= */
+  /* SOCKET */
   useEffect(() => {
     const socket = io(SOCKET_URL, {
       auth: { token: localStorage.getItem("token") }
@@ -99,26 +96,20 @@ export default function RideTracking() {
       });
     });
 
-    /* 🔴 CANCEL EVENT */
+    /* 🔴 CANCEL EVENT → NO TOAST */
     socket.on("rideCancelled", () => {
-      toast("Ride cancelled ❌");
-      setIsCancellingUI(true);
-
-      setTimeout(() => {
-        navigate("/");
-      }, 1200);
+      navigate("/");
     });
 
     return () => socket.disconnect();
   }, [rideId]);
 
-  /* ================= CANCEL ================= */
+  /* 🔥 CANCEL FUNCTION (ONLY ONE TOAST) */
   const handleCancelRide = async () => {
-    if (!window.confirm("Cancel this ride?")) return;
+    if (loadingCancel) return;
 
     try {
       setLoadingCancel(true);
-      setIsCancellingUI(true);
 
       await api.put(`/ride/${rideId}/cancel`, {
         reason: "User cancelled"
@@ -126,22 +117,22 @@ export default function RideTracking() {
 
       socketRef.current.emit("cancelRide", { rideId });
 
+      // ✅ ONLY ONE TOAST
       toast.success("Ride cancelled 🚫");
 
       setTimeout(() => {
         navigate("/");
-      }, 1200);
+      }, 1000);
 
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || "Cancel failed");
-      setIsCancellingUI(false);
+      toast.error("Cancel failed ❌");
     } finally {
       setLoadingCancel(false);
     }
   };
 
-  /* ================= ROUTE ================= */
+  /* ROUTE */
   useEffect(() => {
     if (!ride || !window.google) return;
 
@@ -194,38 +185,13 @@ export default function RideTracking() {
     lng: ride.dropLocation.location.coordinates[0]
   };
 
-  const getStatus = () => {
-    switch (ride.status) {
-      case "searching": return "🔍 Searching Driver...";
-      case "accepted": return "🚗 Driver is on the way";
-      case "ongoing": return "🛣️ Ride in progress";
-      case "completed": return "🎉 Ride Completed";
-      case "cancelled": return "❌ Ride Cancelled";
-      default: return "Loading...";
-    }
-  };
-
   return (
     <>
-      {/* 🍞 TOASTER */}
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          style: {
-            background: "#111",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "12px 16px"
-          }
-        }}
-      />
+      <Toaster position="top-center" />
 
-      <div className={`h-screen w-full relative transition-all duration-500
-        ${isDark ? "bg-black" : "bg-gray-100"}
-        ${isCancellingUI ? "opacity-0 scale-95 blur-sm" : "opacity-100"}
-      `}>
+      <div className={`h-screen w-full relative
+        ${isDark ? "bg-black" : "bg-gray-100"}`}>
 
-        {/* MAP */}
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
           zoom={15}
@@ -260,13 +226,6 @@ export default function RideTracking() {
           )}
         </GoogleMap>
 
-        {/* STATUS */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 
-          px-6 py-2 rounded-full bg-white/60 dark:bg-gray-900/70 
-          backdrop-blur-xl shadow-lg text-sm font-semibold">
-          {getStatus()}
-        </div>
-
         {/* PANEL */}
         <div className="absolute bottom-0 w-full 
           rounded-t-3xl p-5 bg-white/80 dark:bg-gray-900/80 
@@ -291,7 +250,7 @@ export default function RideTracking() {
               disabled={loadingCancel}
               className="bg-red-500 hover:bg-red-600 
               disabled:opacity-50 disabled:cursor-not-allowed
-              text-white px-4 py-2 rounded-xl transition"
+              text-white px-4 py-2 rounded-xl"
             >
               {loadingCancel ? "Cancelling..." : "Cancel"}
             </button>
