@@ -8,7 +8,7 @@ CREATE DRIVER (ADMIN)
 
 exports.createDriver = async (req, res) => {
   try {
-    const {
+    let {
       name,
       email,
       password,
@@ -16,100 +16,77 @@ exports.createDriver = async (req, res) => {
       vehicleType,
       vehicleNumber,
       lat,
-      lng
+      lng,
     } = req.body;
 
-    /* ================= VALIDATION ================= */
-
-    if (!name || !email || !password || !phone) {
+    if (!name || !email || !phone) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, password and phone required"
+        message: "Name, email and phone required",
       });
     }
 
-    if (lat === undefined || lng === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "Driver location required"
-      });
-    }
-
-    if (!/^[0-9]{10,15}$/.test(phone)) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone must be 10-15 digits"
-      });
-    }
-
-    /* ================= NORMALIZE ================= */
-
-    const normalizedEmail = email.toLowerCase().trim();
-
-    /* ================= CHECK EXISTING ================= */
+    email = email.toLowerCase().trim();
+    phone = phone.trim();
 
     const exists = await Driver.findOne({
-      $or: [{ email: normalizedEmail }, { phone }]
+      $or: [{ email }, { phone }],
     });
 
     if (exists) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: "Driver already exists"
+        message: "Driver already exists",
       });
     }
 
-    /* ================= HASH PASSWORD ================= */
+    /* 🔥 IMPORTANT FIX */
+    const plainPassword = password?.trim() || "123456";
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    /* ================= CREATE ================= */
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
     const driver = await Driver.create({
       name,
-      email: normalizedEmail,
+      email,
       password: hashedPassword,
       phone,
       role: "driver",
 
       vehicle: {
         type: vehicleType || "bike",
-        number: vehicleNumber || ""
+        number: vehicleNumber || "",
       },
 
       location: {
         type: "Point",
-        coordinates: [Number(lng), Number(lat)] // ✅ correct order
+        coordinates: [Number(lng), Number(lat)],
       },
 
       lastLocationUpdate: new Date(),
 
-      // 🔥 IMPORTANT FLAGS
       isApproved: true,
-      isOnline: true,
-      isAvailable: true
+      isOnline: false,
+      isAvailable: false,
     });
 
-    /* ================= RESPONSE ================= */
-
+    /* 🔥 RETURN PASSWORD */
     res.status(201).json({
       success: true,
       message: "Driver created successfully",
+      defaultPassword: plainPassword, // ✅ FIXED
       driver: {
         id: driver._id,
         name: driver.name,
         email: driver.email,
         phone: driver.phone,
-        vehicle: driver.vehicle
-      }
+      },
     });
 
   } catch (err) {
     console.error("CREATE DRIVER ERROR:", err);
-
     res.status(500).json({
       success: false,
-      message: err.message || "Failed to create driver"
+      message: err.message,
     });
   }
 };
