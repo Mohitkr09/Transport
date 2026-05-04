@@ -50,34 +50,30 @@ export default function Drivers() {
   /* ================= ADD DRIVER ================= */
   const addDriver = async () => {
 
-    if (!form.name || !form.email || !form.password || !form.phone) {
+    const cleaned = {
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      password: form.password.trim(), // 🔥 FIX
+      phone: form.phone.trim(),
+      vehicleType: form.vehicleType,
+      vehicleNumber: form.vehicleNumber.trim() || "TEMP",
+      lat: parseFloat(form.lat) || 28.7041,
+      lng: parseFloat(form.lng) || 77.1025
+    };
+
+    if (!cleaned.name || !cleaned.email || !cleaned.password || !cleaned.phone) {
       return alert("Please fill all required fields");
     }
 
     try {
 
-      const payload = {
-        name: form.name,
-        email: form.email,
-        password: form.password,
-        phone: form.phone,
+      console.log("📤 Sending:", cleaned);
 
-        // 🔥 IMPORTANT (fix backend error)
-        vehicleType: form.vehicleType,
-
-        vehicleNumber: form.vehicleNumber || "TEMP",
-
-        lat: parseFloat(form.lat) || 28.7041,
-        lng: parseFloat(form.lng) || 77.1025
-      };
-
-      console.log("📤 Sending:", payload);
-
-      await axios.post(`${API}/drivers`, payload, {
+      const res = await axios.post(`${API}/drivers`, cleaned, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      alert("✅ Driver added successfully");
+      alert(`✅ Driver added\nPassword: ${res.data.defaultPassword}`);
 
       setShowModal(false);
 
@@ -146,7 +142,6 @@ export default function Drivers() {
   return (
     <div className="p-8 min-h-screen bg-gray-100">
 
-      {/* HEADER */}
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Driver Management</h1>
 
@@ -158,7 +153,6 @@ export default function Drivers() {
         </button>
       </div>
 
-      {/* SEARCH */}
       <input
         placeholder="Search drivers..."
         className="w-full p-4 border rounded-xl mb-6"
@@ -166,7 +160,6 @@ export default function Drivers() {
         onChange={e => setSearch(e.target.value)}
       />
 
-      {/* TABLE */}
       <div className="bg-white rounded-xl shadow overflow-hidden">
         <table className="w-full">
 
@@ -182,7 +175,6 @@ export default function Drivers() {
           </thead>
 
           <tbody>
-
             {loading && (
               <tr>
                 <td colSpan="6" className="p-10 text-center">
@@ -195,7 +187,6 @@ export default function Drivers() {
               <tr key={driver._id} className="border-t">
 
                 <td className="p-4 font-semibold">{driver.name}</td>
-
                 <td>{driver.email}</td>
 
                 <td className="flex items-center gap-1 justify-center">
@@ -210,9 +201,7 @@ export default function Drivers() {
                     : "N/A"}
                 </td>
 
-                <td>
-                  <Status driver={driver} />
-                </td>
+                <td><Status driver={driver} /></td>
 
                 <td className="text-center">
                   <button
@@ -224,7 +213,6 @@ export default function Drivers() {
 
               </tr>
             ))}
-
           </tbody>
         </table>
       </div>
@@ -232,28 +220,20 @@ export default function Drivers() {
       {/* MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-
           <div className="bg-white p-6 rounded-xl w-96 space-y-3">
 
             <h2 className="text-xl font-bold">Add Driver</h2>
 
-            <input placeholder="Name" value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
-              className="w-full p-2 border rounded" />
-
-            <input placeholder="Email" value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })}
-              className="w-full p-2 border rounded" />
-
-            <input type="password" placeholder="Password"
-              value={form.password}
-              onChange={e => setForm({ ...form, password: e.target.value })}
-              className="w-full p-2 border rounded" />
-
-            <input placeholder="Phone"
-              value={form.phone}
-              onChange={e => setForm({ ...form, phone: e.target.value })}
-              className="w-full p-2 border rounded" />
+            {["name","email","password","phone"].map(field => (
+              <input
+                key={field}
+                type={field === "password" ? "password" : "text"}
+                placeholder={field}
+                value={form[field]}
+                onChange={e => setForm({ ...form, [field]: e.target.value })}
+                className="w-full p-2 border rounded"
+              />
+            ))}
 
             <select
               value={form.vehicleType}
