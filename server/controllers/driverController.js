@@ -40,10 +40,18 @@ exports.loginDriver = async (req, res) => {
     }
 
     email = email.toLowerCase().trim();
+    password = password.trim();
 
     const driver = await Driver.findOne({ email }).select("+password");
 
-    if (!driver || !(await driver.matchPassword(password))) {
+    if (!driver) {
+      return send(res, false, { message: "Invalid credentials" }, 401);
+    }
+
+    /* 🔥 FIX: USE BCRYPT */
+    const isMatch = await bcrypt.compare(password, driver.password);
+
+    if (!isMatch) {
       return send(res, false, { message: "Invalid credentials" }, 401);
     }
 
@@ -53,6 +61,7 @@ exports.loginDriver = async (req, res) => {
 
     driver.isOnline = true;
     driver.isAvailable = true;
+    driver.lastLogin = new Date();
     await driver.save();
 
     return send(res, true, {
@@ -60,11 +69,13 @@ exports.loginDriver = async (req, res) => {
       user: {
         id: driver._id,
         name: driver.name,
+        email: driver.email,
         role: "driver",
       },
     });
 
   } catch (err) {
+    console.error("DRIVER LOGIN ERROR:", err);
     return send(res, false, { message: err.message }, 500);
   }
 };

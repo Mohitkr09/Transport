@@ -127,42 +127,7 @@ const About = () => {
 
       </section>
 
-      {/* ================= TEAM ================= */}
-      <section className="py-20 bg-gray-100 dark:bg-gray-900">
-
-        <h2 className="text-3xl sm:text-4xl font-bold text-center mb-12 sm:mb-16">
-          Our Team
-        </h2>
-
-        <div className="max-w-6xl mx-auto grid sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-10 px-4 sm:px-6">
-
-          {[
-            ["Founder", "https://randomuser.me/api/portraits/men/32.jpg"],
-            ["Developer", "https://randomuser.me/api/portraits/men/75.jpg"],
-            ["Designer", "https://randomuser.me/api/portraits/women/65.jpg"]
-          ].map((m, i) => (
-            <motion.div
-              key={i}
-              whileHover={{ scale: 1.05 }}
-              className="bg-white dark:bg-gray-800 p-6 sm:p-10 rounded-3xl text-center shadow-xl hover:shadow-2xl transition"
-            >
-              <img
-                src={m[1]}
-                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full mx-auto mb-6 border-4 border-indigo-500"
-              />
-
-              <h3 className="text-lg sm:text-xl font-bold">{m[0]}</h3>
-
-              <div className="flex justify-center gap-4 mt-4 text-gray-500 hover:text-indigo-600 transition">
-                <Github className="cursor-pointer hover:scale-110" />
-                <Linkedin className="cursor-pointer hover:scale-110" />
-              </div>
-            </motion.div>
-          ))}
-
-        </div>
-
-      </section>
+   
 
       {/* ================= CTA ================= */}
       <section className="py-20 text-center bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4">

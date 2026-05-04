@@ -24,7 +24,6 @@ exports.register = async (req, res) => {
   try {
     let { name, email, password, phone, role } = req.body;
 
-    /* ===== VALIDATION ===== */
     if (!name || !email || !password || !phone) {
       return res.status(400).json({
         success: false,
@@ -45,7 +44,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* ===== CHECK EXIST ===== */
     const exists = await User.findOne({
       $or: [{ email }, { phone }],
     });
@@ -57,30 +55,20 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* ===== CREATE USER ===== */
+    /* 🔥 HASH PASSWORD */
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const user = await User.create({
       name,
       email,
-      password,
+      password: hashedPassword,
       phone,
       role,
     });
 
-    /* ===== SAFE EMAIL (CRITICAL FIX) ===== */
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      sendEmail({
-        to: user.email,
-        subject: "Welcome to TransportX 🚗",
-        html: `<h2>Welcome ${user.name}</h2>`,
-      }).catch(err => {
-        console.log("⚠️ Email failed:", err.message);
-      });
-    }
-
-    /* ===== TOKEN ===== */
     const token = generateToken(user._id, role);
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       token,
       role,
@@ -94,33 +82,15 @@ exports.register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 REGISTER ERROR FULL:", err);
-
-    /* ===== REAL ERROR RESPONSE (IMPORTANT) ===== */
-    if (err.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Email or phone already exists",
-      });
-    }
-
-    if (err.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: err.message,
-      });
-    }
-
-    return res.status(500).json({
+    console.error("REGISTER ERROR:", err);
+    res.status(500).json({
       success: false,
       message: err.message || "Server error",
     });
   }
 };
 
-/* ======================================================
-LOGIN (SAFE)
-====================================================== */
+/* ================= LOGIN ================= */
 exports.login = async (req, res) => {
   try {
     let { email, password, role } = req.body;
@@ -136,16 +106,12 @@ exports.login = async (req, res) => {
     password = password.trim();
     role = role.toLowerCase().trim();
 
-    let account = null;
+    let account;
 
-    /* DRIVER */
+    /* DRIVER LOGIN */
     if (role === "driver") {
       account = await Driver.findOne({ email }).select("+password");
-      if (account) account.role = "driver";
-    }
-
-    /* USER / ADMIN */
-    else {
+    } else {
       account = await User.findOne({ email }).select("+password");
 
       if (account && account.role !== role) {
@@ -172,7 +138,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* DRIVER APPROVAL */
+    /* DRIVER APPROVAL CHECK */
     if (role === "driver" && !account.isApproved) {
       return res.status(403).json({
         success: false,
@@ -180,7 +146,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    /* UPDATE LOGIN */
+    /* UPDATE LOGIN STATUS */
     if (role === "driver") {
       await Driver.findByIdAndUpdate(account._id, {
         isOnline: true,
@@ -193,31 +159,29 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = generateToken(account._id, account.role || role);
+    const token = generateToken(account._id, role);
 
-    return res.json({
+    res.json({
       success: true,
       token,
-      role: account.role || role,
+      role,
       user: {
         id: account._id,
         name: account.name,
         email: account.email,
         phone: account.phone || "",
-        role: account.role || role,
+        role,
       },
     });
 
   } catch (err) {
-    console.error("🔥 LOGIN ERROR FULL:", err);
-
-    return res.status(500).json({
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({
       success: false,
       message: "Internal Server Error",
     });
   }
 };
-
 /* ======================================================
 GET ME
 ====================================================== */
