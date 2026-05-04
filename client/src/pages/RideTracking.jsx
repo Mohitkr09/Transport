@@ -9,9 +9,9 @@ import toast, { Toaster } from "react-hot-toast";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
 const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] }
+  { elementType: "geometry", stylers: [{ color: "#1e293b" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#cbd5f5" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#020617" }] }
 ];
 
 export default function RideTracking() {
@@ -30,17 +30,27 @@ export default function RideTracking() {
   const [trail, setTrail] = useState([]);
   const [heading, setHeading] = useState(0);
   const [isDark, setIsDark] = useState(false);
-  const [loadingCancel, setLoadingCancel] = useState(false);
+
+  const [rideStatus, setRideStatus] = useState("accepted");
+
+  const steps = [
+    { key: "accepted", label: "Accepted" },
+    { key: "arrived", label: "Arrived" },
+    { key: "started", label: "Started" },
+    { key: "completed", label: "Completed" },
+    { key: "paid", label: "Paid" }
+  ];
+
+  const activeIndex = steps.findIndex((s) => s.key === rideStatus);
 
   /* ================= THEME ================= */
   useEffect(() => {
-    const checkTheme = () => {
+    const updateTheme = () => {
       setIsDark(document.documentElement.classList.contains("dark"));
     };
+    updateTheme();
 
-    checkTheme();
-
-    const observer = new MutationObserver(checkTheme);
+    const observer = new MutationObserver(updateTheme);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"]
@@ -53,17 +63,27 @@ export default function RideTracking() {
   useEffect(() => {
     api.get(`/ride/${rideId}`).then((res) => {
       setRide(res.data.ride);
+      setRideStatus(res.data.ride.status || "accepted");
     });
   }, [rideId]);
 
   /* ================= ROTATION ================= */
-  const getHeading = (start, end) => {
-    const dx = end.lng - start.lng;
-    const dy = end.lat - start.lat;
-    return (Math.atan2(dy, dx) * 180) / Math.PI;
+  const getBearing = (start, end) => {
+    const lat1 = (start.lat * Math.PI) / 180;
+    const lat2 = (end.lat * Math.PI) / 180;
+    const dLon = ((end.lng - start.lng) * Math.PI) / 180;
+
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x =
+      Math.cos(lat1) * Math.sin(lat2) -
+      Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+    let brng = Math.atan2(y, x);
+    brng = (brng * 180) / Math.PI;
+    return (brng + 360) % 360;
   };
 
-  /* ================= SMOOTH ANIMATION ================= */
+  /* ================= ANIMATION ================= */
   const animateDriver = (start, end) => {
     let progress = 0;
     cancelAnimationFrame(animationRef.current);
@@ -78,19 +98,13 @@ export default function RideTracking() {
       const newPos = { lat, lng };
 
       setDriverPos(newPos);
+      setTrail((prev) => [...prev.slice(-40), newPos]);
 
-      // 🔥 Limited trail (no lag)
-      setTrail(prev => {
-        const updated = [...prev, newPos];
-        return updated.slice(-50);
-      });
+      const angle = getBearing(start, end);
+      setHeading((prev) => prev + (angle - prev) * 0.15);
 
-      // 🔥 Smooth rotation
-      const angle = getHeading(start, end);
-      setHeading(prev => prev + (angle - prev) * 0.2);
-
-      // 🔥 Smooth camera follow
       mapRef.current?.panTo(newPos);
+      mapRef.current?.setZoom(17);
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(step);
@@ -108,19 +122,9 @@ export default function RideTracking() {
 
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      socket.emit("joinRide", rideId);
-    });
-
-    let lastUpdate = 0;
+    socket.emit("joinRide", rideId);
 
     socket.on("driverMoved", ({ lat, lng }) => {
-      const now = Date.now();
-
-      // 🔥 Throttle updates (smoothness)
-      if (now - lastUpdate < 800) return;
-      lastUpdate = now;
-
       setDriverPos((prev) => {
         if (!prev) return { lat, lng };
         animateDriver(prev, { lat, lng });
@@ -128,33 +132,16 @@ export default function RideTracking() {
       });
     });
 
+    socket.on("rideAccepted", () => setRideStatus("accepted"));
+    socket.on("driverArrived", () => setRideStatus("arrived"));
+    socket.on("rideStarted", () => setRideStatus("started"));
+    socket.on("rideCompleted", () => setRideStatus("completed"));
+    socket.on("paymentDone", () => setRideStatus("paid"));
+
     socket.on("rideCancelled", () => navigate("/"));
 
     return () => socket.disconnect();
   }, [rideId]);
-
-  /* ================= CANCEL ================= */
-  const handleCancelRide = async () => {
-    if (loadingCancel) return;
-
-    try {
-      setLoadingCancel(true);
-
-      await api.put(`/ride/${rideId}/cancel`, {
-        reason: "User cancelled"
-      });
-
-      socketRef.current.emit("cancelRide", { rideId });
-
-      toast.success("Ride cancelled 🚫");
-
-      setTimeout(() => navigate("/"), 1000);
-    } catch {
-      toast.error("Cancel failed ❌");
-    } finally {
-      setLoadingCancel(false);
-    }
-  };
 
   /* ================= ROUTE ================= */
   useEffect(() => {
@@ -173,11 +160,7 @@ export default function RideTracking() {
     const service = new window.google.maps.DirectionsService();
 
     service.route(
-      {
-        origin: pickup,
-        destination: drop,
-        travelMode: "DRIVING"
-      },
+      { origin: pickup, destination: drop, travelMode: "DRIVING" },
       (result, status) => {
         if (status === "OK") {
           const path = result.routes[0].overview_path.map((p) => ({
@@ -208,22 +191,18 @@ export default function RideTracking() {
     <>
       <Toaster position="top-center" />
 
-      <div className={`h-screen w-full relative ${isDark ? "bg-black" : "bg-gray-100"}`}>
+      <div className={`h-screen w-full relative ${isDark ? "bg-gray-900" : "bg-gray-100"}`}>
 
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
           zoom={15}
           center={driverPos || pickup}
           onLoad={(map) => (mapRef.current = map)}
-          options={{
-            disableDefaultUI: true,
-            styles: isDark ? darkMapStyle : []
-          }}
+          options={{ disableDefaultUI: true, styles: isDark ? darkMapStyle : [] }}
         >
           <Marker position={pickup} />
           <Marker position={drop} />
 
-          {/* 🚗 DRIVER */}
           {driverPos && (
             <Marker
               position={driverPos}
@@ -236,34 +215,60 @@ export default function RideTracking() {
             />
           )}
 
-          {/* 🟢 ROUTE */}
           {routePath.length > 1 && (
             <Polyline path={routePath} options={{ strokeColor: "#22c55e", strokeWeight: 6 }} />
           )}
 
-          {/* 🔥 LIVE TRAIL */}
           {trail.length > 1 && (
             <Polyline path={trail} options={{ strokeColor: "#3b82f6", strokeWeight: 4 }} />
           )}
         </GoogleMap>
 
         {/* PANEL */}
-        <div className="absolute bottom-0 w-full rounded-t-3xl p-5 bg-white/80 backdrop-blur-xl shadow-2xl">
-          <h2 className="font-bold text-lg">{ride.driver?.name}</h2>
+        <div className={`absolute bottom-0 w-full rounded-t-3xl p-5 backdrop-blur-xl border-t
+        ${isDark ? "bg-gray-900/80 border-indigo-500/40 text-white" : "bg-white/90 border-gray-200 text-gray-900"}`}>
 
-          <p>📍 {ride.pickupLocation.address}</p>
-          <p>🏁 {ride.dropLocation.address}</p>
+          <h2 className="font-bold text-lg mb-4">{ride.driver?.name}</h2>
 
-          <div className="flex justify-between items-center mt-3">
-            <p className="text-green-600 font-bold text-xl">₹ {ride.fare}</p>
+          {/* STEP TRACKER */}
+          <div className="flex items-center justify-between mb-5">
+            {steps.map((step, i) => (
+              <div key={step.key} className="flex-1 flex flex-col items-center relative">
 
-            <button
-              onClick={handleCancelRide}
-              disabled={loadingCancel}
-              className="bg-red-500 text-white px-4 py-2 rounded-xl"
-            >
-              {loadingCancel ? "Cancelling..." : "Cancel"}
-            </button>
+                <div className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold
+                ${i <= activeIndex ? "bg-green-500 text-white scale-110" : "bg-yellow-300 text-white"}`}>
+                  {i + 1}
+                </div>
+
+                <span className="text-[10px] mt-1 text-center w-16">
+                  {step.label}
+                </span>
+
+                {i !== steps.length - 1 && (
+                  <div className={`absolute top-4 left-1/2 w-full h-[2px]
+                  ${i < activeIndex ? "bg-green-500" : "bg-gray-400"}`} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <p className="text-sm">📍 {ride.pickupLocation.address}</p>
+          <p className="text-sm">🏁 {ride.dropLocation.address}</p>
+
+          <div className="flex justify-between items-center mt-4">
+            <p className="text-green-400 font-bold text-xl">₹ {ride.fare}</p>
+
+            {rideStatus !== "completed" && (
+              <button
+                onClick={() => {
+                  socketRef.current.emit("cancelRide", { rideId });
+                  navigate("/");
+                }}
+                className="bg-red-500 text-white px-4 py-2 rounded-xl"
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </div>
       </div>
