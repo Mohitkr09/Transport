@@ -57,6 +57,7 @@ exports.createRide = async (req, res) => {
 
         location: {
           type: "Point",
+
           coordinates:
             pickupLocation.coordinates,
         },
@@ -67,6 +68,7 @@ exports.createRide = async (req, res) => {
 
         location: {
           type: "Point",
+
           coordinates:
             dropLocation.coordinates,
         },
@@ -89,7 +91,7 @@ exports.createRide = async (req, res) => {
     );
 
     /* ======================================================
-    📧 SEND EMAIL
+    SEND EMAIL
     ====================================================== */
 
     try {
@@ -134,20 +136,57 @@ exports.createRide = async (req, res) => {
     let drivers = [];
 
     /* ======================================================
-    FIND NEARBY DRIVERS
+    SAFE PHONE GPS FIX
     ====================================================== */
 
     try {
 
-      const [lng, lat] =
-        pickupLocation.coordinates;
+      let lng = Number(
+        pickupLocation?.coordinates?.[0]
+      );
 
-      drivers =
-        await Driver.getNearbyDrivers(
-          lat,
-          lng,
-          vehicleType
+      let lat = Number(
+        pickupLocation?.coordinates?.[1]
+      );
+
+      console.log(
+        "📍 Pickup coords:",
+        { lat, lng }
+      );
+
+      /* INVALID GPS */
+
+      if (
+        isNaN(lat) ||
+        isNaN(lng)
+      ) {
+
+        console.log(
+          "⚠️ Invalid phone coordinates"
         );
+
+        drivers = await Driver.find({
+
+          isOnline: true,
+
+          isAvailable: true,
+
+          vehicleType,
+        });
+
+      } else {
+
+        /* ======================================================
+        FIND NEARBY DRIVERS
+        ====================================================== */
+
+        drivers =
+          await Driver.getNearbyDrivers(
+            lat,
+            lng,
+            vehicleType
+          );
+      }
 
       console.log(
         "📍 Nearby drivers:",
@@ -160,10 +199,21 @@ exports.createRide = async (req, res) => {
         "⚠️ Nearby driver error:",
         err.message
       );
+
+      /* FALLBACK */
+
+      drivers = await Driver.find({
+
+        isOnline: true,
+
+        isAvailable: true,
+
+        vehicleType,
+      });
     }
 
     /* ======================================================
-    FALLBACK
+    FINAL FALLBACK
     ====================================================== */
 
     if (!drivers || drivers.length === 0) {
@@ -175,10 +225,20 @@ exports.createRide = async (req, res) => {
       drivers = await Driver.find({
 
         isOnline: true,
+
         isAvailable: true,
-        vehicleType,
       });
     }
+
+    console.log(
+      "🚗 Drivers receiving ride:",
+      drivers.map((d) => d._id)
+    );
+
+    console.log(
+      "🟢 Online drivers map:",
+      onlineDrivers
+    );
 
     /* ======================================================
     EMIT TO DRIVERS
