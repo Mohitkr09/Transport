@@ -48,7 +48,10 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
+
+      if (!origin) {
+        return callback(null, true);
+      }
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -56,15 +59,18 @@ app.use(
 
       console.warn("❌ CORS BLOCKED:", origin);
 
-      // ⚠️ Change to `false` in production if strict security needed
       return callback(null, true);
     },
+
     credentials: true,
   })
 );
 
 /* ================= STATIC ================= */
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"))
+);
 
 /* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
@@ -76,24 +82,42 @@ app.use("/api/notifications", notificationRoutes);
 
 /* ================= HEALTH ================= */
 app.get("/api/health", (req, res) => {
-  res.json({ success: true, message: "Server running ✅" });
+  res.json({
+    success: true,
+    message: "Server running ✅",
+  });
 });
 
 /* ================= ROOT ================= */
-app.get("/", (req, res) => res.send("🚀 API Running"));
+app.get("/", (req, res) => {
+  res.send("🚀 API Running");
+});
 
 /* ================= SERVER ================= */
 const server = http.createServer(app);
 
-/* ================= SOCKET ================= */
+/* =====================================================
+SOCKET.IO
+===================================================== */
+
 const io = new Server(server, {
+
   cors: {
     origin: allowedOrigins,
     credentials: true,
+    methods: ["GET", "POST"],
   },
+
+  transports: ["websocket", "polling"],
+
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-/* ================= GLOBAL MAPS ================= */
+/* =====================================================
+GLOBAL SOCKET MAPS
+===================================================== */
+
 const onlineDrivers = {};
 const onlineUsers = {};
 
@@ -101,115 +125,314 @@ app.set("io", io);
 app.set("onlineDrivers", onlineDrivers);
 app.set("onlineUsers", onlineUsers);
 
-/* ================= SOCKET AUTH ================= */
+/* =====================================================
+SOCKET AUTH
+===================================================== */
+
 io.use((socket, next) => {
+
   try {
+
     let user = null;
 
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(" ")[1];
 
+    /* JWT AUTH */
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
+
       user = decoded;
     }
 
-    // fallback (dev/testing)
+    /* DEV FALLBACK */
     if (!user && socket.handshake.auth?.userId) {
+
       user = {
         id: socket.handshake.auth.userId,
-        role: socket.handshake.auth.role || "user",
+        role:
+          socket.handshake.auth.role || "user",
       };
     }
 
     if (!user) {
+
       console.log("❌ Socket Unauthorized");
-      return next(new Error("Unauthorized"));
+
+      return next(
+        new Error("Unauthorized")
+      );
     }
 
     socket.user = user;
+
     next();
+
   } catch (err) {
-    console.log("❌ Socket Auth Error:", err.message);
+
+    console.log(
+      "❌ Socket Auth Error:",
+      err.message
+    );
+
     next(new Error("Auth failed"));
   }
 });
 
-/* ================= SOCKET CONNECTION ================= */
+/* =====================================================
+SOCKET CONNECTION
+===================================================== */
+
 io.on("connection", async (socket) => {
+
   try {
+
     const userId = socket.user?.id;
     const role = socket.user?.role;
 
     if (!userId) return;
 
-    console.log("🟢 Connected:", role, userId);
+    console.log(
+      "🟢 Connected:",
+      role,
+      userId,
+      socket.id
+    );
 
     /* JOIN PERSONAL ROOM */
     socket.join(userId.toString());
 
-    /* REGISTER USER */
-    if (role === "driver") {
-      onlineDrivers[userId] = socket.id;
+    /* =================================================
+    REGISTER DRIVER (MULTI DEVICE)
+    ================================================= */
 
-      await Driver.findByIdAndUpdate(userId, {
-        isOnline: true,
-        isAvailable: true,
-      });
+    if (role === "driver") {
+
+      if (!onlineDrivers[userId]) {
+        onlineDrivers[userId] = [];
+      }
+
+      onlineDrivers[userId].push(socket.id);
+
+      console.log(
+        "🚗 Driver sockets:",
+        onlineDrivers[userId]
+      );
+
+      await Driver.findByIdAndUpdate(
+        userId,
+        {
+          isOnline: true,
+          isAvailable: true,
+        }
+      );
     }
+
+    /* =================================================
+    REGISTER USER
+    ================================================= */
 
     if (role === "user") {
-      onlineUsers[userId] = socket.id;
+
+      if (!onlineUsers[userId]) {
+        onlineUsers[userId] = [];
+      }
+
+      onlineUsers[userId].push(socket.id);
+
+      console.log(
+        "👤 User sockets:",
+        onlineUsers[userId]
+      );
     }
 
-    /* ================= RIDE ROOM ================= */
+    /* =================================================
+    JOIN RIDE ROOM
+    ================================================= */
+
     socket.on("joinRide", (rideId) => {
+
       socket.join(rideId.toString());
+
+      console.log(
+        `🚕 Joined ride room: ${rideId}`
+      );
     });
 
-    /* ================= LIVE LOCATION ================= */
-    socket.on("driverLocationUpdate", ({ rideId, lat, lng }) => {
-      if (rideId) {
-        io.to(rideId.toString()).emit("driverMoved", { lat, lng });
+    /* =================================================
+    DRIVER LIVE LOCATION
+    ================================================= */
+
+    socket.on(
+      "driverLocationUpdate",
+      ({ rideId, lat, lng }) => {
+
+        if (rideId) {
+
+          io.to(rideId.toString()).emit(
+            "driverMoved",
+            { lat, lng }
+          );
+        }
       }
+    );
+
+    /* =================================================
+    RIDE STATUS EVENTS
+    ================================================= */
+
+    socket.on("rideAccepted", ({ rideId }) => {
+
+      io.to(rideId.toString()).emit(
+        "rideAccepted"
+      );
     });
 
-    /* ================= 🔴 CANCEL EVENT ================= */
+    socket.on("driverArrived", ({ rideId }) => {
+
+      io.to(rideId.toString()).emit(
+        "driverArrived"
+      );
+    });
+
+    socket.on("rideStarted", ({ rideId }) => {
+
+      io.to(rideId.toString()).emit(
+        "rideStarted"
+      );
+    });
+
+    socket.on("rideCompleted", ({ rideId }) => {
+
+      io.to(rideId.toString()).emit(
+        "rideCompleted"
+      );
+    });
+
+    socket.on("paymentDone", ({ rideId }) => {
+
+      io.to(rideId.toString()).emit(
+        "paymentDone"
+      );
+    });
+
+    /* =================================================
+    CANCEL RIDE
+    ================================================= */
+
     socket.on("cancelRide", ({ rideId }) => {
+
       if (rideId) {
-        io.to(rideId.toString()).emit("rideCancelled", {
-          rideId,
-          message: "Ride has been cancelled",
-        });
+
+        io.to(rideId.toString()).emit(
+          "rideCancelled",
+          {
+            rideId,
+            message:
+              "Ride has been cancelled",
+          }
+        );
       }
     });
 
-    /* ================= DISCONNECT ================= */
+    /* =================================================
+    DRIVER HEARTBEAT
+    ================================================= */
+
+    socket.on("driverPing", () => {
+
+      socket.emit("driverPong");
+    });
+
+    /* =================================================
+    DISCONNECT
+    ================================================= */
+
     socket.on("disconnect", async () => {
-      console.log("🔴 Disconnected:", userId);
 
+      console.log(
+        "🔴 Disconnected:",
+        userId,
+        socket.id
+      );
+
+      /* DRIVER */
       if (role === "driver") {
-        delete onlineDrivers[userId];
 
-        await Driver.findByIdAndUpdate(userId, {
-          isOnline: false,
-          isAvailable: false,
-        });
+        if (onlineDrivers[userId]) {
+
+          onlineDrivers[userId] =
+            onlineDrivers[userId].filter(
+              (id) => id !== socket.id
+            );
+
+          /* LAST DEVICE CLOSED */
+          if (
+            onlineDrivers[userId].length === 0
+          ) {
+
+            delete onlineDrivers[userId];
+
+            await Driver.findByIdAndUpdate(
+              userId,
+              {
+                isOnline: false,
+                isAvailable: false,
+              }
+            );
+
+            console.log(
+              "🚗 Driver offline:",
+              userId
+            );
+          }
+        }
       }
 
+      /* USER */
       if (role === "user") {
-        delete onlineUsers[userId];
+
+        if (onlineUsers[userId]) {
+
+          onlineUsers[userId] =
+            onlineUsers[userId].filter(
+              (id) => id !== socket.id
+            );
+
+          if (
+            onlineUsers[userId].length === 0
+          ) {
+
+            delete onlineUsers[userId];
+          }
+        }
       }
     });
+
   } catch (err) {
-    console.log("⚠️ Socket error:", err.message);
+
+    console.log(
+      "⚠️ Socket Error:",
+      err.message
+    );
   }
 });
 
-/* ================= ERROR HANDLER ================= */
+/* =====================================================
+ERROR HANDLER
+===================================================== */
+
 app.use((err, req, res, next) => {
-  console.error("🔥 Server Error:", err.message);
+
+  console.error(
+    "🔥 Server Error:",
+    err.message
+  );
 
   res.status(500).json({
     success: false,
@@ -217,9 +440,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-/* ================= START ================= */
+/* =====================================================
+START SERVER
+===================================================== */
+
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+
+  console.log(
+    `🚀 Server running on port ${PORT}`
+  );
 });
