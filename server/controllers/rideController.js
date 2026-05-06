@@ -461,7 +461,98 @@ exports.acceptRide = async (req, res) => {
     });
   }
 };
+ /* ======================================================
+❌ REJECT RIDE
+====================================================== */
 
+exports.rejectRide = async (req, res) => {
+
+  try {
+
+    const driverId = req.user._id;
+
+    const ride = await Ride.findById(
+      req.params.id
+    );
+
+    if (!ride) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found",
+      });
+    }
+
+    /* ======================================================
+    RIDE ALREADY TAKEN
+    ====================================================== */
+
+    if (ride.status !== "searching") {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Ride already accepted",
+      });
+    }
+
+    /* ======================================================
+    ADD TO REJECTED DRIVERS
+    ====================================================== */
+
+    const alreadyRejected =
+      ride.rejectedDrivers.some(
+        (id) =>
+          id.toString() ===
+          driverId.toString()
+      );
+
+    if (!alreadyRejected) {
+
+      ride.rejectedDrivers.push(
+        driverId
+      );
+    }
+
+    await ride.save();
+
+    console.log(
+      "❌ Ride rejected by:",
+      driverId
+    );
+
+    /* ======================================================
+    SOCKET EVENT
+    ====================================================== */
+
+    const io = req.app.get("io");
+
+    io.to(ride._id.toString()).emit(
+      "rideRejected",
+      {
+        rideId: ride._id,
+        driverId,
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Ride rejected",
+    });
+
+  } catch (err) {
+
+    console.error(
+      "🔥 Reject Error:",
+      err.message
+    );
+
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
 /* ======================================================
 🚗 START RIDE
 ====================================================== */
