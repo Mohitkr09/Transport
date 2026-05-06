@@ -1,6 +1,9 @@
 const Ride = require("../models/Ride");
 const Driver = require("../models/Driver");
 
+const sendEmail = require("../utils/sendEmail");
+const rideBookedTemplate = require("../utils/templates/rideBookedTemplate");
+
 /* ======================================================
 💰 FARE
 ====================================================== */
@@ -10,32 +13,70 @@ const calculateFare = (vehicleType, distanceKm = 5) => {
 };
 
 /* ======================================================
-🚗 CREATE RIDE (🔥 FULL FIX)
+🚗 CREATE RIDE
 ====================================================== */
 exports.createRide = async (req, res) => {
   try {
     const { pickupLocation, dropLocation, vehicleType, distance } = req.body;
 
+    const fare = calculateFare(vehicleType, distance || 5);
+
     const ride = await Ride.create({
       user: req.user._id,
+
       pickupLocation: {
         address: pickupLocation.address,
-        location: { type: "Point", coordinates: pickupLocation.coordinates },
+        location: {
+          type: "Point",
+          coordinates: pickupLocation.coordinates,
+        },
       },
+
       dropLocation: {
         address: dropLocation.address,
-        location: { type: "Point", coordinates: dropLocation.coordinates },
+        location: {
+          type: "Point",
+          coordinates: dropLocation.coordinates,
+        },
       },
+
       vehicleType,
       distanceKm: distance || 5,
-      fare: calculateFare(vehicleType, distance || 5),
+      fare,
       status: "searching",
       rejectedDrivers: [],
     });
 
     console.log("🚀 New Ride Created:", ride._id);
 
-    /* 🔥 SOCKET */
+    /* ======================================================
+    📧 SEND EMAIL TO USER
+    ====================================================== */
+
+    try {
+      await sendEmail({
+        to: req.user.email,
+        subject: "🚖 Ride Booked Successfully - TransportX",
+
+        html: rideBookedTemplate({
+          name: req.user.name,
+          pickup: pickupLocation.address,
+          drop: dropLocation.address,
+          fare,
+          vehicleType,
+        }),
+      });
+
+      console.log("📧 Ride email sent");
+
+    } catch (emailErr) {
+      console.log("⚠️ Email failed:", emailErr.message);
+    }
+
+    /* ======================================================
+    🔥 SOCKET
+    ====================================================== */
+
     const io = req.app.get("io");
     const onlineDrivers = req.app.get("onlineDrivers") || {};
 
@@ -44,14 +85,22 @@ exports.createRide = async (req, res) => {
     try {
       const [lng, lat] = pickupLocation.coordinates;
 
-      drivers = await Driver.getNearbyDrivers(lat, lng, vehicleType);
+      drivers = await Driver.getNearbyDrivers(
+        lat,
+        lng,
+        vehicleType
+      );
+
       console.log("📍 Nearby drivers:", drivers.length);
 
     } catch (err) {
       console.log("⚠️ Nearby driver error:", err.message);
     }
 
-    /* 🔥 FALLBACK (VERY IMPORTANT) */
+    /* ======================================================
+    🔥 FALLBACK
+    ====================================================== */
+
     if (!drivers || drivers.length === 0) {
       console.log("⚠️ No nearby drivers → sending to ALL online drivers");
 
@@ -62,23 +111,35 @@ exports.createRide = async (req, res) => {
       });
     }
 
-    /* 🔥 EMIT TO DRIVERS */
+    /* ======================================================
+    📡 EMIT TO DRIVERS
+    ====================================================== */
+
     drivers.forEach((driver) => {
       const socketId = onlineDrivers[driver._id.toString()];
 
       if (socketId) {
         io.to(socketId).emit("newRideRequest", ride);
+
         console.log("📡 Sent ride to driver:", driver._id);
+
       } else {
         console.log("❌ Driver not connected:", driver._id);
       }
     });
 
-    res.status(201).json({ success: true, ride });
+    res.status(201).json({
+      success: true,
+      ride,
+    });
 
   } catch (err) {
     console.error("🔥 Create Ride Error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
@@ -88,14 +149,25 @@ exports.createRide = async (req, res) => {
 exports.getRideById = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id)
-      .populate("user", "name phone")
+      .populate("user", "name phone email")
       .populate("driver", "name phone");
 
-    if (!ride) return res.status(404).json({ success: false });
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+      });
+    }
 
-    res.json({ success: true, ride });
+    res.json({
+      success: true,
+      ride,
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
@@ -113,12 +185,16 @@ exports.acceptRide = async (req, res) => {
     });
 
     if (!ride) {
-      return res.status(400).json({ success: false, message: "Ride already taken" });
+      return res.status(400).json({
+        success: false,
+        message: "Ride already taken",
+      });
     }
 
     ride.status = "accepted";
     ride.driver = driverId;
-    ride.acceptedAt = new Date(); // 🔥 IMPORTANT
+    ride.acceptedAt = new Date();
+
     await ride.save();
 
     ride = await Ride.findById(ride._id)
@@ -133,18 +209,26 @@ exports.acceptRide = async (req, res) => {
     const io = req.app.get("io");
     const onlineUsers = req.app.get("onlineUsers") || {};
 
-    const userSocket = onlineUsers[ride.user._id.toString()];
+    const userSocket =
+      onlineUsers[ride.user._id.toString()];
+
     if (userSocket) {
       io.to(userSocket).emit("rideAccepted", ride);
     }
 
     console.log("✅ Ride accepted:", ride._id);
 
-    res.json({ success: true, ride });
+    res.json({
+      success: true,
+      ride,
+    });
 
   } catch (err) {
     console.error("🔥 Accept Error:", err.message);
-    res.status(500).json({ success: false });
+
+    res.status(500).json({
+      success: false,
+    });
   }
 };
 
@@ -156,11 +240,14 @@ exports.completeRide = async (req, res) => {
     const ride = await Ride.findById(req.params.id);
 
     if (!ride || ride.status !== "ongoing") {
-      return res.status(400).json({ success: false });
+      return res.status(400).json({
+        success: false,
+      });
     }
 
     ride.status = "completed";
-    ride.completedAt = new Date(); // 🔥 IMPORTANT
+    ride.completedAt = new Date();
+
     await ride.save();
 
     await Driver.findByIdAndUpdate(ride.driver, {
@@ -170,10 +257,14 @@ exports.completeRide = async (req, res) => {
 
     console.log("🏁 Ride completed:", ride._id);
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+    });
 
   } catch (err) {
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+    });
   }
 };
 
@@ -184,9 +275,14 @@ exports.cancelRide = async (req, res) => {
   try {
     let ride = await Ride.findById(req.params.id);
 
-    if (!ride) return res.status(404).json({ success: false });
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+      });
+    }
 
     ride.status = "cancelled";
+
     await ride.save();
 
     ride = await Ride.findById(ride._id)
@@ -194,10 +290,13 @@ exports.cancelRide = async (req, res) => {
       .populate("driver", "name phone");
 
     if (ride.driver) {
-      await Driver.findByIdAndUpdate(ride.driver._id, {
-        isAvailable: true,
-        currentRide: null,
-      });
+      await Driver.findByIdAndUpdate(
+        ride.driver._id,
+        {
+          isAvailable: true,
+          currentRide: null,
+        }
+      );
     }
 
     const io = req.app.get("io");
@@ -205,19 +304,33 @@ exports.cancelRide = async (req, res) => {
     const onlineDrivers = req.app.get("onlineDrivers") || {};
 
     if (onlineUsers[ride.user._id]) {
-      io.to(onlineUsers[ride.user._id]).emit("rideCancelled", ride);
+      io.to(onlineUsers[ride.user._id]).emit(
+        "rideCancelled",
+        ride
+      );
     }
 
-    if (ride.driver && onlineDrivers[ride.driver._id]) {
-      io.to(onlineDrivers[ride.driver._id]).emit("rideCancelled", ride);
+    if (
+      ride.driver &&
+      onlineDrivers[ride.driver._id]
+    ) {
+      io.to(onlineDrivers[ride.driver._id]).emit(
+        "rideCancelled",
+        ride
+      );
     }
 
     console.log("❌ Ride cancelled:", ride._id);
 
-    res.json({ success: true, ride });
+    res.json({
+      success: true,
+      ride,
+    });
 
   } catch (err) {
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+    });
   }
 };
 
@@ -228,13 +341,23 @@ exports.rateRide = async (req, res) => {
   try {
     const ride = await Ride.findById(req.params.id);
 
-    if (!ride) return res.status(404).json({ success: false });
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+      });
+    }
 
     ride.rating = req.body.rating;
+
     await ride.save();
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+    });
+
   } catch {
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+    });
   }
 };
