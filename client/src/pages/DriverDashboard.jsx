@@ -426,27 +426,115 @@ useEffect(() => {
 HEARTBEAT KEEPALIVE
 ====================================================== */
 
+/* ======================================================
+HEARTBEAT KEEPALIVE
+====================================================== */
+
 useEffect(() => {
 
   const interval = setInterval(() => {
 
     if (
-      socketRef.current?.connected
+      socketRef.current
     ) {
 
-      socketRef.current.emit(
-        "driverPing"
-      );
+      if (
+        socketRef.current.connected
+      ) {
 
-      console.log(
-        "💓 Driver heartbeat"
-      );
+        socketRef.current.emit(
+          "driverPing"
+        );
+
+        console.log(
+          "💓 Driver heartbeat"
+        );
+
+      } else {
+
+        console.log(
+          "⚠️ Socket disconnected → reconnecting..."
+        );
+
+        socketRef.current.connect();
+      }
     }
 
-  }, 10000);
+  }, 5000);
 
   return () =>
     clearInterval(interval);
+
+}, []);
+
+/* ======================================================
+MOBILE TAB VISIBILITY FIX
+====================================================== */
+
+useEffect(() => {
+
+  const handleVisibility = async () => {
+
+    if (
+      document.visibilityState ===
+      "visible"
+    ) {
+
+      console.log(
+        "👀 App visible again"
+      );
+
+      /* SOCKET RECONNECT */
+
+      if (
+        socketRef.current &&
+        !socketRef.current.connected
+      ) {
+
+        console.log(
+          "🔄 Reconnecting socket..."
+        );
+
+        socketRef.current.connect();
+      }
+
+      /* RESTORE ONLINE */
+
+      try {
+
+        await api.put(
+          "/driver/online",
+          {
+            isOnline: true,
+          }
+        );
+
+        console.log(
+          "🟢 Driver restored online"
+        );
+
+      } catch (err) {
+
+        console.log(
+          "Visibility restore error:",
+          err.message
+        );
+      }
+    }
+  };
+
+  document.addEventListener(
+    "visibilitychange",
+    handleVisibility
+  );
+
+  return () => {
+
+    document.removeEventListener(
+      "visibilitychange",
+      handleVisibility
+    );
+  };
 
 }, []);
 
@@ -483,67 +571,123 @@ useEffect(() => {
 
   }, [incomingRide]);
 
-  /* ======================================================
-  DRIVER LOCATION
-  ====================================================== */
+ /* ======================================================
+DRIVER LOCATION
+====================================================== */
 
-  useEffect(() => {
+useEffect(() => {
 
-    if (!online) return;
+  if (!online) return;
 
-    const interval = setInterval(() => {
+  const updateLocation = () => {
 
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
+    navigator.geolocation.getCurrentPosition(
 
-          const lat =
-            pos.coords.latitude;
+      /* SUCCESS */
 
-          const lng =
-            pos.coords.longitude;
+      (pos) => {
 
-          setDriverLocation({
+        const lat =
+          pos.coords.latitude;
+
+        const lng =
+          pos.coords.longitude;
+
+        console.log(
+          "📍 Driver Location:",
+          lat,
+          lng
+        );
+
+        setDriverLocation({
+          lat,
+          lng,
+        });
+
+        /* ======================================================
+        UPDATE BACKEND LOCATION
+        ====================================================== */
+
+        api.put(
+          "/driver/location",
+          {
             lat,
             lng,
-          });
+            rideId:
+              activeRide?._id,
+          }
+        )
+        .catch((err) => {
 
-          api.put(
-            "/driver/location",
+          console.log(
+            "❌ Location Update Error:",
+            err.message
+          );
+        });
+
+        /* ======================================================
+        LIVE SOCKET UPDATE
+        ====================================================== */
+
+        if (
+          socketRef.current?.connected &&
+          activeRide?._id
+        ) {
+
+          socketRef.current.emit(
+            "driverLocationUpdate",
             {
+              rideId:
+                activeRide._id,
+
               lat,
               lng,
-              rideId:
-                activeRide?._id,
             }
           );
 
-          /* LIVE SOCKET UPDATE */
-
-          if (
-            socketRef.current &&
-            activeRide?._id
-          ) {
-
-            socketRef.current.emit(
-              "driverLocationUpdate",
-              {
-                rideId:
-                  activeRide._id,
-
-                lat,
-                lng,
-              }
-            );
-          }
+          console.log(
+            "🚗 Live location emitted"
+          );
         }
-      );
+      },
 
-    }, 3000);
+      /* ERROR */
 
-    return () =>
-      clearInterval(interval);
+      (error) => {
 
-  }, [online, activeRide]);
+        console.log(
+          "📍 GPS Error:",
+          error.message
+        );
+      },
+
+      /* GPS OPTIONS */
+
+      {
+        enableHighAccuracy: true,
+
+        timeout: 10000,
+
+        maximumAge: 0,
+      }
+    );
+  };
+
+  /* INITIAL LOCATION */
+
+  updateLocation();
+
+  /* REPEAT EVERY 5s */
+
+  const interval = setInterval(
+    updateLocation,
+    5000
+  );
+
+  return () =>
+    clearInterval(interval);
+
+}, [online, activeRide]);
 
   /* ======================================================
   ACTIONS
