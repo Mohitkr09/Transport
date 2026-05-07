@@ -572,20 +572,32 @@ useEffect(() => {
   }, [incomingRide]);
 
  /* ======================================================
-DRIVER LOCATION
+DRIVER LOCATION TRACKING
 ====================================================== */
 
 useEffect(() => {
 
   if (!online) return;
 
-  const updateLocation = () => {
+  if (!navigator.geolocation) {
 
-    navigator.geolocation.getCurrentPosition(
+    console.log(
+      "❌ Geolocation not supported"
+    );
+
+    return;
+  }
+
+  console.log(
+    "📍 Starting live location tracking..."
+  );
+
+  const watchId =
+    navigator.geolocation.watchPosition(
 
       /* SUCCESS */
 
-      (pos) => {
+      async (pos) => {
 
         const lat =
           pos.coords.latitude;
@@ -599,34 +611,55 @@ useEffect(() => {
           lng
         );
 
+        /* UPDATE STATE */
+
         setDriverLocation({
           lat,
           lng,
         });
 
         /* ======================================================
-        UPDATE BACKEND LOCATION
+        SOCKET RECONNECT FIX
         ====================================================== */
 
-        api.put(
-          "/driver/location",
-          {
-            lat,
-            lng,
-            rideId:
-              activeRide?._id,
-          }
-        )
-        .catch((err) => {
+        if (
+          socketRef.current &&
+          !socketRef.current.connected
+        ) {
 
           console.log(
-            "❌ Location Update Error:",
-            err.message
+            "🔄 Reconnecting socket..."
           );
-        });
+
+          socketRef.current.connect();
+        }
 
         /* ======================================================
-        LIVE SOCKET UPDATE
+        UPDATE DRIVER LOCATION IN DB
+        ====================================================== */
+
+        try {
+
+          await api.put(
+            "/driver/location",
+            {
+              lat,
+              lng,
+              rideId:
+                activeRide?._id,
+            }
+          );
+
+        } catch (err) {
+
+          console.log(
+            "❌ Backend Location Error:",
+            err.message
+          );
+        }
+
+        /* ======================================================
+        LIVE SOCKET LOCATION
         ====================================================== */
 
         if (
@@ -659,33 +692,45 @@ useEffect(() => {
           "📍 GPS Error:",
           error.message
         );
+
+        /* AUTO RESTART GPS */
+
+        if (
+          error.code === 2 ||
+          error.code === 3
+        ) {
+
+          console.log(
+            "🔄 Retrying GPS..."
+          );
+        }
       },
 
-      /* GPS OPTIONS */
+      /* OPTIONS */
 
       {
         enableHighAccuracy: true,
 
-        timeout: 10000,
-
         maximumAge: 0,
+
+        timeout: 15000,
       }
     );
+
+  /* ======================================================
+  CLEANUP
+  ====================================================== */
+
+  return () => {
+
+    console.log(
+      "🛑 Stopping live tracking"
+    );
+
+    navigator.geolocation.clearWatch(
+      watchId
+    );
   };
-
-  /* INITIAL LOCATION */
-
-  updateLocation();
-
-  /* REPEAT EVERY 5s */
-
-  const interval = setInterval(
-    updateLocation,
-    5000
-  );
-
-  return () =>
-    clearInterval(interval);
 
 }, [online, activeRide]);
 
