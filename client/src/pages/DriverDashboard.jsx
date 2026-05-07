@@ -182,186 +182,273 @@ export default function DriverDashboard() {
   }, []);
 
   /* ======================================================
-  SOCKET CONNECTION
+SOCKET CONNECTION
+====================================================== */
+
+useEffect(() => {
+
+  if (!profile?._id) return;
+
+  console.log(
+    "🚗 Connecting driver socket..."
+  );
+
+  const socket = io(
+    import.meta.env.VITE_SOCKET_URL,
+    {
+
+      transports: ["websocket"],
+
+      upgrade: false,
+
+      reconnection: true,
+
+      reconnectionAttempts: Infinity,
+
+      reconnectionDelay: 1000,
+
+      reconnectionDelayMax: 5000,
+
+      timeout: 20000,
+
+      forceNew: true,
+
+      autoConnect: true,
+
+      auth: {
+        token:
+          localStorage.getItem("token"),
+
+        userId: profile._id,
+
+        role: "driver",
+      },
+    }
+  );
+
+  socketRef.current = socket;
+
+  /* ======================================================
+  SOCKET CONNECTED
   ====================================================== */
 
-  useEffect(() => {
-
-    if (!profile?._id) return;
+  socket.on("connect", async () => {
 
     console.log(
-      "🚗 Connecting driver socket..."
+      "✅ SOCKET CONNECTED:",
+      socket.id
     );
 
-    const socket = io(
-      import.meta.env.VITE_SOCKET_URL,
-      {
+    try {
 
-        transports: ["websocket"],
+      await api.put(
+        "/driver/online",
+        {
+          isOnline: true,
+        }
+      );
 
-        upgrade: false,
-
-        reconnection: true,
-
-        reconnectionAttempts: Infinity,
-
-        reconnectionDelay: 1000,
-
-        timeout: 20000,
-
-        forceNew: true,
-
-        auth: {
-          token:
-            localStorage.getItem("token"),
-
-          userId: profile._id,
-
-          role: "driver",
-        },
-      }
-    );
-
-    socketRef.current = socket;
-
-    /* ======================================================
-    SOCKET DEBUG
-    ====================================================== */
-
-    socket.on("connect", () => {
+      setOnline(true);
 
       console.log(
-        "✅ SOCKET CONNECTED:",
-        socket.id
+        "🟢 Driver restored online"
       );
-    });
 
-    socket.on("disconnect", () => {
+    } catch (err) {
 
       console.log(
-        "❌ SOCKET DISCONNECTED"
+        "Restore online error:",
+        err.message
       );
-    });
+    }
+  });
 
-    socket.on(
-      "connect_error",
-      (err) => {
+  /* ======================================================
+  SOCKET DISCONNECTED
+  ====================================================== */
+
+  socket.on(
+    "disconnect",
+    (reason) => {
+
+      console.log(
+        "❌ SOCKET DISCONNECTED:",
+        reason
+      );
+    }
+  );
+
+  /* ======================================================
+  SOCKET ERROR
+  ====================================================== */
+
+  socket.on(
+    "connect_error",
+    (err) => {
+
+      console.log(
+        "❌ SOCKET ERROR:",
+        err.message
+      );
+    }
+  );
+
+  /* ======================================================
+  SOCKET RECONNECTED
+  ====================================================== */
+
+  socket.io.on(
+    "reconnect",
+    async () => {
+
+      console.log(
+        "🔄 SOCKET RECONNECTED"
+      );
+
+      try {
+
+        await api.put(
+          "/driver/online",
+          {
+            isOnline: true,
+          }
+        );
+
+        setOnline(true);
 
         console.log(
-          "❌ SOCKET ERROR:",
+          "🟢 Driver re-online after reconnect"
+        );
+
+      } catch (err) {
+
+        console.log(
+          "Reconnect restore error:",
           err.message
         );
       }
-    );
-
-    /* ======================================================
-    NEW RIDE REQUEST
-    ====================================================== */
-
-    socket.on(
-      "newRideRequest",
-      (ride) => {
-
-        console.log(
-          "🚨 NEW RIDE:",
-          ride
-        );
-
-        setIncomingRide(ride);
-
-        playSound();
-
-        /* MOBILE VIBRATION */
-
-        if (navigator.vibrate) {
-
-          navigator.vibrate([
-            300,
-            200,
-            300,
-          ]);
-        }
-
-        /* PUSH NOTIFICATION */
-
-        if (
-          Notification.permission ===
-          "granted"
-        ) {
-
-          new Notification(
-            "🚖 New Ride Request",
-            {
-              body: `₹${ride.fare} • ${ride.pickupLocation.address}`,
-
-              icon: "/logo192.png",
-            }
-          );
-        }
-      }
-    );
-
-    /* ======================================================
-    RIDE ACCEPTED
-    ====================================================== */
-
-    socket.on(
-      "rideAccepted",
-      (ride) => {
-
-        setActiveRide(ride);
-
-        setIncomingRide(null);
-
-        stopSound();
-
-        fetchStats();
-      }
-    );
-
-    /* ======================================================
-    RIDE CANCELLED
-    ====================================================== */
-
-    socket.on(
-      "rideCancelled",
-      () => {
-
-        setIncomingRide(null);
-
-        setActiveRide(null);
-
-        stopSound();
-      }
-    );
-
-    return () => {
-
-      socket.disconnect();
-    };
-
-  }, [profile]);
+    }
+  );
 
   /* ======================================================
-  HEARTBEAT KEEPALIVE
+  NEW RIDE REQUEST
   ====================================================== */
 
-  useEffect(() => {
+  socket.on(
+    "newRideRequest",
+    (ride) => {
 
-    if (!socketRef.current) return;
+      console.log(
+        "🚨 NEW RIDE:",
+        ride
+      );
 
-    const interval = setInterval(() => {
+      setIncomingRide(ride);
+
+      playSound();
+
+      /* MOBILE VIBRATION */
+
+      if (navigator.vibrate) {
+
+        navigator.vibrate([
+          300,
+          200,
+          300,
+        ]);
+      }
+
+      /* PUSH NOTIFICATION */
+
+      if (
+        Notification.permission ===
+        "granted"
+      ) {
+
+        new Notification(
+          "🚖 New Ride Request",
+          {
+            body: `₹${ride.fare} • ${ride.pickupLocation.address}`,
+
+            icon: "/logo192.png",
+          }
+        );
+      }
+    }
+  );
+
+  /* ======================================================
+  RIDE ACCEPTED
+  ====================================================== */
+
+  socket.on(
+    "rideAccepted",
+    (ride) => {
+
+      setActiveRide(ride);
+
+      setIncomingRide(null);
+
+      stopSound();
+
+      fetchStats();
+    }
+  );
+
+  /* ======================================================
+  RIDE CANCELLED
+  ====================================================== */
+
+  socket.on(
+    "rideCancelled",
+    () => {
+
+      setIncomingRide(null);
+
+      setActiveRide(null);
+
+      stopSound();
+    }
+  );
+
+  return () => {
+
+    console.log(
+      "🔌 Closing socket..."
+    );
+
+    socket.disconnect();
+  };
+
+}, [profile]);
+
+   /* ======================================================
+HEARTBEAT KEEPALIVE
+====================================================== */
+
+useEffect(() => {
+
+  const interval = setInterval(() => {
+
+    if (
+      socketRef.current?.connected
+    ) {
 
       socketRef.current.emit(
         "driverPing"
       );
 
-    }, 10000);
+      console.log(
+        "💓 Driver heartbeat"
+      );
+    }
 
-    return () =>
-      clearInterval(interval);
+  }, 10000);
 
-  }, [socketRef.current]);
+  return () =>
+    clearInterval(interval);
+
+}, []);
 
   /* ======================================================
   TIMER

@@ -139,7 +139,10 @@ io.use((socket, next) => {
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(" ")[1];
 
-    /* JWT AUTH */
+    /* =================================================
+    JWT AUTH
+    ================================================= */
+
     if (token) {
 
       const decoded = jwt.verify(
@@ -147,22 +150,45 @@ io.use((socket, next) => {
         process.env.JWT_SECRET
       );
 
-      user = decoded;
-    }
-
-    /* DEV FALLBACK */
-    if (!user && socket.handshake.auth?.userId) {
-
       user = {
-        id: socket.handshake.auth.userId,
+        id:
+          decoded.id ||
+          decoded._id,
+
         role:
-          socket.handshake.auth.role || "user",
+          decoded.role ||
+          "user",
       };
     }
 
-    if (!user) {
+    /* =================================================
+    DEV FALLBACK
+    ================================================= */
 
-      console.log("❌ Socket Unauthorized");
+    if (
+      !user &&
+      socket.handshake.auth?.userId
+    ) {
+
+      user = {
+        id:
+          socket.handshake.auth.userId,
+
+        role:
+          socket.handshake.auth.role ||
+          "user",
+      };
+    }
+
+    /* =================================================
+    UNAUTHORIZED
+    ================================================= */
+
+    if (!user?.id) {
+
+      console.log(
+        "❌ Socket Unauthorized"
+      );
 
       return next(
         new Error("Unauthorized")
@@ -170,6 +196,11 @@ io.use((socket, next) => {
     }
 
     socket.user = user;
+
+    console.log(
+      "🔐 Socket Authenticated:",
+      user
+    );
 
     next();
 
@@ -183,7 +214,6 @@ io.use((socket, next) => {
     next(new Error("Auth failed"));
   }
 });
-
 /* =====================================================
 SOCKET CONNECTION
 ===================================================== */
@@ -204,8 +234,29 @@ io.on("connection", async (socket) => {
       socket.id
     );
 
-    /* JOIN PERSONAL ROOM */
+    /* =================================================
+    JOIN PERSONAL ROOM
+    ================================================= */
+
     socket.join(userId.toString());
+
+    /* =================================================
+    SOCKET PING DEBUG
+    ================================================= */
+
+    socket.conn.on(
+      "packet",
+      (packet) => {
+
+        if (packet.type === "ping") {
+
+          console.log(
+            "💓 Socket ping:",
+            userId
+          );
+        }
+      }
+    );
 
     /* =================================================
     REGISTER DRIVER (MULTI DEVICE)
@@ -353,66 +404,75 @@ io.on("connection", async (socket) => {
     DISCONNECT
     ================================================= */
 
-    socket.on("disconnect", async () => {
+    socket.on(
+      "disconnect",
+      async (reason) => {
 
-      console.log(
-        "🔴 Disconnected:",
-        userId,
-        socket.id
-      );
+        console.log(
+          "🔴 Disconnected:",
+          reason,
+          userId,
+          socket.id
+        );
 
-      /* DRIVER */
-      if (role === "driver") {
+        /* DRIVER */
 
-        if (onlineDrivers[userId]) {
+        if (role === "driver") {
 
-          onlineDrivers[userId] =
-            onlineDrivers[userId].filter(
-              (id) => id !== socket.id
-            );
+          if (onlineDrivers[userId]) {
 
-          /* LAST DEVICE CLOSED */
-          if (
-            onlineDrivers[userId].length === 0
-          ) {
+            onlineDrivers[userId] =
+              onlineDrivers[userId].filter(
+                (id) => id !== socket.id
+              );
 
-            delete onlineDrivers[userId];
+            /* LAST DEVICE CLOSED */
 
-            await Driver.findByIdAndUpdate(
-              userId,
-              {
-                isOnline: false,
-                isAvailable: false,
-              }
-            );
+            if (
+              onlineDrivers[userId]
+                .length === 0
+            ) {
 
-            console.log(
-              "🚗 Driver offline:",
-              userId
-            );
+              delete onlineDrivers[userId];
+
+              await Driver.findByIdAndUpdate(
+                userId,
+                {
+                  isOnline: false,
+                  isAvailable: false,
+                }
+              );
+
+              console.log(
+                "🚗 Driver offline:",
+                userId
+              );
+            }
+          }
+        }
+
+        /* USER */
+
+        if (role === "user") {
+
+          if (onlineUsers[userId]) {
+
+            onlineUsers[userId] =
+              onlineUsers[userId].filter(
+                (id) => id !== socket.id
+              );
+
+            if (
+              onlineUsers[userId]
+                .length === 0
+            ) {
+
+              delete onlineUsers[userId];
+            }
           }
         }
       }
-
-      /* USER */
-      if (role === "user") {
-
-        if (onlineUsers[userId]) {
-
-          onlineUsers[userId] =
-            onlineUsers[userId].filter(
-              (id) => id !== socket.id
-            );
-
-          if (
-            onlineUsers[userId].length === 0
-          ) {
-
-            delete onlineUsers[userId];
-          }
-        }
-      }
-    });
+    );
 
   } catch (err) {
 
@@ -421,34 +481,4 @@ io.on("connection", async (socket) => {
       err.message
     );
   }
-});
-
-/* =====================================================
-ERROR HANDLER
-===================================================== */
-
-app.use((err, req, res, next) => {
-
-  console.error(
-    "🔥 Server Error:",
-    err.message
-  );
-
-  res.status(500).json({
-    success: false,
-    message: err.message || "Server error",
-  });
-});
-
-/* =====================================================
-START SERVER
-===================================================== */
-
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-
-  console.log(
-    `🚀 Server running on port ${PORT}`
-  );
 });
