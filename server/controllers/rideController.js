@@ -240,41 +240,71 @@ exports.createRide = async (req, res) => {
       onlineDrivers
     );
 
-    /* ======================================================
-    EMIT TO DRIVERS
-    ====================================================== */
+/* ======================================================
+EMIT TO DRIVERS
+====================================================== */
 
-    drivers.forEach((driver) => {
+drivers.forEach((driver) => {
 
-      const socketIds =
-        onlineDrivers[
-          driver._id.toString()
-        ] || [];
+  const driverId =
+    driver._id.toString();
 
-      if (socketIds.length > 0) {
+  let socketIds =
+    onlineDrivers[driverId] || [];
 
-        socketIds.forEach((socketId) => {
+  /* ======================================================
+  REMOVE DEAD SOCKETS
+  ====================================================== */
 
-          io.to(socketId).emit(
-            "newRideRequest",
-            ride
-          );
+  socketIds = socketIds.filter(
+    (socketId) =>
+      io.sockets.sockets.get(
+        socketId
+      )
+  );
 
-          console.log(
-            "📡 Ride sent to:",
-            driver._id,
-            socketId
-          );
-        });
+  /* SAVE CLEAN SOCKETS */
 
-      } else {
+  onlineDrivers[driverId] =
+    socketIds;
 
-        console.log(
-          "❌ Driver not connected:",
-          driver._id
-        );
-      }
-    });
+  /* ======================================================
+  NO ACTIVE DEVICE
+  ====================================================== */
+
+  if (socketIds.length === 0) {
+
+    console.log(
+      "❌ No active driver device:",
+      driverId
+    );
+
+    return;
+  }
+
+  console.log(
+    "📡 Sending ride to:",
+    driverId,
+    socketIds
+  );
+
+  /* ======================================================
+  EMIT TO ALL DEVICES
+  ====================================================== */
+
+  socketIds.forEach((socketId) => {
+
+    io.to(socketId).emit(
+      "newRideRequest",
+      ride
+    );
+
+    console.log(
+      "🚀 Ride emitted:",
+      socketId
+    );
+  });
+});
 
     /* ======================================================
     RESPONSE

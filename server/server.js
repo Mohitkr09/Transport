@@ -258,49 +258,91 @@ io.on("connection", async (socket) => {
       }
     );
 
-    /* =================================================
-    REGISTER DRIVER (MULTI DEVICE)
-    ================================================= */
+/* =================================================
+REGISTER DRIVER (MULTI DEVICE)
+================================================= */
 
-    if (role === "driver") {
+if (role === "driver") {
 
-      if (!onlineDrivers[userId]) {
-        onlineDrivers[userId] = [];
-      }
+  if (!onlineDrivers[userId]) {
 
-      onlineDrivers[userId].push(socket.id);
+    onlineDrivers[userId] = [];
+  }
 
-      console.log(
-        "🚗 Driver sockets:",
-        onlineDrivers[userId]
-      );
+  /* REMOVE DUPLICATE SOCKETS */
 
-      await Driver.findByIdAndUpdate(
-        userId,
-        {
-          isOnline: true,
-          isAvailable: true,
-        }
-      );
+  onlineDrivers[userId] =
+    onlineDrivers[userId].filter(
+      (id) => id !== socket.id
+    );
+
+  /* REMOVE DEAD SOCKETS */
+
+  onlineDrivers[userId] =
+    onlineDrivers[userId].filter(
+      (id) =>
+        io.sockets.sockets.get(id)
+    );
+
+  /* ADD CURRENT SOCKET */
+
+  onlineDrivers[userId].push(
+    socket.id
+  );
+
+  console.log(
+    "🚗 Driver sockets:",
+    userId,
+    onlineDrivers[userId]
+  );
+
+  await Driver.findByIdAndUpdate(
+    userId,
+    {
+      isOnline: true,
+      isAvailable: true,
+      lastActive: new Date(),
     }
+  );
+}
+  /* =================================================
+REGISTER USER
+================================================= */
 
-    /* =================================================
-    REGISTER USER
-    ================================================= */
+if (role === "user") {
 
-    if (role === "user") {
+  if (!onlineUsers[userId]) {
 
-      if (!onlineUsers[userId]) {
-        onlineUsers[userId] = [];
-      }
+    onlineUsers[userId] = [];
+  }
 
-      onlineUsers[userId].push(socket.id);
+  /* REMOVE DUPLICATE SOCKETS */
 
-      console.log(
-        "👤 User sockets:",
-        onlineUsers[userId]
-      );
-    }
+  onlineUsers[userId] =
+    onlineUsers[userId].filter(
+      (id) => id !== socket.id
+    );
+
+  /* REMOVE DEAD SOCKETS */
+
+  onlineUsers[userId] =
+    onlineUsers[userId].filter(
+      (id) =>
+        io.sockets.sockets.get(id)
+    );
+
+  /* ADD CURRENT SOCKET */
+
+  onlineUsers[userId].push(
+    socket.id
+  );
+
+  console.log(
+    "👤 User sockets:",
+    userId,
+    onlineUsers[userId]
+  );
+}
 
     /* =================================================
     JOIN RIDE ROOM
@@ -395,10 +437,56 @@ io.on("connection", async (socket) => {
     DRIVER HEARTBEAT
     ================================================= */
 
-    socket.on("driverPing", () => {
+   /* =================================================
+DRIVER HEARTBEAT
+================================================= */
 
-      socket.emit("driverPong");
-    });
+socket.on(
+  "driverPing",
+  async () => {
+
+    socket.emit(
+      "driverPong"
+    );
+
+    /* RESTORE DRIVER */
+
+    if (role === "driver") {
+
+      if (!onlineDrivers[userId]) {
+
+        onlineDrivers[userId] = [];
+      }
+
+      /* RE-REGISTER SOCKET */
+
+      if (
+        !onlineDrivers[userId].includes(
+          socket.id
+        )
+      ) {
+
+        onlineDrivers[userId].push(
+          socket.id
+        );
+      }
+
+      await Driver.findByIdAndUpdate(
+        userId,
+        {
+          isOnline: true,
+          isAvailable: true,
+          lastActive: new Date(),
+        }
+      );
+
+      console.log(
+        "💓 Driver heartbeat:",
+        userId
+      );
+    }
+  }
+);
 
     /* =================================================
     DISCONNECT
