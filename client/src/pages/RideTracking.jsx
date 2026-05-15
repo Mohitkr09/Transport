@@ -286,42 +286,31 @@ useEffect(() => {
     rideId
   );
 
-  /* ======================================================
-  DRIVER MOVEMENT
-  ====================================================== */
+ socket.on(
+  "driverMoved",
+  ({ lat, lng }) => {
 
-  socket.on(
-    "driverMoved",
-    ({ lat, lng }) => {
+    const newPos = {
+      lat,
+      lng,
+    };
 
-      setDriverPos(
-        (prev) => {
+    setDriverPos(
+      (prev) => {
 
-          /* FIRST LOCATION */
+        if (!prev)
+          return newPos;
 
-          if (!prev) {
+        animateDriver(
+          prev,
+          newPos
+        );
 
-            return {
-              lat,
-              lng,
-            };
-          }
-
-          /* ANIMATION */
-
-          animateDriver(
-            prev,
-            {
-              lat,
-              lng,
-            }
-          );
-
-          return prev;
-        }
-      );
-    }
-  );
+        return prev;
+      }
+    );
+  }
+);
 
   /* ======================================================
   RIDE ACCEPTED
@@ -535,6 +524,10 @@ useEffect(() => {
   const directionsService =
     new window.google.maps.DirectionsService();
 
+  /* ======================================================
+  PICKUP LOCATION
+  ====================================================== */
+
   const pickup = {
 
     lat:
@@ -549,6 +542,10 @@ useEffect(() => {
         .location
         .coordinates[0],
   };
+
+  /* ======================================================
+  DROP LOCATION
+  ====================================================== */
 
   const drop = {
 
@@ -645,7 +642,7 @@ useEffect(() => {
         "OK"
       ) {
 
-        const path =
+        const route =
           result.routes[0].overview_path.map(
             (
               p
@@ -660,7 +657,7 @@ useEffect(() => {
           );
 
         setRoutePath(
-          path
+          route
         );
       }
     }
@@ -723,6 +720,10 @@ useEffect(() => {
 MAP
 ====================================================== */}
 
+{/* ======================================================
+PREMIUM LIVE MAP
+====================================================== */}
+
 <GoogleMap
   mapContainerStyle={{
     width: "100%",
@@ -735,14 +736,22 @@ MAP
     driverPos || pickup
   }
 
-  onLoad={(map) =>
-    (mapRef.current = map)
-  }
+  onLoad={(map) => {
+
+    mapRef.current = map;
+  }}
 
   options={{
+
     disableDefaultUI: true,
 
     zoomControl: true,
+
+    streetViewControl: false,
+
+    mapTypeControl: false,
+
+    fullscreenControl: false,
 
     styles: isDark
       ? darkMapStyle
@@ -751,14 +760,16 @@ MAP
 >
 
   {/* ======================================================
-  PICKUP
+  PICKUP MARKER
   ====================================================== */}
 
   <Marker
     position={pickup}
 
     icon={{
-      url: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+
+      url:
+        "https://cdn-icons-png.flaticon.com/512/684/684908.png",
 
       scaledSize:
         new window.google.maps.Size(
@@ -769,14 +780,16 @@ MAP
   />
 
   {/* ======================================================
-  DROP LOCATION
+  DROP MARKER
   ====================================================== */}
 
   <Marker
     position={drop}
 
     icon={{
-      url: "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
+
+      url:
+        "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
 
       scaledSize:
         new window.google.maps.Size(
@@ -787,7 +800,7 @@ MAP
   />
 
   {/* ======================================================
-  DRIVER TO USER LIVE ROUTE
+  DRIVER -> USER LIVE ROUTE
   ====================================================== */}
 
   {trail.length > 1 && (
@@ -803,12 +816,14 @@ MAP
         strokeOpacity: 1,
 
         strokeWeight: 6,
+
+        geodesic: true,
       }}
     />
   )}
 
   {/* ======================================================
-  USER TO DESTINATION ROUTE
+  USER -> DESTINATION ROUTE
   ====================================================== */}
 
   {routePath.length >
@@ -825,12 +840,14 @@ MAP
         strokeOpacity: 1,
 
         strokeWeight: 6,
+
+        geodesic: true,
       }}
     />
   )}
 
   {/* ======================================================
-  MOVING VEHICLE
+  LIVE MOVING VEHICLE
   ====================================================== */}
 
   {driverPos && (
@@ -859,14 +876,14 @@ MAP
 
         scaledSize:
           new window.google.maps.Size(
-            70,
-            70
+            75,
+            75
           ),
 
         anchor:
           new window.google.maps.Point(
-            35,
-            35
+            37,
+            37
           ),
 
         rotation:
