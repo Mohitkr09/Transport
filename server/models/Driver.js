@@ -2,17 +2,39 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
 /* =========================================================
+📍 LOCATION SCHEMA
+========================================================= */
+
+const pointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point",
+    },
+
+    coordinates: {
+      type: [Number], // [lng, lat]
+      default: [77.1025, 28.7041],
+    },
+  },
+  { _id: false }
+);
+
+/* =========================================================
 🚗 DRIVER SCHEMA
 ========================================================= */
 
 const driverSchema = new mongoose.Schema(
   {
-    /* ================= BASIC ================= */
+    /* =========================================================
+    👤 BASIC INFO
+    ========================================================= */
 
     name: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
     email: {
@@ -20,196 +42,363 @@ const driverSchema = new mongoose.Schema(
       required: true,
       unique: true,
       lowercase: true,
-      trim: true
+      trim: true,
     },
 
     phone: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
     },
 
     password: {
       type: String,
       required: true,
       minlength: 6,
-      select: false
+      select: false,
     },
 
     role: {
       type: String,
-      default: "driver"
+      default: "driver",
     },
 
-    /* ================= VEHICLE ================= */
+    /* =========================================================
+    🖼️ PROFILE IMAGE
+    ========================================================= */
+
+    profilePic: {
+      type: String,
+
+      default:
+        "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+    },
+
+    /* =========================================================
+    🚘 VEHICLE INFO
+    ========================================================= */
 
     vehicle: {
       type: {
         type: String,
+
         enum: ["bike", "auto", "car"],
-        required: true
+
+        required: true,
       },
+
       number: {
         type: String,
-        required: true
-      }
+        required: true,
+      },
     },
 
-    // 🔥 FIX: NOT required anymore
+    /* =========================================================
+    🔥 AUTO VEHICLE TYPE
+    ========================================================= */
+
     vehicleType: {
       type: String,
+
       enum: ["bike", "auto", "car"],
-      default: null
+
+      default: null,
     },
 
-    /* ================= LOCATION ================= */
+    /* =========================================================
+    📍 LIVE LOCATION
+    ========================================================= */
 
     location: {
-      type: {
-        type: String,
-        enum: ["Point"],
-        default: "Point"
+      type: pointSchema,
+
+      default: {
+        type: "Point",
+        coordinates: [77.1025, 28.7041],
       },
-      coordinates: {
-        type: [Number],
-        default: [77.1025, 28.7041],
-      }
     },
 
     lastLocationUpdate: {
       type: Date,
-      default: Date.now
+      default: Date.now,
     },
 
-    /* ================= STATUS ================= */
+    /* =========================================================
+    🟢 DRIVER STATUS
+    ========================================================= */
 
     isApproved: {
       type: Boolean,
-      default: true
+      default: true,
     },
 
     isOnline: {
       type: Boolean,
-      default: false
+      default: false,
     },
 
     isAvailable: {
       type: Boolean,
-      default: false
+      default: false,
     },
+
+    /* =========================================================
+    🚖 CURRENT RIDE
+    ========================================================= */
 
     currentRide: {
       type: mongoose.Schema.Types.ObjectId,
+
       ref: "Ride",
-      default: null
+
+      default: null,
+    },
+
+    /* =========================================================
+    📊 DRIVER STATS
+    ========================================================= */
+
+    totalRides: {
+      type: Number,
+      default: 0,
+    },
+
+    totalEarnings: {
+      type: Number,
+      default: 0,
+    },
+
+    rating: {
+      type: Number,
+      default: 5,
     },
 
     lastActive: {
       type: Date,
-      default: Date.now
-    }
+      default: Date.now,
+    },
   },
-  { timestamps: true }
+
+  {
+    timestamps: true,
+  }
 );
 
 /* =========================================================
 🔥 GEO INDEX
 ========================================================= */
-driverSchema.index({ location: "2dsphere" });
+
+driverSchema.index({
+  location: "2dsphere",
+});
 
 /* =========================================================
 ⚡ MATCHING INDEX
 ========================================================= */
-driverSchema.index({ isOnline: 1, isAvailable: 1, vehicleType: 1 });
+
+driverSchema.index({
+  isOnline: 1,
+  isAvailable: 1,
+  vehicleType: 1,
+});
 
 /* =========================================================
 🔐 PASSWORD HASH
 ========================================================= */
-driverSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
 
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password.trim(), salt);
-});
+driverSchema.pre("save", async function (next) {
 
-/* =========================================================
-🔥 FIX: AUTO SYNC vehicleType
-========================================================= */
-driverSchema.pre("save", function () {
-  if (this.vehicle?.type) {
-    this.vehicleType = this.vehicle.type;
+  if (!this.isModified("password")) {
+    return next();
+  }
+
+  try {
+
+    const salt =
+      await bcrypt.genSalt(10);
+
+    this.password =
+      await bcrypt.hash(
+        this.password.trim(),
+        salt
+      );
+
+    next();
+
+  } catch (err) {
+
+    next(err);
   }
 });
 
 /* =========================================================
-🔥 STATUS LOGIC
+🔥 AUTO SYNC VEHICLE TYPE
 ========================================================= */
-driverSchema.pre("save", function () {
+
+driverSchema.pre("save", function (next) {
+
+  if (this.vehicle?.type) {
+
+    this.vehicleType =
+      this.vehicle.type;
+  }
+
+  next();
+});
+
+/* =========================================================
+🟢 DRIVER STATUS LOGIC
+========================================================= */
+
+driverSchema.pre("save", function (next) {
+
+  /* OFFLINE */
 
   if (!this.isOnline) {
+
     this.isAvailable = false;
   }
 
-  if (this.isOnline && !this.currentRide) {
+  /* ONLINE + NO RIDE */
+
+  if (
+    this.isOnline &&
+    !this.currentRide
+  ) {
+
     this.isAvailable = true;
   }
 
+  /* ACTIVE RIDE */
+
   if (this.currentRide) {
+
     this.isAvailable = false;
   }
 
   this.lastActive = Date.now();
+
+  next();
 });
 
 /* =========================================================
-📍 LOCATION TIMESTAMP
+📍 LOCATION UPDATE TIME
 ========================================================= */
-driverSchema.pre("save", function () {
-  if (this.isModified("location")) {
-    this.lastLocationUpdate = Date.now();
+
+driverSchema.pre("save", function (next) {
+
+  if (
+    this.isModified("location")
+  ) {
+
+    this.lastLocationUpdate =
+      Date.now();
   }
+
+  next();
 });
 
 /* =========================================================
-🔑 PASSWORD CHECK
+🔑 PASSWORD MATCH
 ========================================================= */
-driverSchema.methods.matchPassword = async function (enteredPassword) {
-  return bcrypt.compare(enteredPassword.trim(), this.password);
-};
+
+driverSchema.methods.matchPassword =
+  async function (
+    enteredPassword
+  ) {
+
+    return bcrypt.compare(
+      enteredPassword.trim(),
+      this.password
+    );
+  };
 
 /* =========================================================
-📍 NEARBY DRIVER SEARCH
+📍 FIND NEARBY DRIVERS
 ========================================================= */
-driverSchema.statics.getNearbyDrivers = function (
-  lat,
-  lng,
-  vehicleType,
-  radius = 5000
-) {
-  return this.find({
-    isOnline: true,
-    isAvailable: true,
+
+driverSchema.statics.getNearbyDrivers =
+  function (
+    lat,
+    lng,
     vehicleType,
-    location: {
-      $near: {
-        $geometry: {
-          type: "Point",
-          coordinates: [parseFloat(lng), parseFloat(lat)]
+    radius = 5000
+  ) {
+
+    return this.find({
+
+      isOnline: true,
+
+      isAvailable: true,
+
+      vehicleType,
+
+      location: {
+
+        $near: {
+
+          $geometry: {
+
+            type: "Point",
+
+            coordinates: [
+              parseFloat(lng),
+              parseFloat(lat),
+            ],
+          },
+
+          $maxDistance: radius,
         },
-        $maxDistance: radius
-      }
-    }
-  });
-};
+      },
+    });
+  };
+
+/* =========================================================
+📍 UPDATE DRIVER LOCATION
+========================================================= */
+
+driverSchema.methods.updateLocation =
+  function (lat, lng) {
+
+    this.location = {
+
+      type: "Point",
+
+      coordinates: [
+        Number(lng),
+        Number(lat),
+      ],
+    };
+
+    this.lastLocationUpdate =
+      new Date();
+
+    return this.save();
+  };
 
 /* =========================================================
 🧼 CLEAN RESPONSE
 ========================================================= */
+
 driverSchema.set("toJSON", {
+
   transform: (_, ret) => {
+
     delete ret.__v;
+
     delete ret.password;
+
     return ret;
-  }
+  },
 });
 
-module.exports = mongoose.model("Driver", driverSchema);
+/* =========================================================
+🚀 EXPORT MODEL
+========================================================= */
+
+module.exports =
+  mongoose.models.Driver ||
+  mongoose.model(
+    "Driver",
+    driverSchema
+  );
