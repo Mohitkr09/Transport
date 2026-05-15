@@ -340,14 +340,38 @@ exports.getRideById = async (req, res) => {
     const ride = await Ride.findById(
       req.params.id
     )
+
       .populate(
         "user",
         "name phone email"
       )
+
       .populate(
         "driver",
-        "name phone"
+        "name phone profilePic"
       );
+
+    console.log(
+      "=========================="
+    );
+
+    console.log(
+      "🚖 FULL RIDE:",
+      JSON.stringify(
+        ride,
+        null,
+        2
+      )
+    );
+
+    console.log(
+      "🚖 DRIVER:",
+      ride?.driver
+    );
+
+    console.log(
+      "=========================="
+    );
 
     if (!ride) {
 
@@ -363,13 +387,14 @@ exports.getRideById = async (req, res) => {
 
   } catch (err) {
 
+    console.log(err);
+
     res.status(500).json({
       success: false,
       message: err.message,
     });
   }
 };
-
 /* ======================================================
 ✅ ACCEPT RIDE
 ====================================================== */
