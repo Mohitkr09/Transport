@@ -519,6 +519,157 @@ useEffect(() => {
 
 }, [rideId]);
 
+
+/* ======================================================
+LIVE DRIVER ROUTE
+====================================================== */
+
+useEffect(() => {
+
+  if (
+    !ride ||
+    !window.google
+  )
+    return;
+
+  const directionsService =
+    new window.google.maps.DirectionsService();
+
+  const pickup = {
+
+    lat:
+      ride
+        .pickupLocation
+        .location
+        .coordinates[1],
+
+    lng:
+      ride
+        .pickupLocation
+        .location
+        .coordinates[0],
+  };
+
+  const drop = {
+
+    lat:
+      ride
+        .dropLocation
+        .location
+        .coordinates[1],
+
+    lng:
+      ride
+        .dropLocation
+        .location
+        .coordinates[0],
+  };
+
+  /* ======================================================
+  DRIVER -> USER ROUTE
+  ====================================================== */
+
+  if (driverPos) {
+
+    directionsService.route(
+
+      {
+
+        origin:
+          driverPos,
+
+        destination:
+          pickup,
+
+        travelMode:
+          window.google.maps.TravelMode.DRIVING,
+      },
+
+      (
+        result,
+        status
+      ) => {
+
+        if (
+          status ===
+          "OK"
+        ) {
+
+          const driverRoute =
+            result.routes[0].overview_path.map(
+              (
+                p
+              ) => ({
+
+                lat:
+                  p.lat(),
+
+                lng:
+                  p.lng(),
+              })
+            );
+
+          setTrail(
+            driverRoute
+          );
+        }
+      }
+    );
+  }
+
+  /* ======================================================
+  USER -> DESTINATION ROUTE
+  ====================================================== */
+
+  directionsService.route(
+
+    {
+
+      origin:
+        pickup,
+
+      destination:
+        drop,
+
+      travelMode:
+        window.google.maps.TravelMode.DRIVING,
+    },
+
+    (
+      result,
+      status
+    ) => {
+
+      if (
+        status ===
+        "OK"
+      ) {
+
+        const path =
+          result.routes[0].overview_path.map(
+            (
+              p
+            ) => ({
+
+              lat:
+                p.lat(),
+
+              lng:
+                p.lng(),
+            })
+          );
+
+        setRoutePath(
+          path
+        );
+      }
+    }
+  );
+
+}, [
+  ride,
+  driverPos,
+]);
   /* ======================================================
   LOADING
   ====================================================== */
@@ -568,100 +719,162 @@ useEffect(() => {
         MAP
         ====================================================== */}
 
-        <GoogleMap
-          mapContainerStyle={{
-            width: "100%",
-            height: "100%",
-          }}
-          zoom={15}
-          center={
-            driverPos || pickup
-          }
-          onLoad={(map) =>
-            (mapRef.current = map)
-          }
-          options={{
-            disableDefaultUI: true,
-            styles: isDark
-              ? darkMapStyle
-              : [],
-          }}
-        >
+        {/* ======================================================
+MAP
+====================================================== */}
 
-          {/* PICKUP */}
+<GoogleMap
+  mapContainerStyle={{
+    width: "100%",
+    height: "100%",
+  }}
 
-          <Marker
-            position={pickup}
-          />
+  zoom={16}
 
-          {/* DROP */}
+  center={
+    driverPos || pickup
+  }
 
-          <Marker
-            position={drop}
-          />
+  onLoad={(map) =>
+    (mapRef.current = map)
+  }
 
-          {/* DRIVER */}
+  options={{
+    disableDefaultUI: true,
 
-          {driverPos && (
+    zoomControl: true,
 
-            <Marker
-              position={
-                driverPos
-              }
-              icon={{
-                url: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
+    styles: isDark
+      ? darkMapStyle
+      : [],
+  }}
+>
 
-                scaledSize:
-                  new window.google.maps.Size(
-                    50,
-                    50
-                  ),
+  {/* ======================================================
+  PICKUP
+  ====================================================== */}
 
-                anchor:
-                  new window.google.maps.Point(
-                    25,
-                    25
-                  ),
+  <Marker
+    position={pickup}
 
-                rotation:
-                  heading,
-              }}
-            />
-          )}
+    icon={{
+      url: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
 
-          {/* ROUTE */}
+      scaledSize:
+        new window.google.maps.Size(
+          45,
+          45
+        ),
+    }}
+  />
 
-          {routePath.length >
-            1 && (
+  {/* ======================================================
+  DROP LOCATION
+  ====================================================== */}
 
-            <Polyline
-              path={
-                routePath
-              }
-              options={{
-                strokeColor:
-                  "#22c55e",
+  <Marker
+    position={drop}
 
-                strokeWeight: 6,
-              }}
-            />
-          )}
+    icon={{
+      url: "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
 
-          {/* TRAIL */}
+      scaledSize:
+        new window.google.maps.Size(
+          45,
+          45
+        ),
+    }}
+  />
 
-          {trail.length > 1 && (
+  {/* ======================================================
+  DRIVER TO USER LIVE ROUTE
+  ====================================================== */}
 
-            <Polyline
-              path={trail}
-              options={{
-                strokeColor:
-                  "#3b82f6",
+  {trail.length > 1 && (
 
-                strokeWeight: 4,
-              }}
-            />
-          )}
-        </GoogleMap>
+    <Polyline
+      path={trail}
+
+      options={{
+
+        strokeColor:
+          "#2563eb",
+
+        strokeOpacity: 1,
+
+        strokeWeight: 6,
+      }}
+    />
+  )}
+
+  {/* ======================================================
+  USER TO DESTINATION ROUTE
+  ====================================================== */}
+
+  {routePath.length >
+    1 && (
+
+    <Polyline
+      path={routePath}
+
+      options={{
+
+        strokeColor:
+          "#22c55e",
+
+        strokeOpacity: 1,
+
+        strokeWeight: 6,
+      }}
+    />
+  )}
+
+  {/* ======================================================
+  MOVING VEHICLE
+  ====================================================== */}
+
+  {driverPos && (
+
+    <Marker
+      position={
+        driverPos
+      }
+
+      icon={{
+
+        url:
+          ride?.driver
+            ?.vehicleType ===
+          "bike"
+
+            ? "https://cdn-icons-png.flaticon.com/512/2972/2972185.png"
+
+            : ride?.driver
+                ?.vehicleType ===
+              "auto"
+
+            ? "https://cdn-icons-png.flaticon.com/512/2554/2554936.png"
+
+            : "https://cdn-icons-png.flaticon.com/512/744/744465.png",
+
+        scaledSize:
+          new window.google.maps.Size(
+            70,
+            70
+          ),
+
+        anchor:
+          new window.google.maps.Point(
+            35,
+            35
+          ),
+
+        rotation:
+          heading,
+      }}
+    />
+  )}
+</GoogleMap>
 
         {/* ======================================================
         BOTTOM PANEL
