@@ -1,74 +1,185 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import api from "../utils/api";
-import { io } from "socket.io-client";
-import { useGoogleMaps } from "../config/googleMaps";
-import { GoogleMap, Marker, Polyline } from "@react-google-maps/api";
-import toast, { Toaster } from "react-hot-toast";
+import React, {
+  useEffect,
+  useState,
+  useRef,
+} from "react";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
+import {
+  useParams,
+  useNavigate,
+} from "react-router-dom";
+
+import api from "../utils/api";
+
+import { io } from "socket.io-client";
+
+import { useGoogleMaps } from "../config/googleMaps";
+
+import {
+  GoogleMap,
+  Marker,
+  Polyline,
+} from "@react-google-maps/api";
+
+import toast, {
+  Toaster,
+} from "react-hot-toast";
+
+const SOCKET_URL =
+  import.meta.env
+    .VITE_SOCKET_URL;
+
+/* ======================================================
+PREMIUM DARK MAP STYLE
+====================================================== */
 
 const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1e293b" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#cbd5f5" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#020617" }] }
+  {
+    elementType:
+      "geometry",
+    stylers: [
+      {
+        color:
+          "#0f172a",
+      },
+    ],
+  },
+
+  {
+    elementType:
+      "labels.text.fill",
+    stylers: [
+      {
+        color:
+          "#94a3b8",
+      },
+    ],
+  },
+
+  {
+    elementType:
+      "labels.text.stroke",
+    stylers: [
+      {
+        color:
+          "#020617",
+      },
+    ],
+  },
+
+  {
+    featureType:
+      "road",
+    elementType:
+      "geometry",
+    stylers: [
+      {
+        color:
+          "#1e293b",
+      },
+    ],
+  },
+
+  {
+    featureType:
+      "water",
+    elementType:
+      "geometry",
+    stylers: [
+      {
+        color:
+          "#0ea5e9",
+      },
+    ],
+  },
 ];
 
 export default function RideTracking() {
 
-  const { rideId } = useParams();
+  const { rideId } =
+    useParams();
 
-  const navigate = useNavigate();
+  const navigate =
+    useNavigate();
 
-  const socketRef = useRef(null);
+  const socketRef =
+    useRef(null);
 
-  const mapRef = useRef(null);
+  const mapRef =
+    useRef(null);
 
-  const animationRef = useRef(null);
+  const animationRef =
+    useRef(null);
 
-  const { isLoaded } = useGoogleMaps();
+  const {
+    isLoaded,
+  } = useGoogleMaps();
 
-  const [ride, setRide] = useState(null);
+  const [ride, setRide] =
+    useState(null);
 
-  const [driverPos, setDriverPos] = useState(null);
+  const [
+    driverPos,
+    setDriverPos,
+  ] = useState(null);
 
-  const [routePath, setRoutePath] = useState([]);
+  const [
+    routePath,
+    setRoutePath,
+  ] = useState([]);
 
-  const [trail, setTrail] = useState([]);
+  const [trail, setTrail] =
+    useState([]);
 
-  const [heading, setHeading] = useState(0);
+  const [heading, setHeading] =
+    useState(0);
 
-  const [isDark, setIsDark] = useState(false);
+  const [eta, setEta] =
+    useState("");
 
-  const [rideStatus, setRideStatus] =
-    useState("accepted");
+  const [isDark, setIsDark] =
+    useState(false);
+
+  const [
+    rideStatus,
+    setRideStatus,
+  ] = useState(
+    "accepted"
+  );
 
   const steps = [
     {
       key: "accepted",
-      label: "Accepted",
+      label:
+        "Accepted",
     },
     {
       key: "arrived",
-      label: "Arrived",
+      label:
+        "Arrived",
     },
     {
       key: "started",
-      label: "Started",
+      label:
+        "Started",
     },
     {
       key: "completed",
-      label: "Completed",
+      label:
+        "Completed",
     },
     {
       key: "paid",
-      label: "Paid",
+      label:
+        "Paid",
     },
   ];
 
   const activeIndex =
     steps.findIndex(
-      (s) => s.key === rideStatus
+      (s) =>
+        s.key ===
+        rideStatus
     );
 
   /* ======================================================
@@ -77,29 +188,35 @@ export default function RideTracking() {
 
   useEffect(() => {
 
-    const updateTheme = () => {
+    const updateTheme =
+      () => {
 
-      setIsDark(
-        document.documentElement.classList.contains(
-          "dark"
-        )
-      );
-    };
+        setIsDark(
+          document.documentElement.classList.contains(
+            "dark"
+          )
+        );
+      };
 
     updateTheme();
 
     const observer =
-      new MutationObserver(updateTheme);
+      new MutationObserver(
+        updateTheme
+      );
 
     observer.observe(
       document.documentElement,
       {
-        attributes: true,
-        attributeFilter: ["class"],
+        attributes:
+          true,
+        attributeFilter:
+          ["class"],
       }
     );
 
-    return () => observer.disconnect();
+    return () =>
+      observer.disconnect();
 
   }, []);
 
@@ -109,34 +226,65 @@ export default function RideTracking() {
 
   useEffect(() => {
 
-    const fetchRide = async () => {
+    const fetchRide =
+      async () => {
 
-      try {
+        try {
 
-        const res =
-          await api.get(
-            `/ride/${rideId}`
+          const res =
+            await api.get(
+              `/ride/${rideId}`
+            );
+
+          setRide(
+            res.data.ride
           );
 
-        setRide(res.data.ride);
+          setRideStatus(
+            res.data.ride
+              .status ||
+              "accepted"
+          );
 
-        setRideStatus(
-          res.data.ride.status ||
-            "accepted"
-        );
+          /* ======================================================
+          INITIAL DRIVER LOCATION
+          ====================================================== */
 
-      } catch (err) {
+          if (
+            res.data.ride
+              ?.driverLocation
+              ?.coordinates
+          ) {
 
-        console.log(
-          "Ride Fetch Error:",
-          err.message
-        );
+            setDriverPos(
+              {
 
-        toast.error(
-          "Unable to load ride"
-        );
-      }
-    };
+                lat:
+                  res.data
+                    .ride
+                    .driverLocation
+                    .coordinates[1],
+
+                lng:
+                  res.data
+                    .ride
+                    .driverLocation
+                    .coordinates[0],
+              }
+            );
+          }
+
+        } catch (err) {
+
+          console.log(
+            err.message
+          );
+
+          toast.error(
+            "Unable to load ride"
+          );
+        }
+      };
 
     fetchRide();
 
@@ -152,36 +300,55 @@ export default function RideTracking() {
   ) => {
 
     const lat1 =
-      (start.lat * Math.PI) / 180;
+      (start.lat *
+        Math.PI) /
+      180;
 
     const lat2 =
-      (end.lat * Math.PI) / 180;
+      (end.lat *
+        Math.PI) /
+      180;
 
     const dLon =
-      ((end.lng - start.lng) *
+      ((end.lng -
+        start.lng) *
         Math.PI) /
       180;
 
     const y =
-      Math.sin(dLon) *
+      Math.sin(
+        dLon
+      ) *
       Math.cos(lat2);
 
     const x =
       Math.cos(lat1) *
-        Math.sin(lat2) -
+        Math.sin(
+          lat2
+        ) -
       Math.sin(lat1) *
-        Math.cos(lat2) *
-        Math.cos(dLon);
+        Math.cos(
+          lat2
+        ) *
+        Math.cos(
+          dLon
+        );
 
-    let brng = Math.atan2(y, x);
+    let brng =
+      Math.atan2(y, x);
 
-    brng = (brng * 180) / Math.PI;
+    brng =
+      (brng * 180) /
+      Math.PI;
 
-    return (brng + 360) % 360;
+    return (
+      (brng + 360) %
+      360
+    );
   };
 
   /* ======================================================
-  DRIVER ANIMATION
+  SMOOTH DRIVER ANIMATION
   ====================================================== */
 
   const animateDriver = (
@@ -197,19 +364,23 @@ export default function RideTracking() {
 
     const step = () => {
 
-      progress += 0.03;
+      progress += 0.015;
 
-      if (progress > 1)
+      if (
+        progress > 1
+      )
         progress = 1;
 
       const lat =
         start.lat +
-        (end.lat - start.lat) *
+        (end.lat -
+          start.lat) *
           progress;
 
       const lng =
         start.lng +
-        (end.lng - start.lng) *
+        (end.lng -
+          start.lng) *
           progress;
 
       const newPos = {
@@ -217,31 +388,53 @@ export default function RideTracking() {
         lng,
       };
 
-      setDriverPos(newPos);
-
-      setTrail((prev) => [
-        ...prev.slice(-40),
-        newPos,
-      ]);
-
-      const angle = getBearing(
-        start,
-        end
-      );
-
-      setHeading(
-        (prev) =>
-          prev +
-          (angle - prev) * 0.15
-      );
-
-      mapRef.current?.panTo(
+      setDriverPos(
         newPos
       );
 
-      mapRef.current?.setZoom(17);
+      setTrail(
+        (prev) => [
+          ...prev.slice(
+            -80
+          ),
+          newPos,
+        ]
+      );
 
-      if (progress < 1) {
+      const angle =
+        getBearing(
+          start,
+          end
+        );
+
+      setHeading(
+        angle
+      );
+
+      if (
+        mapRef.current
+      ) {
+
+        mapRef.current.panTo(
+          newPos
+        );
+
+        const zoom =
+          mapRef.current.getZoom();
+
+        if (
+          zoom < 17
+        ) {
+
+          mapRef.current.setZoom(
+            17
+          );
+        }
+      }
+
+      if (
+        progress < 1
+      ) {
 
         animationRef.current =
           requestAnimationFrame(
@@ -251,335 +444,315 @@ export default function RideTracking() {
     };
 
     animationRef.current =
-      requestAnimationFrame(step);
+      requestAnimationFrame(
+        step
+      );
   };
 
   /* ======================================================
   SOCKET
   ====================================================== */
 
- /* ======================================================
-SOCKET
-====================================================== */
+  useEffect(() => {
 
-useEffect(() => {
+    const socket =
+      io(
+        SOCKET_URL,
+        {
+          auth: {
+            token:
+              localStorage.getItem(
+                "token"
+              ),
+          },
+        }
+      );
 
-  const socket = io(
-    SOCKET_URL,
-    {
-      auth: {
-        token:
-          localStorage.getItem(
-            "token"
-          ),
-      },
-    }
-  );
+    socketRef.current =
+      socket;
 
-  socketRef.current =
-    socket;
+    socket.emit(
+      "joinRide",
+      rideId
+    );
 
-  /* JOIN RIDE ROOM */
+    /* ======================================================
+    LIVE DRIVER MOVEMENT
+    ====================================================== */
 
-  socket.emit(
-    "joinRide",
-    rideId
-  );
+    socket.on(
+      "driverMoved",
+      ({
+        lat,
+        lng,
+      }) => {
 
- socket.on(
-  "driverMoved",
-  ({ lat, lng }) => {
+        const newPos =
+          {
+            lat,
+            lng,
+          };
 
-    const newPos = {
-      lat,
-      lng,
-    };
+        setDriverPos(
+          (
+            prev
+          ) => {
 
-    setDriverPos(
-      (prev) => {
+            if (
+              !prev
+            )
+              return newPos;
 
-        if (!prev)
-          return newPos;
+            animateDriver(
+              prev,
+              newPos
+            );
 
-        animateDriver(
-          prev,
-          newPos
+            return prev;
+          }
+        );
+      }
+    );
+
+    socket.on(
+      "rideAccepted",
+      (
+        rideData
+      ) => {
+
+        setRide(
+          (
+            prev
+          ) => ({
+
+            ...prev,
+
+            ...rideData,
+          })
         );
 
-        return prev;
+        setRideStatus(
+          "accepted"
+        );
+
+        if (
+          rideData
+            ?.driverLocation
+            ?.coordinates
+        ) {
+
+          setDriverPos(
+            {
+
+              lat:
+                rideData
+                  .driverLocation
+                  .coordinates[1],
+
+              lng:
+                rideData
+                  .driverLocation
+                  .coordinates[0],
+            }
+          );
+        }
+
+        toast.success(
+          `${rideData.driver?.name} accepted your ride`
+        );
       }
     );
-  }
-);
 
-  /* ======================================================
-  RIDE ACCEPTED
-  ====================================================== */
+    socket.on(
+      "driverArrived",
+      () => {
 
-  socket.on(
-    "rideAccepted",
-    (rideData) => {
+        setRideStatus(
+          "arrived"
+        );
 
-      console.log(
-        "✅ Ride Accepted:",
-        rideData
-      );
-
-      /* ======================================================
-      UPDATE FULL RIDE
-      ====================================================== */
-
-      setRide(
-        (prev) => ({
-
-          ...prev,
-
-          ...rideData,
-
-          driver:
-            rideData.driver,
-
-          status:
-            rideData.status,
-        })
-      );
-
-      /* ======================================================
-      UPDATE STATUS
-      ====================================================== */
-
-      setRideStatus(
-        "accepted"
-      );
-
-      /* ======================================================
-      INSTANT DRIVER LOCATION
-      ====================================================== */
-
-      if (
-        rideData?.driverLocation
-          ?.coordinates
-      ) {
-
-        setDriverPos({
-
-          lat:
-            rideData
-              .driverLocation
-              .coordinates[1],
-
-          lng:
-            rideData
-              .driverLocation
-              .coordinates[0],
-        });
+        toast.success(
+          "Driver arrived"
+        );
       }
+    );
 
-      /* ======================================================
-      SUCCESS TOAST
-      ====================================================== */
+    socket.on(
+      "rideStarted",
+      () => {
 
-      toast.success(
-        `${rideData.driver?.name} accepted your ride`
+        setRideStatus(
+          "started"
+        );
+
+        toast.success(
+          "Ride started"
+        );
+      }
+    );
+
+    socket.on(
+      "rideCompleted",
+      () => {
+
+        setRideStatus(
+          "completed"
+        );
+
+        toast.success(
+          "Ride completed"
+        );
+      }
+    );
+
+    socket.on(
+      "paymentDone",
+      () => {
+
+        setRideStatus(
+          "paid"
+        );
+      }
+    );
+
+    socket.on(
+      "rideCancelled",
+      () => {
+
+        toast.error(
+          "Ride Cancelled"
+        );
+
+        navigate("/");
+      }
+    );
+
+    return () => {
+
+      socket.disconnect();
+    };
+
+  }, [rideId]);
+
+  /* ======================================================
+  LIVE ROUTES
+  ====================================================== */
+
+  useEffect(() => {
+
+    if (
+      !ride ||
+      !window.google
+    )
+      return;
+
+    const directionsService =
+      new window.google.maps.DirectionsService();
+
+    const pickup = {
+
+      lat:
+        ride
+          .pickupLocation
+          .location
+          .coordinates[1],
+
+      lng:
+        ride
+          .pickupLocation
+          .location
+          .coordinates[0],
+    };
+
+    const drop = {
+
+      lat:
+        ride
+          .dropLocation
+          .location
+          .coordinates[1],
+
+      lng:
+        ride
+          .dropLocation
+          .location
+          .coordinates[0],
+    };
+
+    if (
+      driverPos
+    ) {
+
+      directionsService.route(
+        {
+
+          origin:
+            driverPos,
+
+          destination:
+            pickup,
+
+          travelMode:
+            window.google
+              .maps
+              .TravelMode
+              .DRIVING,
+        },
+
+        (
+          result,
+          status
+        ) => {
+
+          if (
+            status ===
+            "OK"
+          ) {
+
+            const driverRoute =
+              result.routes[0].overview_path.map(
+                (
+                  p
+                ) => ({
+
+                  lat:
+                    p.lat(),
+
+                  lng:
+                    p.lng(),
+                })
+              );
+
+            setTrail(
+              driverRoute
+            );
+
+            setEta(
+              result
+                .routes[0]
+                .legs[0]
+                .duration
+                .text
+            );
+          }
+        }
       );
     }
-  );
-
-  /* ======================================================
-  DRIVER ARRIVED
-  ====================================================== */
-
-  socket.on(
-    "driverArrived",
-    () => {
-
-      setRideStatus(
-        "arrived"
-      );
-
-      toast.success(
-        "Driver arrived"
-      );
-    }
-  );
-
-  /* ======================================================
-  RIDE STARTED
-  ====================================================== */
-
-  socket.on(
-    "rideStarted",
-    () => {
-
-      setRideStatus(
-        "started"
-      );
-
-      toast.success(
-        "Ride started"
-      );
-    }
-  );
-
-  /* ======================================================
-  RIDE COMPLETED
-  ====================================================== */
-
-  socket.on(
-    "rideCompleted",
-    () => {
-
-      setRideStatus(
-        "completed"
-      );
-
-      toast.success(
-        "Ride completed"
-      );
-    }
-  );
-
-  /* ======================================================
-  PAYMENT DONE
-  ====================================================== */
-
-  socket.on(
-    "paymentDone",
-    () => {
-
-      setRideStatus(
-        "paid"
-      );
-    }
-  );
-
-  /* ======================================================
-  RIDE CANCELLED
-  ====================================================== */
-
-  socket.on(
-    "rideCancelled",
-    () => {
-
-      toast.error(
-        "Ride Cancelled"
-      );
-
-      navigate("/");
-    }
-  );
-
-  /* ======================================================
-  CLEANUP
-  ====================================================== */
-
-  return () => {
-
-    socket.off(
-      "driverMoved"
-    );
-
-    socket.off(
-      "rideAccepted"
-    );
-
-    socket.off(
-      "driverArrived"
-    );
-
-    socket.off(
-      "rideStarted"
-    );
-
-    socket.off(
-      "rideCompleted"
-    );
-
-    socket.off(
-      "paymentDone"
-    );
-
-    socket.off(
-      "rideCancelled"
-    );
-
-    socket.disconnect();
-  };
-
-}, [rideId]);
-
-
-/* ======================================================
-LIVE DRIVER ROUTE
-====================================================== */
-
-useEffect(() => {
-
-  if (
-    !ride ||
-    !window.google
-  )
-    return;
-
-  const directionsService =
-    new window.google.maps.DirectionsService();
-
-  /* ======================================================
-  PICKUP LOCATION
-  ====================================================== */
-
-  const pickup = {
-
-    lat:
-      ride
-        .pickupLocation
-        .location
-        .coordinates[1],
-
-    lng:
-      ride
-        .pickupLocation
-        .location
-        .coordinates[0],
-  };
-
-  /* ======================================================
-  DROP LOCATION
-  ====================================================== */
-
-  const drop = {
-
-    lat:
-      ride
-        .dropLocation
-        .location
-        .coordinates[1],
-
-    lng:
-      ride
-        .dropLocation
-        .location
-        .coordinates[0],
-  };
-
-  /* ======================================================
-  DRIVER -> USER ROUTE
-  ====================================================== */
-
-  if (driverPos) {
 
     directionsService.route(
-
       {
 
         origin:
-          driverPos,
-
-        destination:
           pickup,
 
+        destination:
+          drop,
+
         travelMode:
-          window.google.maps.TravelMode.DRIVING,
+          window.google
+            .maps
+            .TravelMode
+            .DRIVING,
       },
 
       (
@@ -592,7 +765,7 @@ useEffect(() => {
           "OK"
         ) {
 
-          const driverRoute =
+          const route =
             result.routes[0].overview_path.map(
               (
                 p
@@ -606,72 +779,26 @@ useEffect(() => {
               })
             );
 
-          setTrail(
-            driverRoute
+          setRoutePath(
+            route
           );
         }
       }
     );
-  }
 
-  /* ======================================================
-  USER -> DESTINATION ROUTE
-  ====================================================== */
+  }, [
+    ride,
+    driverPos,
+  ]);
 
-  directionsService.route(
-
-    {
-
-      origin:
-        pickup,
-
-      destination:
-        drop,
-
-      travelMode:
-        window.google.maps.TravelMode.DRIVING,
-    },
-
-    (
-      result,
-      status
-    ) => {
-
-      if (
-        status ===
-        "OK"
-      ) {
-
-        const route =
-          result.routes[0].overview_path.map(
-            (
-              p
-            ) => ({
-
-              lat:
-                p.lat(),
-
-              lng:
-                p.lng(),
-            })
-          );
-
-        setRoutePath(
-          route
-        );
-      }
-    }
-  );
-
-}, [
-  ride,
-  driverPos,
-]);
   /* ======================================================
   LOADING
   ====================================================== */
 
-  if (!ride || !isLoaded) {
+  if (
+    !ride ||
+    !isLoaded
+  ) {
 
     return (
       <div className="h-screen flex items-center justify-center text-xl font-bold">
@@ -681,23 +808,33 @@ useEffect(() => {
   }
 
   const pickup = {
-    lat: ride
-      .pickupLocation.location
-      .coordinates[1],
 
-    lng: ride
-      .pickupLocation.location
-      .coordinates[0],
+    lat:
+      ride
+        .pickupLocation
+        .location
+        .coordinates[1],
+
+    lng:
+      ride
+        .pickupLocation
+        .location
+        .coordinates[0],
   };
 
   const drop = {
-    lat: ride
-      .dropLocation.location
-      .coordinates[1],
 
-    lng: ride
-      .dropLocation.location
-      .coordinates[0],
+    lat:
+      ride
+        .dropLocation
+        .location
+        .coordinates[1],
+
+    lng:
+      ride
+        .dropLocation
+        .location
+        .coordinates[0],
   };
 
   return (
@@ -713,185 +850,251 @@ useEffect(() => {
       >
 
         {/* ======================================================
-        MAP
+        GOOGLE MAP
         ====================================================== */}
 
-        {/* ======================================================
-MAP
-====================================================== */}
+        <GoogleMap
+          mapContainerStyle={{
+            width:
+              "100%",
+            height:
+              "100%",
+          }}
 
-{/* ======================================================
-PREMIUM LIVE MAP
-====================================================== */}
+          zoom={16}
 
-<GoogleMap
-  mapContainerStyle={{
-    width: "100%",
-    height: "100%",
-  }}
+          center={
+            driverPos ||
+            pickup
+          }
 
-  zoom={16}
+          onLoad={(
+            map
+          ) => {
 
-  center={
-    driverPos || pickup
-  }
+            mapRef.current =
+              map;
+          }}
 
-  onLoad={(map) => {
+          options={{
 
-    mapRef.current = map;
-  }}
+            disableDefaultUI:
+              true,
 
-  options={{
+            zoomControl:
+              true,
 
-    disableDefaultUI: true,
+            streetViewControl:
+              false,
 
-    zoomControl: true,
+            mapTypeControl:
+              false,
 
-    streetViewControl: false,
+            fullscreenControl:
+              false,
 
-    mapTypeControl: false,
+            styles:
+              isDark
+                ? darkMapStyle
+                : [],
+          }}
+        >
 
-    fullscreenControl: false,
+          {/* ======================================================
+          PICKUP MARKER
+          ====================================================== */}
 
-    styles: isDark
-      ? darkMapStyle
-      : [],
-  }}
->
+          <Marker
+            position={
+              pickup
+            }
 
-  {/* ======================================================
-  PICKUP MARKER
-  ====================================================== */}
+            icon={{
 
-  <Marker
-    position={pickup}
+              url:
+                "https://cdn-icons-png.flaticon.com/512/684/684908.png",
 
-    icon={{
+              scaledSize:
+                new window.google.maps.Size(
+                  45,
+                  45
+                ),
+            }}
+          />
 
-      url:
-        "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+          {/* ======================================================
+          DROP MARKER
+          ====================================================== */}
 
-      scaledSize:
-        new window.google.maps.Size(
-          45,
-          45
-        ),
-    }}
-  />
+          <Marker
+            position={
+              drop
+            }
 
-  {/* ======================================================
-  DROP MARKER
-  ====================================================== */}
+            icon={{
 
-  <Marker
-    position={drop}
+              url:
+                "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
 
-    icon={{
+              scaledSize:
+                new window.google.maps.Size(
+                  45,
+                  45
+                ),
+            }}
+          />
 
-      url:
-        "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
+          {/* ======================================================
+          DRIVER ROUTE
+          ====================================================== */}
 
-      scaledSize:
-        new window.google.maps.Size(
-          45,
-          45
-        ),
-    }}
-  />
+          {trail.length >
+            1 && (
 
-  {/* ======================================================
-  DRIVER -> USER LIVE ROUTE
-  ====================================================== */}
+            <Polyline
+              path={
+                trail
+              }
 
-  {trail.length > 1 && (
+              options={{
 
-    <Polyline
-      path={trail}
+                strokeColor:
+                  "#2563eb",
 
-      options={{
+                strokeOpacity: 1,
 
-        strokeColor:
-          "#2563eb",
+                strokeWeight: 8,
 
-        strokeOpacity: 1,
+                geodesic:
+                  true,
 
-        strokeWeight: 6,
+                icons: [
+                  {
+                    icon: {
+                      path:
+                        window.google
+                          .maps
+                          .SymbolPath
+                          .CIRCLE,
 
-        geodesic: true,
-      }}
-    />
-  )}
+                      scale: 3,
 
-  {/* ======================================================
-  USER -> DESTINATION ROUTE
-  ====================================================== */}
+                      fillColor:
+                        "#60a5fa",
 
-  {routePath.length >
-    1 && (
+                      fillOpacity: 1,
 
-    <Polyline
-      path={routePath}
+                      strokeOpacity: 0,
+                    },
 
-      options={{
+                    offset:
+                      "0",
 
-        strokeColor:
-          "#22c55e",
+                    repeat:
+                      "20px",
+                  },
+                ],
+              }}
+            />
+          )}
 
-        strokeOpacity: 1,
+          {/* ======================================================
+          DESTINATION ROUTE
+          ====================================================== */}
 
-        strokeWeight: 6,
+          {routePath.length >
+            1 && (
 
-        geodesic: true,
-      }}
-    />
-  )}
+            <Polyline
+              path={
+                routePath
+              }
 
-  {/* ======================================================
-  LIVE MOVING VEHICLE
-  ====================================================== */}
+              options={{
 
-  {driverPos && (
+                strokeColor:
+                  "#22c55e",
 
-    <Marker
-      position={
-        driverPos
-      }
+                strokeOpacity: 1,
 
-      icon={{
+                strokeWeight: 6,
 
-        url:
-          ride?.driver
-            ?.vehicleType ===
-          "bike"
+                geodesic:
+                  true,
+              }}
+            />
+          )}
 
-            ? "https://cdn-icons-png.flaticon.com/512/2972/2972185.png"
+          {/* ======================================================
+          DRIVER PULSE
+          ====================================================== */}
 
-            : ride?.driver
-                ?.vehicleType ===
-              "auto"
+          {driverPos && (
 
-            ? "https://cdn-icons-png.flaticon.com/512/2554/2554936.png"
+            <Marker
+              position={
+                driverPos
+              }
 
-            : "https://cdn-icons-png.flaticon.com/512/744/744465.png",
+              icon={{
 
-        scaledSize:
-          new window.google.maps.Size(
-            75,
-            75
-          ),
+                path:
+                  window.google
+                    .maps
+                    .SymbolPath
+                    .CIRCLE,
 
-        anchor:
-          new window.google.maps.Point(
-            37,
-            37
-          ),
+                scale: 18,
 
-        rotation:
-          heading,
-      }}
-    />
-  )}
-</GoogleMap>
+                fillColor:
+                  "#3b82f6",
+
+                fillOpacity: 0.25,
+
+                strokeOpacity: 0,
+              }}
+            />
+          )}
+
+          {/* ======================================================
+          LIVE MOVING VEHICLE
+          ====================================================== */}
+
+          {driverPos && (
+
+            <Marker
+              position={
+                driverPos
+              }
+
+              zIndex={999}
+
+              icon={{
+
+                path:
+                  window.google
+                    .maps
+                    .SymbolPath
+                    .FORWARD_CLOSED_ARROW,
+
+                scale: 6,
+
+                fillColor:
+                  "#2563eb",
+
+                fillOpacity: 1,
+
+                strokeColor:
+                  "#ffffff",
+
+                strokeWeight: 2,
+
+                rotation:
+                  heading,
+              }}
+            />
+          )}
+        </GoogleMap>
 
         {/* ======================================================
         BOTTOM PANEL
@@ -906,15 +1109,9 @@ PREMIUM LIVE MAP
           }`}
         >
 
-          {/* ======================================================
-          DRIVER CARD
-          ====================================================== */}
-
           <div className="flex items-center justify-between mb-5">
 
             <div className="flex items-center gap-3">
-
-              {/* DRIVER IMAGE */}
 
               <img
                 src={
@@ -922,11 +1119,11 @@ PREMIUM LIVE MAP
                     ?.profilePic ||
                   "https://cdn-icons-png.flaticon.com/512/149/149071.png"
                 }
+
                 alt="driver"
+
                 className="w-16 h-16 rounded-full border-2 border-green-500 object-cover shadow-md"
               />
-
-              {/* DRIVER DETAILS */}
 
               <div>
 
@@ -946,79 +1143,27 @@ PREMIUM LIVE MAP
                     ?.phone ||
                     "No Number"}
                 </p>
+
+                <p className="text-sm font-semibold mt-1 text-blue-500">
+                  ⏱ ETA:
+                  {" "}
+                  {eta}
+                </p>
               </div>
             </div>
-
-            {/* CALL BUTTON */}
 
             {ride.driver
               ?.phone && (
 
               <a
                 href={`tel:${ride.driver.phone}`}
+
                 className="bg-green-500 text-white w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg active:scale-95 transition"
               >
                 📞
               </a>
             )}
           </div>
-
-          {/* ======================================================
-          STEP TRACKER
-          ====================================================== */}
-
-          <div className="flex items-center justify-between mb-5">
-
-            {steps.map(
-              (step, i) => (
-
-                <div
-                  key={
-                    step.key
-                  }
-                  className="flex-1 flex flex-col items-center relative"
-                >
-
-                  <div
-                    className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold
-                    ${
-                      i <=
-                      activeIndex
-                        ? "bg-green-500 text-white scale-110"
-                        : "bg-gray-300 dark:bg-gray-700 text-white"
-                    }`}
-                  >
-                    {i + 1}
-                  </div>
-
-                  <span className="text-[10px] mt-1 text-center w-16">
-                    {
-                      step.label
-                    }
-                  </span>
-
-                  {i !==
-                    steps.length -
-                      1 && (
-
-                    <div
-                      className={`absolute top-4 left-1/2 w-full h-[2px]
-                      ${
-                        i <
-                        activeIndex
-                          ? "bg-green-500"
-                          : "bg-gray-400"
-                      }`}
-                    />
-                  )}
-                </div>
-              )
-            )}
-          </div>
-
-          {/* ======================================================
-          LOCATION DETAILS
-          ====================================================== */}
 
           <div className="space-y-2">
 
@@ -1041,14 +1186,13 @@ PREMIUM LIVE MAP
             </p>
           </div>
 
-          {/* ======================================================
-          PRICE + CANCEL
-          ====================================================== */}
-
           <div className="flex justify-between items-center mt-5">
 
             <p className="text-green-500 font-bold text-2xl">
-              ₹ {ride.fare}
+              ₹{" "}
+              {
+                ride.fare
+              }
             </p>
 
             {rideStatus !==
@@ -1066,6 +1210,7 @@ PREMIUM LIVE MAP
 
                   navigate("/");
                 }}
+
                 className="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-xl shadow-lg"
               >
                 Cancel Ride
