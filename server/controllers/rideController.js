@@ -380,6 +380,10 @@ exports.acceptRide = async (req, res) => {
 
     const driverId = req.user._id;
 
+    /* ======================================================
+    FIND AVAILABLE RIDE
+    ====================================================== */
+
     let ride = await Ride.findOne({
 
       _id: req.params.id,
@@ -391,55 +395,68 @@ exports.acceptRide = async (req, res) => {
       },
     });
 
+    /* ======================================================
+    RIDE ALREADY TAKEN
+    ====================================================== */
+
     if (!ride) {
 
       return res.status(400).json({
 
         success: false,
 
-        message:
-          "Ride already taken",
+        message: "Ride already taken",
       });
     }
 
     /* ======================================================
-    UPDATE RIDE
+    ASSIGN DRIVER
     ====================================================== */
 
-    ride.status = "accepted";
-
     ride.driver = driverId;
+
+    ride.status = "accepted";
 
     ride.acceptedAt = new Date();
 
     await ride.save();
 
+    /* ======================================================
+    GET UPDATED RIDE WITH DRIVER DETAILS
+    ====================================================== */
+
     ride = await Ride.findById(
       ride._id
     )
+
       .populate(
         "user",
         "name phone email"
       )
+
       .populate(
         "driver",
-        "name phone"
+        "name phone profilePic vehicleType vehicle"
       );
 
     /* ======================================================
-    UPDATE DRIVER
+    UPDATE DRIVER STATUS
     ====================================================== */
 
     await Driver.findByIdAndUpdate(
       driverId,
       {
-        isAvailable: false,
+
         currentRide: ride._id,
+
+        isAvailable: false,
+
+        isOnline: true,
       }
     );
 
     /* ======================================================
-    SOCKET
+    SOCKET IO
     ====================================================== */
 
     const io = req.app.get("io");
@@ -452,42 +469,73 @@ exports.acceptRide = async (req, res) => {
         ride.user._id.toString()
       ] || [];
 
+    /* ======================================================
+    SEND ACCEPTED RIDE TO USER
+    ====================================================== */
+
     userSockets.forEach((socketId) => {
 
       io.to(socketId).emit(
         "rideAccepted",
         ride
       );
+
+      console.log(
+        "📡 rideAccepted sent to user:",
+        socketId
+      );
     });
 
     /* ======================================================
-    RIDE ROOM EVENT
+    SEND TO RIDE ROOM
     ====================================================== */
 
-    io.to(ride._id.toString()).emit(
+    io.to(
+      ride._id.toString()
+    ).emit(
       "rideAccepted",
       ride
     );
 
     console.log(
-      "✅ Ride accepted:",
-      ride._id
+      "✅ Ride accepted successfully"
     );
 
-    res.json({
+    console.log(
+      "🚖 Driver:",
+      ride.driver?.name
+    );
+
+    console.log(
+      "📞 Phone:",
+      ride.driver?.phone
+    );
+
+    /* ======================================================
+    RESPONSE
+    ====================================================== */
+
+    res.status(200).json({
+
       success: true,
+
+      message: "Ride accepted",
+
       ride,
     });
 
   } catch (err) {
 
     console.error(
-      "🔥 Accept Error:",
+      "🔥 Accept Ride Error:",
       err.message
     );
 
     res.status(500).json({
+
       success: false,
+
+      message: err.message,
     });
   }
 };
