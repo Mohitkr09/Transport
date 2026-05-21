@@ -446,21 +446,43 @@ export default function DriverDashboard() {
       }
     );
 
-    socket.on(
-      "rideCancelled",
-      () => {
+   socket.on(
+  "rideCancelled",
+  (data) => {
 
-        setIncomingRide(null);
-
-        setActiveRide(null);
-
-        localStorage.removeItem(
-          "activeRide"
-        );
-
-        stopSound();
-      }
+    console.log(
+      "❌ Ride Cancelled:",
+      data
     );
+
+    setIncomingRide(null);
+
+    setActiveRide(null);
+
+    localStorage.removeItem(
+      "activeRide"
+    );
+
+    stopSound();
+
+    fetchStats();
+
+    if (
+      Notification.permission ===
+      "granted"
+    ) {
+
+      new Notification(
+        "Ride Cancelled",
+        {
+          body:
+            data?.message ||
+            "Ride cancelled",
+        }
+      );
+    }
+  }
+);
 
     return () => {
 
@@ -826,6 +848,67 @@ export default function DriverDashboard() {
         lng: dropCoords[0],
       }
     : null;
+
+    /* ======================================================
+DRIVER EXIT / TAB CLOSE
+====================================================== */
+
+useEffect(() => {
+
+ const handleExit =
+  async () => {
+
+    try {
+
+      setActiveRide(null);
+
+      setIncomingRide(null);
+
+      setDriverLocation(null);
+
+      await api.post(
+        "/driver/exit-dashboard"
+      );
+
+      localStorage.removeItem(
+        "activeRide"
+      );
+
+      localStorage.removeItem(
+        "driverLocation"
+      );
+
+      localStorage.removeItem(
+        "driverOnline"
+      );
+
+      console.log(
+        "🚪 Driver exited dashboard"
+      );
+
+    } catch (err) {
+
+      console.log(
+        "Exit cleanup error:",
+        err.message
+      );
+    }
+  };
+
+  window.addEventListener(
+    "beforeunload",
+    handleExit
+  );
+
+  return () => {
+
+    window.removeEventListener(
+      "beforeunload",
+      handleExit
+    );
+  };
+
+}, []);
 
   /* ======================================================
   UI

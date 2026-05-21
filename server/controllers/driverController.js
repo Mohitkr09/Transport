@@ -297,9 +297,15 @@ exports.updateDriverStatus =
           404
         );
       }
+driver.isOnline =
+  req.body.isOnline;
 
-      driver.isOnline =
-        req.body.isOnline;
+if (!req.body.isOnline) {
+
+  driver.currentRide = null;
+
+  driver.isAvailable = true;
+}
 
       await driver.save();
 
@@ -332,6 +338,121 @@ exports.updateDriverStatus =
     }
   };
 
+
+  /* =========================================================
+DRIVER EXIT DASHBOARD
+========================================================= */
+
+/* =========================================================
+DRIVER EXIT DASHBOARD
+========================================================= */
+
+exports.driverExitDashboard =
+  async (req, res) => {
+
+    try {
+
+      const driverId =
+        getUserId(req);
+
+      const driver =
+        await Driver.findById(
+          driverId
+        );
+
+      if (!driver) {
+
+        return send(
+          res,
+          false,
+          {
+            message:
+              "Driver not found",
+          },
+          404
+        );
+      }
+
+      /* ACTIVE RIDE */
+
+      const ride =
+        await Ride.findOne({
+          driver: driverId,
+
+          status: {
+            $in: [
+              "accepted",
+              "ongoing",
+            ],
+          },
+        });
+
+      /* CANCEL RIDE */
+
+      if (ride) {
+
+        ride.status =
+          "cancelled";
+
+        ride.cancelledBy =
+          "driver";
+
+        ride.driver =
+          null;
+
+        ride.completedAt =
+          new Date();
+
+        await ride.save();
+
+        /* NOTIFY USER */
+
+        emitToUser(
+          req,
+          ride.user,
+          "rideCancelled",
+          {
+            message:
+              "Driver went offline",
+          }
+        );
+      }
+
+      /* RESET DRIVER */
+
+      driver.isOnline =
+        false;
+
+      driver.isAvailable =
+        true;
+
+      driver.currentRide =
+        null;
+
+      await driver.save();
+
+      return send(
+        res,
+        true,
+        {
+          message:
+            "Driver exited dashboard",
+        }
+      );
+
+    } catch (err) {
+
+      return send(
+        res,
+        false,
+        {
+          message:
+            err.message,
+        },
+        500
+      );
+    }
+  };
 /* =========================================================
 LOCATION
 ========================================================= */
@@ -798,6 +919,10 @@ exports.startRide =
 COMPLETE RIDE
 ========================================================= */
 
+/* =========================================================
+COMPLETE RIDE
+========================================================= */
+
 exports.completeRide =
   async (req, res) => {
 
@@ -821,7 +946,7 @@ exports.completeRide =
 
         return send(
           res,
-         false,
+          false,
           {
             message:
               "Unauthorized",
@@ -864,6 +989,7 @@ exports.completeRide =
         {
           message:
             "Ride completed",
+          ride,
         }
       );
 
