@@ -43,6 +43,62 @@ export default function DriverDashboard() {
   const audioRef = useRef(null);
 
   /* ======================================================
+  RESTORE PAGE AFTER REFRESH
+  ====================================================== */
+
+  useEffect(() => {
+
+    const savedRide =
+      localStorage.getItem(
+        "activeRide"
+      );
+
+    const savedLocation =
+      localStorage.getItem(
+        "driverLocation"
+      );
+
+    const savedOnline =
+      localStorage.getItem(
+        "driverOnline"
+      );
+
+    if (savedRide) {
+
+      setActiveRide(
+        JSON.parse(savedRide)
+      );
+
+      console.log(
+        "✅ Restored active ride"
+      );
+    }
+
+    if (savedLocation) {
+
+      setDriverLocation(
+        JSON.parse(savedLocation)
+      );
+
+      console.log(
+        "✅ Restored location"
+      );
+    }
+
+    if (savedOnline) {
+
+      setOnline(
+        JSON.parse(savedOnline)
+      );
+
+      console.log(
+        "✅ Restored online state"
+      );
+    }
+
+  }, []);
+
+  /* ======================================================
   DARK MODE
   ====================================================== */
 
@@ -154,6 +210,55 @@ export default function DriverDashboard() {
   }, []);
 
   /* ======================================================
+  RESTORE ACTIVE RIDE FROM SERVER
+  ====================================================== */
+
+  useEffect(() => {
+
+    if (!profile?._id) return;
+
+    const restoreRide =
+      async () => {
+
+        try {
+
+          const res =
+            await api.get(
+              "/driver/active"
+            );
+
+          if (res.data.ride) {
+
+            setActiveRide(
+              res.data.ride
+            );
+
+            localStorage.setItem(
+              "activeRide",
+
+              JSON.stringify(
+                res.data.ride
+              )
+            );
+
+            console.log(
+              "✅ Active ride restored from backend"
+            );
+          }
+
+        } catch (err) {
+
+          console.log(
+            "No active ride"
+          );
+        }
+      };
+
+    restoreRide();
+
+  }, [profile]);
+
+  /* ======================================================
   STATS
   ====================================================== */
 
@@ -182,127 +287,57 @@ export default function DriverDashboard() {
   }, []);
 
   /* ======================================================
-SOCKET CONNECTION
-====================================================== */
-
-useEffect(() => {
-
-  if (!profile?._id) return;
-
-  console.log(
-    "🚗 Connecting driver socket..."
-  );
-
-  const socket = io(
-    import.meta.env.VITE_SOCKET_URL,
-    {
-
-      transports: ["websocket"],
-
-      upgrade: false,
-
-      reconnection: true,
-
-      reconnectionAttempts: Infinity,
-
-      reconnectionDelay: 1000,
-
-      reconnectionDelayMax: 5000,
-
-      timeout: 20000,
-
-      forceNew: true,
-
-      autoConnect: true,
-
-      auth: {
-        token:
-          localStorage.getItem("token"),
-
-        userId: profile._id,
-
-        role: "driver",
-      },
-    }
-  );
-
-  socketRef.current = socket;
-
-  /* ======================================================
-  SOCKET CONNECTED
+  SOCKET CONNECTION
   ====================================================== */
 
-  socket.on("connect", async () => {
+  useEffect(() => {
+
+    if (!profile?._id) return;
 
     console.log(
-      "✅ SOCKET CONNECTED:",
-      socket.id
+      "🚗 Connecting driver socket..."
     );
 
-    try {
+    const socket = io(
+      import.meta.env.VITE_SOCKET_URL,
+      {
 
-      await api.put(
-        "/driver/online",
-        {
-          isOnline: true,
-        }
-      );
+        transports: ["websocket"],
 
-      setOnline(true);
+        upgrade: false,
 
-      console.log(
-        "🟢 Driver restored online"
-      );
+        reconnection: true,
 
-    } catch (err) {
+        reconnectionAttempts: Infinity,
 
-      console.log(
-        "Restore online error:",
-        err.message
-      );
-    }
-  });
+        reconnectionDelay: 1000,
 
-  /* ======================================================
-  SOCKET DISCONNECTED
-  ====================================================== */
+        reconnectionDelayMax: 5000,
 
-  socket.on(
-    "disconnect",
-    (reason) => {
+        timeout: 20000,
 
-      console.log(
-        "❌ SOCKET DISCONNECTED:",
-        reason
-      );
-    }
-  );
+        forceNew: true,
 
-  /* ======================================================
-  SOCKET ERROR
-  ====================================================== */
+        autoConnect: true,
 
-  socket.on(
-    "connect_error",
-    (err) => {
+        auth: {
+          token:
+            localStorage.getItem("token"),
+
+          userId: profile._id,
+
+          role: "driver",
+        },
+      }
+    );
+
+    socketRef.current = socket;
+
+    socket.on("connect", async () => {
 
       console.log(
-        "❌ SOCKET ERROR:",
-        err.message
-      );
-    }
-  );
-
-  /* ======================================================
-  SOCKET RECONNECTED
-  ====================================================== */
-
-  socket.io.on(
-    "reconnect",
-    async () => {
-
-      console.log(
-        "🔄 SOCKET RECONNECTED"
+        "✅ SOCKET CONNECTED:",
+        socket.id
       );
 
       try {
@@ -316,227 +351,214 @@ useEffect(() => {
 
         setOnline(true);
 
-        console.log(
-          "🟢 Driver re-online after reconnect"
+        localStorage.setItem(
+          "driverOnline",
+          JSON.stringify(true)
         );
 
       } catch (err) {
 
         console.log(
-          "Reconnect restore error:",
+          "Restore online error:",
           err.message
         );
       }
-    }
-  );
+    });
 
-  /* ======================================================
-  NEW RIDE REQUEST
-  ====================================================== */
+    socket.on(
+      "disconnect",
+      (reason) => {
 
-  socket.on(
-    "newRideRequest",
-    (ride) => {
-
-      console.log(
-        "🚨 NEW RIDE:",
-        ride
-      );
-
-      setIncomingRide(ride);
-
-      playSound();
-
-      /* MOBILE VIBRATION */
-
-      if (navigator.vibrate) {
-
-        navigator.vibrate([
-          300,
-          200,
-          300,
-        ]);
-      }
-
-      /* PUSH NOTIFICATION */
-
-      if (
-        Notification.permission ===
-        "granted"
-      ) {
-
-        new Notification(
-          "🚖 New Ride Request",
-          {
-            body: `₹${ride.fare} • ${ride.pickupLocation.address}`,
-
-            icon: "/logo192.png",
-          }
+        console.log(
+          "❌ SOCKET DISCONNECTED:",
+          reason
         );
       }
-    }
-  );
-
-  /* ======================================================
-  RIDE ACCEPTED
-  ====================================================== */
-
-  socket.on(
-    "rideAccepted",
-    (ride) => {
-
-      setActiveRide(ride);
-
-      setIncomingRide(null);
-
-      stopSound();
-
-      fetchStats();
-    }
-  );
-
-  /* ======================================================
-  RIDE CANCELLED
-  ====================================================== */
-
-  socket.on(
-    "rideCancelled",
-    () => {
-
-      setIncomingRide(null);
-
-      setActiveRide(null);
-
-      stopSound();
-    }
-  );
-
-  return () => {
-
-    console.log(
-      "🔌 Closing socket..."
     );
 
-    socket.disconnect();
-  };
-
-}, [profile]);
-
-   /* ======================================================
-HEARTBEAT KEEPALIVE
-====================================================== */
-
-/* ======================================================
-HEARTBEAT KEEPALIVE
-====================================================== */
-
-useEffect(() => {
-
-  const interval = setInterval(() => {
-
-    if (
-      socketRef.current
-    ) {
-
-      if (
-        socketRef.current.connected
-      ) {
-
-        socketRef.current.emit(
-          "driverPing"
-        );
+    socket.on(
+      "connect_error",
+      (err) => {
 
         console.log(
-          "💓 Driver heartbeat"
-        );
-
-      } else {
-
-        console.log(
-          "⚠️ Socket disconnected → reconnecting..."
-        );
-
-        socketRef.current.connect();
-      }
-    }
-
-  }, 5000);
-
-  return () =>
-    clearInterval(interval);
-
-}, []);
-
-/* ======================================================
-MOBILE TAB VISIBILITY FIX
-====================================================== */
-
-useEffect(() => {
-
-  const handleVisibility = async () => {
-
-    if (
-      document.visibilityState ===
-      "visible"
-    ) {
-
-      console.log(
-        "👀 App visible again"
-      );
-
-      /* SOCKET RECONNECT */
-
-      if (
-        socketRef.current &&
-        !socketRef.current.connected
-      ) {
-
-        console.log(
-          "🔄 Reconnecting socket..."
-        );
-
-        socketRef.current.connect();
-      }
-
-      /* RESTORE ONLINE */
-
-      try {
-
-        await api.put(
-          "/driver/online",
-          {
-            isOnline: true,
-          }
-        );
-
-        console.log(
-          "🟢 Driver restored online"
-        );
-
-      } catch (err) {
-
-        console.log(
-          "Visibility restore error:",
+          "❌ SOCKET ERROR:",
           err.message
         );
       }
-    }
-  };
+    );
 
-  document.addEventListener(
-    "visibilitychange",
-    handleVisibility
-  );
+    socket.on(
+      "newRideRequest",
+      (ride) => {
 
-  return () => {
+        console.log(
+          "🚨 NEW RIDE:",
+          ride
+        );
 
-    document.removeEventListener(
+        setIncomingRide(ride);
+
+        playSound();
+
+        if (navigator.vibrate) {
+
+          navigator.vibrate([
+            300,
+            200,
+            300,
+          ]);
+        }
+
+        if (
+          Notification.permission ===
+          "granted"
+        ) {
+
+          new Notification(
+            "🚖 New Ride Request",
+            {
+              body: `₹${ride.fare} • ${ride.pickupLocation.address}`,
+
+              icon: "/logo192.png",
+            }
+          );
+        }
+      }
+    );
+
+    socket.on(
+      "rideAccepted",
+      (ride) => {
+
+        setActiveRide(ride);
+
+        localStorage.setItem(
+          "activeRide",
+
+          JSON.stringify(ride)
+        );
+
+        setIncomingRide(null);
+
+        stopSound();
+
+        fetchStats();
+      }
+    );
+
+    socket.on(
+      "rideCancelled",
+      () => {
+
+        setIncomingRide(null);
+
+        setActiveRide(null);
+
+        localStorage.removeItem(
+          "activeRide"
+        );
+
+        stopSound();
+      }
+    );
+
+    return () => {
+
+      console.log(
+        "🔌 Closing socket..."
+      );
+
+      socket.disconnect();
+    };
+
+  }, [profile]);
+
+  /* ======================================================
+  HEARTBEAT KEEPALIVE
+  ====================================================== */
+
+  useEffect(() => {
+
+    const interval = setInterval(() => {
+
+      if (
+        socketRef.current
+      ) {
+
+        if (
+          socketRef.current.connected
+        ) {
+
+          socketRef.current.emit(
+            "driverPing"
+          );
+
+        } else {
+
+          socketRef.current.connect();
+        }
+      }
+
+    }, 5000);
+
+    return () =>
+      clearInterval(interval);
+
+  }, []);
+
+  /* ======================================================
+  MOBILE TAB VISIBILITY FIX
+  ====================================================== */
+
+  useEffect(() => {
+
+    const handleVisibility = async () => {
+
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+
+        if (
+          socketRef.current &&
+          !socketRef.current.connected
+        ) {
+
+          socketRef.current.connect();
+        }
+
+        try {
+
+          await api.put(
+            "/driver/online",
+            {
+              isOnline: true,
+            }
+          );
+
+        } catch (err) {
+
+          console.log(
+            err.message
+          );
+        }
+      }
+    };
+
+    document.addEventListener(
       "visibilitychange",
       handleVisibility
     );
-  };
 
-}, []);
+    return () => {
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility
+      );
+    };
+
+  }, []);
 
   /* ======================================================
   TIMER
@@ -571,168 +593,117 @@ useEffect(() => {
 
   }, [incomingRide]);
 
- /* ======================================================
-DRIVER LOCATION TRACKING
-====================================================== */
-
-useEffect(() => {
-
-  if (!online) return;
-
-  if (!navigator.geolocation) {
-
-    console.log(
-      "❌ Geolocation not supported"
-    );
-
-    return;
-  }
-
-  console.log(
-    "📍 Starting live location tracking..."
-  );
-
-  const watchId =
-    navigator.geolocation.watchPosition(
-
-      /* SUCCESS */
-
-      async (pos) => {
-
-        const lat =
-          pos.coords.latitude;
-
-        const lng =
-          pos.coords.longitude;
-
-        console.log(
-          "📍 Driver Location:",
-          lat,
-          lng
-        );
-
-        /* UPDATE STATE */
-
-        setDriverLocation({
-          lat,
-          lng,
-        });
-
-        /* ======================================================
-        SOCKET RECONNECT FIX
-        ====================================================== */
-
-        if (
-          socketRef.current &&
-          !socketRef.current.connected
-        ) {
-
-          console.log(
-            "🔄 Reconnecting socket..."
-          );
-
-          socketRef.current.connect();
-        }
-
-        /* ======================================================
-        UPDATE DRIVER LOCATION IN DB
-        ====================================================== */
-
-        try {
-
-          await api.put(
-            "/driver/location",
-            {
-              lat,
-              lng,
-              rideId:
-                activeRide?._id,
-            }
-          );
-
-        } catch (err) {
-
-          console.log(
-            "❌ Backend Location Error:",
-            err.message
-          );
-        }
-
-        /* ======================================================
-        LIVE SOCKET LOCATION
-        ====================================================== */
-
-        if (
-          socketRef.current?.connected &&
-          activeRide?._id
-        ) {
-
-          socketRef.current.emit(
-            "driverLocationUpdate",
-            {
-              rideId:
-                activeRide._id,
-
-              lat,
-              lng,
-            }
-          );
-
-          console.log(
-            "🚗 Live location emitted"
-          );
-        }
-      },
-
-      /* ERROR */
-
-      (error) => {
-
-        console.log(
-          "📍 GPS Error:",
-          error.message
-        );
-
-        /* AUTO RESTART GPS */
-
-        if (
-          error.code === 2 ||
-          error.code === 3
-        ) {
-
-          console.log(
-            "🔄 Retrying GPS..."
-          );
-        }
-      },
-
-      /* OPTIONS */
-
-      {
-        enableHighAccuracy: true,
-
-        maximumAge: 0,
-
-        timeout: 15000,
-      }
-    );
-
   /* ======================================================
-  CLEANUP
+  DRIVER LOCATION TRACKING
   ====================================================== */
 
-  return () => {
+  useEffect(() => {
 
-    console.log(
-      "🛑 Stopping live tracking"
-    );
+    if (!online) return;
 
-    navigator.geolocation.clearWatch(
-      watchId
-    );
-  };
+    if (!navigator.geolocation) {
 
-}, [online, activeRide]);
+      console.log(
+        "❌ Geolocation not supported"
+      );
+
+      return;
+    }
+
+    const watchId =
+      navigator.geolocation.watchPosition(
+
+        async (pos) => {
+
+          const lat =
+            pos.coords.latitude;
+
+          const lng =
+            pos.coords.longitude;
+
+          setDriverLocation({
+            lat,
+            lng,
+          });
+
+          localStorage.setItem(
+            "driverLocation",
+
+            JSON.stringify({
+              lat,
+              lng,
+            })
+          );
+
+          if (
+            socketRef.current &&
+            !socketRef.current.connected
+          ) {
+
+            socketRef.current.connect();
+          }
+
+          try {
+
+            await api.put(
+              "/driver/location",
+              {
+                lat,
+                lng,
+                rideId:
+                  activeRide?._id,
+              }
+            );
+
+          } catch (err) {
+
+            console.log(
+              err.message
+            );
+          }
+
+          if (
+            socketRef.current?.connected &&
+            activeRide?._id
+          ) {
+
+            socketRef.current.emit(
+              "driverLocationUpdate",
+              {
+                rideId:
+                  activeRide._id,
+
+                lat,
+                lng,
+              }
+            );
+          }
+        },
+
+        (error) => {
+
+          console.log(
+            error.message
+          );
+        },
+
+        {
+          enableHighAccuracy: true,
+
+          maximumAge: 0,
+
+          timeout: 15000,
+        }
+      );
+
+    return () => {
+
+      navigator.geolocation.clearWatch(
+        watchId
+      );
+    };
+
+  }, [online, activeRide]);
 
   /* ======================================================
   ACTIONS
@@ -753,6 +724,14 @@ useEffect(() => {
 
       setOnline(newStatus);
 
+      localStorage.setItem(
+        "driverOnline",
+
+        JSON.stringify(
+          newStatus
+        )
+      );
+
     } catch (err) {
 
       console.log(
@@ -771,7 +750,17 @@ useEffect(() => {
           `/ride/${id}/accept`
         );
 
-      setActiveRide(res.data.ride);
+      setActiveRide(
+        res.data.ride
+      );
+
+      localStorage.setItem(
+        "activeRide",
+
+        JSON.stringify(
+          res.data.ride
+        )
+      );
 
       setIncomingRide(null);
 
@@ -845,8 +834,6 @@ useEffect(() => {
   return (
     <div className="min-h-screen p-4 bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white">
 
-      {/* HEADER */}
-
       <div className="flex justify-between items-center mb-6">
 
         <h1 className="text-xl font-bold">
@@ -867,8 +854,6 @@ useEffect(() => {
         </button>
       </div>
 
-      {/* STATS */}
-
       <div className="grid grid-cols-2 gap-4 mb-4">
 
         <div className="bg-indigo-500 text-white p-4 rounded-xl">
@@ -879,8 +864,6 @@ useEffect(() => {
           ₹{stats.totalEarnings}
         </div>
       </div>
-
-      {/* MAP */}
 
       <div className="h-[400px] rounded-xl overflow-hidden">
 
@@ -898,8 +881,6 @@ useEffect(() => {
           isDark={isDark}
         />
       </div>
-
-      {/* ACTIVE RIDE */}
 
       {activeRide && (
 
@@ -954,8 +935,6 @@ useEffect(() => {
           </p>
         </div>
       )}
-
-      {/* INCOMING RIDE */}
 
       {incomingRide && (
 
