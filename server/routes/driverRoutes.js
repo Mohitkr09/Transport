@@ -22,6 +22,9 @@ const Ride =
 /* =================================================
 SAFE HANDLER
 ================================================= */
+/* =================================================
+SAFE HANDLER
+================================================= */
 
 const asyncHandler =
   (fn) =>
@@ -29,17 +32,20 @@ const asyncHandler =
 
     try {
 
-      await fn(
-        req,
-        res,
-        next
-      );
+      if (typeof fn !== "function") {
+
+        throw new Error(
+          "Route handler is undefined"
+        );
+      }
+
+      await fn(req, res, next);
 
     } catch (err) {
 
       console.error(
         "🔥 Route Error:",
-        err.message
+        err
       );
 
       return res.status(500).json({
