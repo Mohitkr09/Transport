@@ -1,3 +1,24 @@
+{/* ======================================================
+LIVE DRIVER CAR WITH PREMIUM TRACKING
+====================================================== */}
+
+<style>
+  {`
+    @keyframes pulse {
+
+      0% {
+        transform: scale(0.8);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+    }
+  `}
+</style>
+
 import React, {
   useEffect,
   useState,
@@ -19,6 +40,7 @@ import {
   GoogleMap,
   Marker,
   Polyline,
+  OverlayView,
 } from "@react-google-maps/api";
 
 import toast, {
@@ -37,10 +59,11 @@ const darkMapStyle = [
   {
     elementType:
       "geometry",
+
     stylers: [
       {
         color:
-          "#0f172a",
+          "#020617",
       },
     ],
   },
@@ -48,6 +71,7 @@ const darkMapStyle = [
   {
     elementType:
       "labels.text.fill",
+
     stylers: [
       {
         color:
@@ -59,6 +83,7 @@ const darkMapStyle = [
   {
     elementType:
       "labels.text.stroke",
+
     stylers: [
       {
         color:
@@ -70,12 +95,14 @@ const darkMapStyle = [
   {
     featureType:
       "road",
+
     elementType:
       "geometry",
+
     stylers: [
       {
         color:
-          "#1e293b",
+          "#0f172a",
       },
     ],
   },
@@ -83,8 +110,10 @@ const darkMapStyle = [
   {
     featureType:
       "water",
+
     elementType:
       "geometry",
+
     stylers: [
       {
         color:
@@ -138,7 +167,11 @@ export default function RideTracking() {
     useState("");
 
   const [isDark, setIsDark] =
-    useState(false);
+    useState(
+      document.documentElement.classList.contains(
+        "dark"
+      )
+    );
 
   const [
     rideStatus,
@@ -147,43 +180,8 @@ export default function RideTracking() {
     "accepted"
   );
 
-  const steps = [
-    {
-      key: "accepted",
-      label:
-        "Accepted",
-    },
-    {
-      key: "arrived",
-      label:
-        "Arrived",
-    },
-    {
-      key: "started",
-      label:
-        "Started",
-    },
-    {
-      key: "completed",
-      label:
-        "Completed",
-    },
-    {
-      key: "paid",
-      label:
-        "Paid",
-    },
-  ];
-
-  const activeIndex =
-    steps.findIndex(
-      (s) =>
-        s.key ===
-        rideStatus
-    );
-
   /* ======================================================
-  THEME
+  THEME LISTENER
   ====================================================== */
 
   useEffect(() => {
@@ -197,8 +195,6 @@ export default function RideTracking() {
           )
         );
       };
-
-    updateTheme();
 
     const observer =
       new MutationObserver(
@@ -246,10 +242,6 @@ export default function RideTracking() {
               "accepted"
           );
 
-          /* ======================================================
-          INITIAL DRIVER LOCATION
-          ====================================================== */
-
           if (
             res.data.ride
               ?.driverLocation
@@ -276,12 +268,12 @@ export default function RideTracking() {
 
         } catch (err) {
 
-          console.log(
-            err.message
-          );
-
           toast.error(
             "Unable to load ride"
+          );
+
+          console.log(
+            err.message
           );
         }
       };
@@ -348,7 +340,7 @@ export default function RideTracking() {
   };
 
   /* ======================================================
-  SMOOTH DRIVER ANIMATION
+  DRIVER ANIMATION
   ====================================================== */
 
   const animateDriver = (
@@ -364,12 +356,13 @@ export default function RideTracking() {
 
     const step = () => {
 
-      progress += 0.015;
+      progress += 0.008;
 
       if (
         progress > 1
-      )
+      ) {
         progress = 1;
+      }
 
       const lat =
         start.lat +
@@ -395,20 +388,17 @@ export default function RideTracking() {
       setTrail(
         (prev) => [
           ...prev.slice(
-            -80
+            -100
           ),
           newPos,
         ]
       );
 
-      const angle =
+      setHeading(
         getBearing(
           start,
           end
-        );
-
-      setHeading(
-        angle
+        )
       );
 
       if (
@@ -419,17 +409,9 @@ export default function RideTracking() {
           newPos
         );
 
-        const zoom =
-          mapRef.current.getZoom();
-
-        if (
-          zoom < 17
-        ) {
-
-          mapRef.current.setZoom(
-            17
-          );
-        }
+        mapRef.current.setZoom(
+          18
+        );
       }
 
       if (
@@ -476,10 +458,6 @@ export default function RideTracking() {
       rideId
     );
 
-    /* ======================================================
-    LIVE DRIVER MOVEMENT
-    ====================================================== */
-
     socket.on(
       "driverMoved",
       ({
@@ -487,11 +465,10 @@ export default function RideTracking() {
         lng,
       }) => {
 
-        const newPos =
-          {
-            lat,
-            lng,
-          };
+        const newPos = {
+          lat,
+          lng,
+        };
 
         setDriverPos(
           (
@@ -533,32 +510,6 @@ export default function RideTracking() {
 
         setRideStatus(
           "accepted"
-        );
-
-        if (
-          rideData
-            ?.driverLocation
-            ?.coordinates
-        ) {
-
-          setDriverPos(
-            {
-
-              lat:
-                rideData
-                  .driverLocation
-                  .coordinates[1],
-
-              lng:
-                rideData
-                  .driverLocation
-                  .coordinates[0],
-            }
-          );
-        }
-
-        toast.success(
-          `${rideData.driver?.name} accepted your ride`
         );
       }
     );
@@ -635,7 +586,7 @@ export default function RideTracking() {
   }, [rideId]);
 
   /* ======================================================
-  LIVE ROUTES
+  ROUTES
   ====================================================== */
 
   useEffect(() => {
@@ -771,12 +722,12 @@ export default function RideTracking() {
                 p
               ) => ({
 
-                lat:
-                  p.lat(),
+                  lat:
+                    p.lat(),
 
-                lng:
-                  p.lng(),
-              })
+                  lng:
+                    p.lng(),
+                })
             );
 
           setRoutePath(
@@ -791,17 +742,29 @@ export default function RideTracking() {
     driverPos,
   ]);
 
-  /* ======================================================
-  LOADING
-  ====================================================== */
-
   if (
     !ride ||
     !isLoaded
   ) {
 
     return (
-      <div className="h-screen flex items-center justify-center text-xl font-bold">
+      <div
+        className={`
+        h-screen
+        flex
+        items-center
+        justify-center
+
+        text-2xl
+        font-bold
+
+        ${
+          isDark
+            ? "bg-black text-white"
+            : "bg-white text-black"
+        }
+        `}
+      >
         Loading...
       </div>
     );
@@ -837,385 +800,881 @@ export default function RideTracking() {
         .coordinates[0],
   };
 
+  const steps = [
+    "Accepted",
+    "Arrived",
+    "Started",
+    "Completed",
+    "Paid",
+  ];
+
+  const activeStep =
+    steps.findIndex(
+      (step) =>
+        step.toLowerCase() ===
+        rideStatus
+    );
+
   return (
     <>
       <Toaster position="top-center" />
+      <style>
+  {`
+    @keyframes pulse {
+
+      0% {
+        transform: scale(0.8);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+    }
+  `}
+</style>
+
+      {/* THEME TOGGLE */}
+
+      <button
+        onClick={() =>
+          document.documentElement.classList.toggle(
+            "dark"
+          )
+        }
+
+        className={`
+        fixed
+        top-5
+        right-5
+
+        z-[99999]
+
+        w-14
+        h-14
+
+        rounded-full
+
+        flex
+        items-center
+        justify-center
+
+        text-2xl
+
+        shadow-2xl
+
+        transition-all
+
+        active:scale-95
+
+        ${
+          isDark
+            ? `
+              bg-black/50
+              backdrop-blur-xl
+              border border-white/10
+              text-yellow-400
+            `
+            : `
+              bg-white
+              border border-gray-200
+              text-gray-800
+            `
+        }
+        `}
+      >
+        {isDark
+          ? "☀️"
+          : "🌙"}
+      </button>
 
       <div
-        className={`h-screen w-full relative ${
+        className={`
+        min-h-screen
+        w-full
+
+        transition-all
+        duration-500
+
+        ${
           isDark
-            ? "bg-gray-900"
+            ? "bg-black"
             : "bg-gray-100"
-        }`}
+        }
+        `}
       >
 
-        {/* ======================================================
-        GOOGLE MAP
-        ====================================================== */}
+        {/* MAP */}
 
-        <GoogleMap
-          mapContainerStyle={{
-            width:
-              "100%",
-            height:
-              "100%",
-          }}
+        <div className="relative">
 
-          zoom={16}
+          <GoogleMap
+            mapContainerStyle={{
+              width:
+                "100%",
 
-          center={
-            driverPos ||
-            pickup
-          }
+              height:
+                window.innerWidth <
+                768
+                  ? "58vh"
+                  : "72vh",
+            }}
 
-          onLoad={(
-            map
-          ) => {
+            zoom={15}
 
-            mapRef.current =
-              map;
-          }}
-
-          options={{
-
-            disableDefaultUI:
-              true,
-
-            zoomControl:
-              true,
-
-            streetViewControl:
-              false,
-
-            mapTypeControl:
-              false,
-
-            fullscreenControl:
-              false,
-
-            styles:
-              isDark
-                ? darkMapStyle
-                : [],
-          }}
-        >
-
-          {/* ======================================================
-          PICKUP MARKER
-          ====================================================== */}
-
-          <Marker
-            position={
+            center={
+              driverPos ||
               pickup
             }
 
-            icon={{
+            onLoad={(
+              map
+            ) => {
 
-              url:
-                "https://cdn-icons-png.flaticon.com/512/684/684908.png",
-
-              scaledSize:
-                new window.google.maps.Size(
-                  45,
-                  45
-                ),
+              mapRef.current =
+                map;
             }}
-          />
 
-          {/* ======================================================
-          DROP MARKER
-          ====================================================== */}
+            options={{
 
-          <Marker
-            position={
-              drop
-            }
+              disableDefaultUI:
+                true,
 
-            icon={{
+              zoomControl:
+                true,
 
-              url:
-                "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
-
-              scaledSize:
-                new window.google.maps.Size(
-                  45,
-                  45
-                ),
+              styles:
+                isDark
+                  ? darkMapStyle
+                  : [],
             }}
-          />
+          >
 
-          {/* ======================================================
-          DRIVER ROUTE
-          ====================================================== */}
-
-          {trail.length >
-            1 && (
-
-            <Polyline
-              path={
-                trail
-              }
-
-              options={{
-
-                strokeColor:
-                  "#2563eb",
-
-                strokeOpacity: 1,
-
-                strokeWeight: 8,
-
-                geodesic:
-                  true,
-
-                icons: [
-                  {
-                    icon: {
-                      path:
-                        window.google
-                          .maps
-                          .SymbolPath
-                          .CIRCLE,
-
-                      scale: 3,
-
-                      fillColor:
-                        "#60a5fa",
-
-                      fillOpacity: 1,
-
-                      strokeOpacity: 0,
-                    },
-
-                    offset:
-                      "0",
-
-                    repeat:
-                      "20px",
-                  },
-                ],
-              }}
-            />
-          )}
-
-          {/* ======================================================
-          DESTINATION ROUTE
-          ====================================================== */}
-
-          {routePath.length >
-            1 && (
-
-            <Polyline
-              path={
-                routePath
-              }
-
-              options={{
-
-                strokeColor:
-                  "#22c55e",
-
-                strokeOpacity: 1,
-
-                strokeWeight: 6,
-
-                geodesic:
-                  true,
-              }}
-            />
-          )}
-
-          {/* ======================================================
-          DRIVER PULSE
-          ====================================================== */}
-
-          {driverPos && (
+            {/* PICKUP */}
 
             <Marker
               position={
-                driverPos
+                pickup
               }
 
               icon={{
 
-                path:
-                  window.google
-                    .maps
-                    .SymbolPath
-                    .CIRCLE,
+                url:
+                  "https://cdn-icons-png.flaticon.com/512/684/684908.png",
 
-                scale: 18,
-
-                fillColor:
-                  "#3b82f6",
-
-                fillOpacity: 0.25,
-
-                strokeOpacity: 0,
+                scaledSize:
+                  new window.google.maps.Size(
+                    42,
+                    42
+                  ),
               }}
             />
-          )}
 
-          {/* ======================================================
-          LIVE MOVING VEHICLE
-          ====================================================== */}
-
-          {driverPos && (
+            {/* DESTINATION */}
 
             <Marker
               position={
-                driverPos
+                drop
               }
-
-              zIndex={999}
 
               icon={{
 
-                path:
-                  window.google
-                    .maps
-                    .SymbolPath
-                    .FORWARD_CLOSED_ARROW,
+                url:
+                  "https://cdn-icons-png.flaticon.com/512/2776/2776067.png",
 
-                scale: 6,
-
-                fillColor:
-                  "#2563eb",
-
-                fillOpacity: 1,
-
-                strokeColor:
-                  "#ffffff",
-
-                strokeWeight: 2,
-
-                rotation:
-                  heading,
+                scaledSize:
+                  new window.google.maps.Size(
+                    42,
+                    42
+                  ),
               }}
             />
-          )}
-        </GoogleMap>
 
-        {/* ======================================================
-        BOTTOM PANEL
-        ====================================================== */}
+            {/* DRIVER ROUTE */}
 
-        <div
-          className={`absolute bottom-0 w-full rounded-t-3xl p-5 backdrop-blur-xl border-t shadow-2xl
-          ${
-            isDark
-              ? "bg-gray-900/90 border-indigo-500/30 text-white"
-              : "bg-white/95 border-gray-200 text-gray-900"
-          }`}
-        >
+            {trail.length >
+              1 && (
 
-          <div className="flex items-center justify-between mb-5">
-
-            <div className="flex items-center gap-3">
-
-              <img
-                src={
-                  ride.driver
-                    ?.profilePic ||
-                  "https://cdn-icons-png.flaticon.com/512/149/149071.png"
+              <Polyline
+                path={
+                  trail
                 }
 
-                alt="driver"
+                options={{
 
-                className="w-16 h-16 rounded-full border-2 border-green-500 object-cover shadow-md"
+                  strokeColor:
+                    "#2563eb",
+
+                  strokeOpacity:
+                    1,
+
+                  strokeWeight:
+                    window.innerWidth <
+                    768
+                      ? 6
+                      : 8,
+
+                  geodesic:
+                    true,
+
+                  zIndex:
+                    99,
+
+                  icons: [
+                    {
+                      icon: {
+
+                        path:
+                          window.google
+                            .maps
+                            .SymbolPath
+                            .CIRCLE,
+
+                        scale:
+                          2.8,
+
+                        fillColor:
+                          "#60a5fa",
+
+                        fillOpacity:
+                          1,
+
+                        strokeOpacity:
+                          0,
+                      },
+
+                      offset:
+                        "0",
+
+                      repeat:
+                        "18px",
+                    },
+                  ],
+                }}
               />
+            )}
 
-              <div>
+            {/* MAIN ROUTE */}
 
-                <h2 className="font-bold text-lg">
-                  {ride.driver
-                    ?.name ||
-                    "Driver"}
-                </h2>
+            {routePath.length >
+              1 && (
 
-                <p className="text-sm opacity-70">
-                  🚖 Your driver is arriving
-                </p>
+              <Polyline
+                path={
+                  routePath
+                }
 
-                <p className="text-sm font-medium mt-1">
-                  📞{" "}
-                  {ride.driver
-                    ?.phone ||
-                    "No Number"}
-                </p>
+                options={{
 
-                <p className="text-sm font-semibold mt-1 text-blue-500">
-                  ⏱ ETA:
-                  {" "}
-                  {eta}
-                </p>
+                  strokeColor:
+                    "#39ff14",
+
+                  strokeOpacity:
+                    1,
+
+                  strokeWeight:
+                    5,
+                }}
+              />
+            )}
+
+            {/* LIVE DRIVER CAR */}
+{/* LIVE DRIVER CAR */}
+
+{driverPos && (
+  <OverlayView
+    position={driverPos}
+
+    mapPaneName={
+      OverlayView.FLOAT_PANE
+    }
+  >
+    <div
+      style={{
+
+        position:
+          "absolute",
+
+        left: 0,
+        top: 0,
+
+        transform:
+          `translate(-50%, -50%) rotate(${heading}deg)`,
+
+        transition:
+          "transform 0.15s linear",
+
+        width:
+          window.innerWidth < 768
+            ? "48px"
+            : "72px",
+
+        height:
+          window.innerWidth < 768
+            ? "48px"
+            : "72px",
+
+        display:
+          "flex",
+
+        alignItems:
+          "center",
+
+        justifyContent:
+          "center",
+
+        zIndex:
+          999999999,
+      }}
+    >
+
+      {/* GLOW */}
+
+      <div
+        style={{
+
+          position:
+            "absolute",
+
+          width:
+            window.innerWidth < 768
+              ? "70px"
+              : "100px",
+
+          height:
+            window.innerWidth < 768
+              ? "70px"
+              : "100px",
+
+          borderRadius:
+            "999px",
+
+          background:
+            "rgba(59,130,246,0.35)",
+
+          filter:
+            "blur(20px)",
+
+          zIndex:
+            1,
+        }}
+      />
+
+      {/* CAR */}
+
+      <img
+        src="https://cdn-icons-png.flaticon.com/512/3774/3774278.png"
+
+        alt="driver-car"
+
+        style={{
+
+          width:
+            window.innerWidth < 768
+              ? "42px"
+              : "64px",
+
+          height:
+            window.innerWidth < 768
+              ? "42px"
+              : "64px",
+
+          objectFit:
+            "contain",
+
+          position:
+            "relative",
+
+          zIndex:
+            999,
+
+          filter:
+            "drop-shadow(0 10px 18px rgba(0,0,0,0.45))",
+        }}
+      />
+
+      {/* PULSE */}
+
+      <div
+        style={{
+
+          position:
+            "absolute",
+
+          width:
+            window.innerWidth < 768
+              ? "65px"
+              : "95px",
+
+          height:
+            window.innerWidth < 768
+              ? "65px"
+              : "95px",
+
+          border:
+            "2px solid rgba(59,130,246,0.45)",
+
+          borderRadius:
+            "999px",
+
+          animation:
+            "pulse 2s infinite",
+
+          zIndex:
+            0,
+        }}
+      />
+    </div>
+  </OverlayView>
+)}
+          </GoogleMap>
+        </div>
+
+        {/* BOTTOM PANEL */}
+
+        <div
+          className={`
+          w-full
+
+          px-3
+          md:px-5
+
+          mt-3
+          md:mt-5
+
+          pb-6
+          `}
+        >
+
+          <div
+            className={`
+            rounded-[32px]
+
+            p-4
+            md:p-6
+
+            shadow-2xl
+
+            backdrop-blur-2xl
+
+            transition-all
+
+            ${
+              isDark
+                ? `
+                  bg-[#0f172ae6]
+                  border border-blue-500/20
+                  text-white
+                `
+                : `
+                  bg-white/90
+                  border border-gray-200
+                  text-gray-900
+                `
+            }
+            `}
+          >
+
+            {/* DRIVER INFO */}
+
+            <div
+              className="
+              flex
+              flex-col
+              lg:flex-row
+
+              items-center
+              justify-between
+
+              gap-5
+              "
+            >
+
+              <div
+                className="
+                flex
+                items-center
+                gap-4
+
+                w-full
+                "
+              >
+
+                <img
+                  src={
+                    ride.driver
+                      ?.profilePic ||
+                    "https://cdn-icons-png.flaticon.com/512/149/149071.png"
+                  }
+
+                  alt="driver"
+
+                  className="
+                  w-16 h-16
+                  md:w-20 md:h-20
+
+                  rounded-full
+
+                  border-4
+                  border-green-400
+
+                  object-cover
+
+                  shadow-2xl
+                  "
+                />
+
+                <div className="min-w-0">
+
+                  <h2
+                    className="
+                    text-2xl
+                    md:text-3xl
+
+                    font-bold
+
+                    truncate
+                    "
+                  >
+                    {ride.driver
+                      ?.name ||
+                      "Driver"}
+                  </h2>
+
+                  <p
+                    className={`
+                    mt-1
+
+                    text-sm
+                    md:text-base
+
+                    ${
+                      isDark
+                        ? "text-gray-400"
+                        : "text-gray-600"
+                    }
+                    `}
+                  >
+                    🚖 Your driver is arriving
+                  </p>
+
+                  <p
+                    className="
+                    mt-2
+
+                    text-lg
+                    md:text-xl
+
+                    font-semibold
+                    "
+                  >
+                    📞{" "}
+                    {ride.driver
+                      ?.phone ||
+                      "No Number"}
+                  </p>
+
+                  <p
+                    className="
+                    mt-2
+
+                    text-lg
+                    md:text-xl
+
+                    font-bold
+
+                    text-blue-500
+                    "
+                  >
+                    ⏱ ETA:
+                    {" "}
+                    {eta}
+                  </p>
+                </div>
               </div>
+
+              {/* VEHICLE */}
+
+              <div
+                className={`
+                rounded-2xl
+
+                px-4 py-3
+
+                flex
+                items-center
+
+                gap-3
+
+                w-full
+                lg:w-auto
+
+                justify-center
+
+                ${
+                  isDark
+                    ? "bg-black/20 border border-white/10"
+                    : "bg-gray-100 border border-gray-200"
+                }
+                `}
+              >
+
+                <img
+                  src="https://cdn-icons-png.flaticon.com/512/744/744465.png"
+
+                  alt="car"
+
+                  className="
+                  w-20
+                  md:w-28
+                  "
+                />
+
+                <div>
+
+                  <p
+                    className={`
+                    text-sm
+
+                    ${
+                      isDark
+                        ? "text-gray-400"
+                        : "text-gray-500"
+                    }
+                    `}
+                  >
+                    Vehicle
+                  </p>
+
+                  <h3
+                    className="
+                    text-xl
+                    md:text-2xl
+
+                    font-bold
+                    "
+                  >
+                    Swift Dzire
+                  </h3>
+
+                  <div
+                    className="
+                    bg-white
+                    text-black
+
+                    px-4 py-2
+
+                    rounded-xl
+
+                    mt-2
+
+                    font-bold
+
+                    inline-block
+                    "
+                  >
+                    UP32 AB 1234
+                  </div>
+                </div>
+              </div>
+
+              {/* CALL */}
+
+              {ride.driver
+                ?.phone && (
+
+                <a
+                  href={`tel:${ride.driver.phone}`}
+
+                  className="
+                  bg-green-500
+                  hover:bg-green-600
+
+                  w-16 h-16
+                  md:w-24 md:h-24
+
+                  rounded-full
+
+                  flex
+                  items-center
+                  justify-center
+
+                  text-3xl
+                  md:text-5xl
+
+                  shadow-2xl
+
+                  transition
+
+                  active:scale-95
+                  "
+                >
+                  📞
+                </a>
+              )}
             </div>
 
-            {ride.driver
-              ?.phone && (
+            {/* ADDRESS */}
 
-              <a
-                href={`tel:${ride.driver.phone}`}
+            <div
+              className={`
+              mt-6
 
-                className="bg-green-500 text-white w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg active:scale-95 transition"
-              >
-                📞
-              </a>
-            )}
-          </div>
+              space-y-4
 
-          <div className="space-y-2">
+              pt-5
 
-            <p className="text-sm">
-              📍{" "}
-              {
-                ride
-                  .pickupLocation
-                  .address
+              border-t
+
+              ${
+                isDark
+                  ? "border-white/10"
+                  : "border-gray-200"
               }
-            </p>
+              `}
+            >
 
-            <p className="text-sm">
-              🏁{" "}
-              {
-                ride
-                  .dropLocation
-                  .address
-              }
-            </p>
-          </div>
+              <p className="text-base md:text-xl break-words">
+                📍{" "}
+                {
+                  ride
+                    .pickupLocation
+                    .address
+                }
+              </p>
 
-          <div className="flex justify-between items-center mt-5">
+              <p className="text-base md:text-xl break-words">
+                🏁{" "}
+                {
+                  ride
+                    .dropLocation
+                    .address
+                }
+              </p>
+            </div>
 
-            <p className="text-green-500 font-bold text-2xl">
-              ₹{" "}
-              {
-                ride.fare
-              }
-            </p>
+            {/* STATUS TRACKER */}
 
-            {rideStatus !==
-              "completed" && (
+            <div
+              className="
+              mt-8
 
-              <button
-                onClick={() => {
+              grid
+              grid-cols-5
 
-                  socketRef.current.emit(
-                    "cancelRide",
-                    {
-                      rideId,
-                    }
+              gap-2
+              md:gap-4
+              "
+            >
+
+              {steps.map(
+                (
+                  step,
+                  index
+                ) => {
+
+                  const active =
+                    index <=
+                    activeStep;
+
+                  return (
+
+                    <div
+                      key={step}
+
+                      className="
+                      flex
+                      flex-col
+                      items-center
+
+                      relative
+                      "
+                    >
+
+                      {index !==
+                        steps.length -
+                          1 && (
+
+                        <div
+                          className={`
+                          absolute
+                          top-5
+                          md:top-7
+
+                          left-1/2
+
+                          w-full
+                          h-[2px]
+
+                          ${
+                            active
+                              ? "bg-blue-500"
+                              : "bg-gray-400"
+                          }
+                          `}
+                        />
+                      )}
+
+                      <div
+                        className={`
+                        z-10
+
+                        w-10 h-10
+                        md:w-14 md:h-14
+
+                        rounded-full
+
+                        flex
+                        items-center
+                        justify-center
+
+                        border-2
+
+                        text-sm
+                        md:text-xl
+
+                        ${
+                          active
+                            ? "bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/50"
+                            : isDark
+                            ? "border-gray-500 text-gray-400 bg-black"
+                            : "border-gray-300 text-gray-400 bg-white"
+                        }
+                        `}
+                      >
+
+                        {active
+                          ? "✓"
+                          : "○"}
+
+                      </div>
+
+                      <p
+                        className={`
+                        mt-3
+
+                        text-[11px]
+                        md:text-sm
+
+                        font-medium
+
+                        text-center
+
+                        ${
+                          active
+                            ? "text-blue-500"
+                            : "text-gray-400"
+                        }
+                        `}
+                      >
+                        {step}
+                      </p>
+                    </div>
                   );
-
-                  navigate("/");
-                }}
-
-                className="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-xl shadow-lg"
-              >
-                Cancel Ride
-              </button>
-            )}
+                }
+              )}
+            </div>
           </div>
         </div>
       </div>
