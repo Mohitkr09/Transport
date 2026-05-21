@@ -818,76 +818,11 @@ export default function RideTracking() {
   return (
     <>
       <Toaster position="top-center" />
-      <style>
-  {`
-    @keyframes pulse {
-
-      0% {
-        transform: scale(0.8);
-        opacity: 1;
-      }
-
-      100% {
-        transform: scale(1.6);
-        opacity: 0;
-      }
-    }
-  `}
-</style>
+      
 
       {/* THEME TOGGLE */}
 
-      <button
-        onClick={() =>
-          document.documentElement.classList.toggle(
-            "dark"
-          )
-        }
-
-        className={`
-        fixed
-        top-5
-        right-5
-
-        z-[99999]
-
-        w-14
-        h-14
-
-        rounded-full
-
-        flex
-        items-center
-        justify-center
-
-        text-2xl
-
-        shadow-2xl
-
-        transition-all
-
-        active:scale-95
-
-        ${
-          isDark
-            ? `
-              bg-black/50
-              backdrop-blur-xl
-              border border-white/10
-              text-yellow-400
-            `
-            : `
-              bg-white
-              border border-gray-200
-              text-gray-800
-            `
-        }
-        `}
-      >
-        {isDark
-          ? "☀️"
-          : "🌙"}
-      </button>
+      {/*  */}
 
       <div
         className={`
