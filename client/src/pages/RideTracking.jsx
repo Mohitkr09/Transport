@@ -1195,322 +1195,246 @@ export default function RideTracking() {
 
             {/* DRIVER INFO */}
 
-            <div
-              className="
-              flex
-              flex-col
-              lg:flex-row
+         {/* DRIVER INFO - IMPROVED RESPONSIVE */}
+<div className="flex flex-col xl:flex-row items-center justify-between gap-4 md:gap-6">
+  
+  {/* Left Section: Driver Avatar & Details */}
+  <div className="flex items-center gap-3 sm:gap-4 md:gap-5 w-full">
+    
+    {/* Driver Avatar */}
+    <img
+      src={ride.driver?.profilePic || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
+      alt="driver"
+      className="
+        w-12 h-12 sm:w-14 sm:h-14 
+        md:w-16 md:h-16 
+        lg:w-20 lg:h-20
+        rounded-full 
+        border-4 border-green-400 
+        object-cover shadow-2xl 
+        flex-shrink-0
+      "
+    />
 
-              items-center
-              justify-between
+    {/* Driver Details */}
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold truncate">
+          {ride.driver?.name || "Driver"}
+        </h2>
+        
+        {/* Vehicle Badge */}
+        <span className="
+          px-2 sm:px-3 py-0.5 sm:py-1 
+          text-xs sm:text-sm font-semibold 
+          bg-blue-500/20 rounded-full 
+          border border-blue-500/30 
+          whitespace-nowrap
+        ">
+          🚗 {ride.driver?.vehicle?.type || "Sedan"}
+        </span>
+      </div>
 
-              gap-5
-              "
-            >
+      <p className={`
+        mt-0.5 sm:mt-1 
+        text-xs sm:text-sm md:text-base
+        ${isDark ? "text-gray-400" : "text-gray-600"}
+      `}>
+        🚖 Your driver is arriving
+      </p>
 
-              <div
-                className="
-                flex
-                items-center
-                gap-4
+      {/* Contact & ETA - Grouped for better responsiveness */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 sm:mt-2">
+        <p className="text-sm sm:text-base md:text-lg font-semibold">
+          📞 {ride.driver?.phone || "No Number"}
+        </p>
+        <span className="hidden xs:inline text-gray-400">•</span>
+        <p className="text-sm sm:text-base md:text-lg font-bold text-blue-500">
+          ⏱ ETA: {eta || "Calculating..."}
+        </p>
+      </div>
+    </div>
+  </div>
 
-                w-full
-                "
-              >
+  {/* Right Section: Call Button - Improved Touch Target */}
+  {ride.driver?.phone && (
+    <a
+      href={`tel:${ride.driver.phone}`}
+      className="
+        bg-green-500 hover:bg-green-600 active:scale-95
+        w-12 h-12 sm:w-14 sm:h-14 
+        md:w-16 md:h-16 
+        lg:w-20 lg:h-20
+        rounded-full flex items-center justify-center
+        text-2xl sm:text-3xl md:text-4xl lg:text-5xl
+        shadow-2xl transition-all duration-200
+        hover:shadow-green-500/30
+        flex-shrink-0
+      "
+      aria-label="Call driver"
+    >
+      📞
+    </a>
+  )}
+</div>
 
-                <img
-                  src={
-                    ride.driver
-                      ?.profilePic ||
-                    "https://cdn-icons-png.flaticon.com/512/149/149071.png"
-                  }
+{/* ADDRESSES - IMPROVED RESPONSIVE */}
+<div className={`
+  mt-4 sm:mt-5 md:mt-6 
+  space-y-3 sm:space-y-4 
+  pt-4 sm:pt-5 
+  border-t 
+  ${isDark ? "border-white/10" : "border-gray-200"}
+`}>
+  
+  {/* Pickup Address */}
+  <div className="flex items-start gap-2 sm:gap-3">
+    <span className="text-lg sm:text-xl md:text-2xl flex-shrink-0 mt-0.5">📍</span>
+    <p className="text-sm sm:text-base md:text-lg lg:text-xl break-words flex-1">
+      {ride.pickupLocation.address}
+    </p>
+  </div>
+  
+  {/* Drop-off Address */}
+  <div className="flex items-start gap-2 sm:gap-3">
+    <span className="text-lg sm:text-xl md:text-2xl flex-shrink-0 mt-0.5">🏁</span>
+    <p className="text-sm sm:text-base md:text-lg lg:text-xl break-words flex-1">
+      {ride.dropLocation.address}
+    </p>
+  </div>
+</div>
 
-                  alt="driver"
+{/* STATUS TRACKER - HIGHLY RESPONSIVE */}
+<div className="mt-6 sm:mt-7 md:mt-8">
+  
+  {/* Desktop/Tablet View */}
+  <div className="hidden sm:grid grid-cols-5 gap-2 md:gap-3 lg:gap-4">
+    {steps.map((step, index) => {
+      const active = index <= activeStep;
+      const isCurrent = index === activeStep;
+      
+      return (
+        <div key={step} className="flex flex-col items-center relative status-step">
+          
+          {/* Progress Line */}
+          {index !== steps.length - 1 && (
+            <div className={`
+              absolute top-4 sm:top-5 md:top-6 lg:top-7 
+              left-1/2 
+              w-full h-[2px] md:h-[3px] 
+              transition-all duration-500
+              ${active ? "bg-blue-500" : "bg-gray-400"}
+            `} />
+          )}
 
-                  className="
-                  w-16 h-16
-                  md:w-20 md:h-20
+          {/* Step Circle */}
+          <div className={`
+            z-10
+            w-8 h-8 sm:w-10 sm:h-10 
+            md:w-12 md:h-12 
+            lg:w-14 lg:h-14
+            rounded-full flex items-center justify-center
+            border-2 md:border-3
+            text-xs sm:text-sm md:text-lg lg:text-2xl
+            transition-all duration-500
+            ${active 
+              ? "bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/50" 
+              : isDark 
+                ? "border-gray-500 text-gray-400 bg-black" 
+                : "border-gray-300 text-gray-400 bg-white"
+            }
+            ${isCurrent ? "ring-2 md:ring-4 ring-blue-400/50 scale-110" : ""}
+          `}>
+            {active ? "✓" : "○"}
+          </div>
 
-                  rounded-full
+          {/* Step Label */}
+          <p className={`
+            mt-2 sm:mt-2.5 md:mt-3
+            text-[10px] sm:text-xs md:text-sm lg:text-base
+            font-medium text-center
+            transition-all duration-300
+            ${active 
+              ? "text-blue-500 font-bold" 
+              : isDark 
+                ? "text-gray-500" 
+                : "text-gray-400"
+            }
+            ${isCurrent ? "scale-105 sm:scale-110" : ""}
+          `}>
+            {step}
+          </p>
+          
+          {/* Current Step Indicator */}
+          {isCurrent && (
+            <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 mt-1 animate-pulse" />
+          )}
+        </div>
+      );
+    })}
+  </div>
 
-                  border-4
-                  border-green-400
-
-                  object-cover
-
-                  shadow-2xl
-                  "
-                />
-
-                <div className="min-w-0">
-
-                  <h2
-                    className="
-                    text-2xl
-                    md:text-3xl
-
-                    font-bold
-
-                    truncate
-                    "
-                  >
-                    {ride.driver
-                      ?.name ||
-                      "Driver"}
-                  </h2>
-
-                  <p
-                    className={`
-                    mt-1
-
-                    text-sm
-                    md:text-base
-
-                    ${
-                      isDark
-                        ? "text-gray-400"
-                        : "text-gray-600"
-                    }
-                    `}
-                  >
-                    🚖 Your driver is arriving
-                  </p>
-
-                  <p
-                    className="
-                    mt-2
-
-                    text-lg
-                    md:text-xl
-
-                    font-semibold
-                    "
-                  >
-                    📞{" "}
-                    {ride.driver
-                      ?.phone ||
-                      "No Number"}
-                  </p>
-
-                  <p
-                    className="
-                    mt-2
-
-                    text-lg
-                    md:text-xl
-
-                    font-bold
-
-                    text-blue-500
-                    "
-                  >
-                    ⏱ ETA:
-                    {" "}
-                    {eta}
-                  </p>
-                </div>
-              </div>
-
-              {/* VEHICLE */}
-
-             
-
-              {/* CALL */}
-
-              {ride.driver
-                ?.phone && (
-
-                <a
-                  href={`tel:${ride.driver.phone}`}
-
-                  className="
-                  bg-green-500
-                  hover:bg-green-600
-
-                  w-16 h-16
-                  md:w-24 md:h-24
-
-                  rounded-full
-
-                  flex
-                  items-center
-                  justify-center
-
-                  text-3xl
-                  md:text-5xl
-
-                  shadow-2xl
-
-                  transition
-
-                  active:scale-95
-                  "
-                >
-                  📞
-                </a>
-              )}
-            </div>
-
-            {/* ADDRESS */}
-
-            <div
-              className={`
-              mt-6
-
-              space-y-4
-
-              pt-5
-
-              border-t
-
-              ${
-                isDark
-                  ? "border-white/10"
-                  : "border-gray-200"
+  {/* Mobile View - Compact Status Tracker */}
+  <div className="sm:hidden">
+    <div className="flex items-center justify-between gap-1 mb-3">
+      {steps.map((step, index) => {
+        const active = index <= activeStep;
+        const isCurrent = index === activeStep;
+        
+        return (
+          <div key={step} className="flex flex-col items-center flex-1">
+            <div className={`
+              w-7 h-7 rounded-full flex items-center justify-center
+              text-xs font-bold transition-all duration-300
+              ${active 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30" 
+                : isDark 
+                  ? "bg-gray-700 text-gray-500" 
+                  : "bg-gray-200 text-gray-400"
               }
-              `}
-            >
-
-              <p className="text-base md:text-xl break-words">
-                📍{" "}
-                {
-                  ride
-                    .pickupLocation
-                    .address
-                }
-              </p>
-
-              <p className="text-base md:text-xl break-words">
-                🏁{" "}
-                {
-                  ride
-                    .dropLocation
-                    .address
-                }
-              </p>
+              ${isCurrent ? "ring-2 ring-blue-400 scale-110" : ""}
+            `}>
+              {index + 1}
             </div>
+            <p className={`
+              text-[8px] mt-1 font-medium text-center
+              ${active ? "text-blue-500" : isDark ? "text-gray-500" : "text-gray-400"}
+              ${isCurrent ? "font-bold" : ""}
+            `}>
+              {step}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+    
+    {/* Mobile Progress Bar */}
+    <div className="w-full h-1 bg-gray-300 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div 
+        className="h-full bg-blue-500 transition-all duration-500 rounded-full"
+        style={{ width: `${(activeStep / (steps.length - 1)) * 100}%` }}
+      />
+    </div>
+  </div>
+</div>
 
-            {/* STATUS TRACKER */}
-
-            <div
-              className="
-              mt-8
-
-              grid
-              grid-cols-5
-
-              gap-2
-              md:gap-4
-              "
-            >
-
-              {steps.map(
-                (
-                  step,
-                  index
-                ) => {
-
-                  const active =
-                    index <=
-                    activeStep;
-
-                  return (
-
-                    <div
-                      key={step}
-
-                      className="
-                      flex
-                      flex-col
-                      items-center
-
-                      relative
-                      "
-                    >
-
-                      {index !==
-                        steps.length -
-                          1 && (
-
-                        <div
-                          className={`
-                          absolute
-                          top-5
-                          md:top-7
-
-                          left-1/2
-
-                          w-full
-                          h-[2px]
-
-                          ${
-                            active
-                              ? "bg-blue-500"
-                              : "bg-gray-400"
-                          }
-                          `}
-                        />
-                      )}
-
-                      <div
-                        className={`
-                        z-10
-
-                        w-10 h-10
-                        md:w-14 md:h-14
-
-                        rounded-full
-
-                        flex
-                        items-center
-                        justify-center
-
-                        border-2
-
-                        text-sm
-                        md:text-xl
-
-                        ${
-                          active
-                            ? "bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/50"
-                            : isDark
-                            ? "border-gray-500 text-gray-400 bg-black"
-                            : "border-gray-300 text-gray-400 bg-white"
-                        }
-                        `}
-                      >
-
-                        {active
-                          ? "✓"
-                          : "○"}
-
-                      </div>
-
-                      <p
-                        className={`
-                        mt-3
-
-                        text-[11px]
-                        md:text-sm
-
-                        font-medium
-
-                        text-center
-
-                        ${
-                          active
-                            ? "text-blue-500"
-                            : "text-gray-400"
-                        }
-                        `}
-                      >
-                        {step}
-                      </p>
-                    </div>
-                  );
-                }
-              )}
-            </div>
+{/* STATUS MESSAGE - Always visible */}
+<div className="mt-3 sm:mt-4 md:mt-5 text-center">
+  <p className={`
+    text-xs sm:text-sm md:text-base font-medium
+    ${rideStatus === "completed" || rideStatus === "paid"
+      ? "text-green-500"
+      : "text-blue-500"
+    }
+    animate-pulse
+  `}>
+    {rideStatus === "accepted" && "🔄 Driver is heading to your location"}
+    {rideStatus === "arrived" && "📍 Driver has arrived at your location"}
+    {rideStatus === "started" && "🚗 Ride in progress"}
+    {rideStatus === "completed" && "✅ Ride completed successfully"}
+    {rideStatus === "paid" && "💳 Payment confirmed"}
+  </p>
+</div>
           </div>
         </div>
       </div>
