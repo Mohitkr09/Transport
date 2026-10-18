@@ -71,25 +71,25 @@ checkout help provide a smooth booking flow.
 - 
 🧰 Technology Stack
 
-  Technology           Purpose
+  Technology                          Purpose
   
-  ⚛️ React.js          Frontend interface and dashboards
+  ⚛️ React.js                        Frontend interface and dashboards
   
-  🎨 Tailwind CSS      Responsive styling and UI components
+  🎨 Tailwind CSS                    Responsive styling and UI components
   
-  🟢 Node.js           Backend JavaScript runtime
+  🟢 Node.js                         Backend JavaScript runtime
   
-  🚀 Express.js        REST API framework
+  🚀 Express.js                      REST API framework
   
-  🍃 MongoDB           Application data storage
+  🍃 MongoDB                         Application data storage
   
-  🔐 JWT               Authentication and protected routes
+  🔐 JWT                             Authentication and protected routes
   
-  🗺️ Google Maps API   Maps, routes, location tracking, and navigation
+  🗺️ Google Maps API                 Maps, routes, location tracking, and navigation
   
-  💳 Stripe            Online payment processing
+  💳 Stripe                          Online payment processing
   
-  🔧 Git & GitHub      Version control and collaboration
+  🔧 Git & GitHub                    Version control and collaboration
   
 🏗️ System Architecture
 ```mermaid
