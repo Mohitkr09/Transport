@@ -70,15 +70,25 @@ checkout help provide a smooth booking flow.
 - RESTful API communication between frontend and backend.
 - 
 🧰 Technology Stack
+
   Technology           Purpose
+  
   ⚛️ React.js          Frontend interface and dashboards
+  
   🎨 Tailwind CSS      Responsive styling and UI components
+  
   🟢 Node.js           Backend JavaScript runtime
+  
   🚀 Express.js        REST API framework
+  
   🍃 MongoDB           Application data storage
+  
   🔐 JWT               Authentication and protected routes
+  
   🗺️ Google Maps API   Maps, routes, location tracking, and navigation
+  
   💳 Stripe            Online payment processing
+  
   🔧 Git & GitHub      Version control and collaboration
   
 🏗️ System Architecture
