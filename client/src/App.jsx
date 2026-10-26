@@ -1,5 +1,18 @@
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useRef, Suspense, lazy } from "react";
+
+import {
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+
+import {
+  useEffect,
+  useRef,
+  Suspense,
+  lazy,
+} from "react";
 
 /* GOOGLE MAPS */
 import { GoogleMapsProvider } from "./config/googleMaps";
@@ -24,18 +37,28 @@ const Profile = lazy(() => import("./pages/Profile"));
 const RideHistory = lazy(() => import("./pages/RideHistory"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
-/* ADMIN */
+/* ================= ADMIN PAGES ================= */
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
 const Drivers = lazy(() => import("./pages/admin/Drivers"));
 const Analytics = lazy(() => import("./pages/admin/Analytics"));
 const Settings = lazy(() => import("./pages/admin/Settings"));
-const SupportMessages = lazy(() => import("./pages/admin/SupportMessages"));
+const SupportMessages = lazy(
+  () => import("./pages/admin/SupportMessages")
+);
 
-/* ================= SCROLL ================= */
+/* ================= SCROLL TO TOP ================= */
 function ScrollToTop() {
   const { pathname } = useLocation();
-  useEffect(() => window.scrollTo(0, 0), [pathname]);
+
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
+  }, [pathname]);
+
   return null;
 }
 
@@ -44,15 +67,23 @@ function BackendWakeup() {
   const called = useRef(false);
 
   useEffect(() => {
-    if (called.current) return;
+    if (called.current) {
+      return;
+    }
+
     called.current = true;
 
     const base = import.meta.env.VITE_API_URL;
-    if (!base) return;
 
-    const root = base.replace(/\/api$/, "");
+    if (!base) {
+      return;
+    }
 
-    fetch(`${root}/api/health`).catch(() => {});
+    const root = base.replace(/\/api\/?$/, "");
+
+    fetch(`${root}/api/health`).catch((error) => {
+      console.warn("Backend health check failed:", error.message);
+    });
   }, []);
 
   return null;
@@ -67,34 +98,52 @@ function RoleRedirect() {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
 
-    if (!token || !role) return;
-
-    // ❌ Don't redirect on auth pages
-    if (["/login", "/register", "/signup"].includes(pathname)) return;
-
-    if (role === "driver" && !pathname.startsWith("/driver")) {
-      navigate("/driver/dashboard", { replace: true });
+    if (!token || !role) {
+      return;
     }
 
-    if (role === "admin" && !pathname.startsWith("/admin")) {
+    // Do not redirect away from authentication pages.
+    const authPaths = ["/login", "/register", "/signup"];
+
+    if (authPaths.includes(pathname)) {
+      return;
+    }
+
+    // Driver routes
+    if (
+      role === "driver" &&
+      !pathname.startsWith("/driver")
+    ) {
+      navigate("/driver/dashboard", { replace: true });
+      return;
+    }
+
+    // Admin routes
+    if (
+      role === "admin" &&
+      !pathname.startsWith("/admin")
+    ) {
       navigate("/admin/dashboard", { replace: true });
     }
-
   }, [pathname, navigate]);
 
   return null;
 }
 
-/* ================= LOADER ================= */
+/* ================= PAGE LOADER ================= */
 function PageLoader() {
   return (
-    <div className="h-screen flex items-center justify-center">
-      <div className="h-14 w-14 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-black">
+      <div
+        className="h-14 w-14 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"
+        role="status"
+        aria-label="Loading page"
+      />
     </div>
   );
 }
 
-/* ================= LAYOUT ================= */
+/* ================= SHARED LAYOUT ================= */
 function Layout({ children }) {
   const { pathname } = useLocation();
   const role = localStorage.getItem("role");
@@ -109,15 +158,22 @@ function Layout({ children }) {
     <>
       {!hideLayout && role !== "admin" && <Navbar />}
 
-      <div className={!hideLayout ? "pt-16 min-h-screen flex flex-col" : ""}>
+      <div
+        className={
+          !hideLayout
+            ? "pt-16 min-h-screen flex flex-col"
+            : ""
+        }
+      >
         <div className="flex-grow">{children}</div>
+
         {!hideLayout && role !== "admin" && <Footer />}
       </div>
     </>
   );
 }
 
-/* ================= APP ================= */
+/* ================= APPLICATION ================= */
 export default function App() {
   return (
     <GoogleMapsProvider>
@@ -128,8 +184,7 @@ export default function App() {
       <Layout>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-
-            {/* PUBLIC */}
+            {/* PUBLIC ROUTES */}
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -137,7 +192,7 @@ export default function App() {
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
 
-            {/* USER */}
+            {/* USER ROUTES */}
             <Route
               path="/book"
               element={
@@ -192,7 +247,7 @@ export default function App() {
               }
             />
 
-            {/* DRIVER */}
+            {/* DRIVER ROUTES */}
             <Route
               path="/driver/dashboard"
               element={
@@ -211,7 +266,7 @@ export default function App() {
               }
             />
 
-            {/* ADMIN */}
+            {/* ADMIN ROUTES */}
             <Route
               path="/admin"
               element={
@@ -220,17 +275,42 @@ export default function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="drivers" element={<Drivers />} />
-              <Route path="analytics" element={<Analytics />} />
-              <Route path="support" element={<SupportMessages />} />
-              <Route path="settings" element={<Settings />} />
+              <Route
+                index
+                element={<Navigate to="dashboard" replace />}
+              />
+
+              <Route
+                path="dashboard"
+                element={<Dashboard />}
+              />
+
+              <Route
+                path="drivers"
+                element={<Drivers />}
+              />
+
+              <Route
+                path="analytics"
+                element={<Analytics />}
+              />
+
+              <Route
+                path="support"
+                element={<SupportMessages />}
+              />
+
+              <Route
+                path="settings"
+                element={<Settings />}
+              />
             </Route>
 
-            {/* FALLBACK */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-
+            {/* FALLBACK ROUTE */}
+            <Route
+              path="*"
+              element={<Navigate to="/" replace />}
+            />
           </Routes>
         </Suspense>
       </Layout>
